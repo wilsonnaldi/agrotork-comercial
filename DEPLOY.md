@@ -19,12 +19,28 @@ git branch -M main
 git push -u origin main
 ```
 
-Antes do `push`, confira uma última vez que nenhum segredo entrou:
+Antes do `push`, confira uma última vez que nenhum segredo entrou — na
+árvore atual **e** no histórico:
 
 ```bash
-git ls-files | grep -E "^\.env" ; echo "(vazio = só .env.example e .env.production.example)"
-git log -p | grep -nE "sb_secret_|service_role|eyJhbGciOi" ; echo "(vazio = limpo)"
+# Só os dois exemplos podem aparecer aqui.
+git ls-files | grep -E "^\.env" ; echo "(esperado: .env.example e .env.production.example)"
+
+# Chave do Supabase, JWT, service role com valor, chave privada, project ref.
+git log -p --all | grep -nE "sb_(secret|publishable)_[A-Za-z0-9]|ey[J]hbGciOi[A-Za-z0-9]|SERVICE[_]ROLE[_]KEY[[:space:]]*=[[:space:]]*[^[:space:]\"']|BEGIN [A-Z ]*PRIVATE KEY|[n]edmdkdhchkadijtdnja"
+echo "(vazio = limpo)"
 ```
+
+Duas decisões deste comando, para ninguém "arrumá-lo" depois e perder o
+que ele tem de útil:
+
+- **Os colchetes** em `ey[J]`, `SERVICE[_]ROLE[_]KEY` e `[n]edm…` casam o
+  texto procurado como regex, mas a linha do comando **não contém** esse
+  texto. Sem eles, a busca encontra a si mesma neste arquivo.
+- **O que vem depois de cada prefixo** (`[A-Za-z0-9]`, `= valor`) é o que
+  separa segredo de menção. `service_role` sozinho é um papel do Postgres
+  e aparece em dezenas de linhas das migrations — procurar a palavra solta
+  devolve tanto ruído que o resultado deixa de ser lido.
 
 Repositório **privado**. O código não tem segredo, mas expõe a modelagem
 comercial da empresa — tabela de preços, margens, estrutura de kits.
