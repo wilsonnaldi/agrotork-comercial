@@ -1,0 +1,18 @@
+# ============================================================
+# Normalização de fim de linha.
+#
+# Só o que PRECISA de LF está aqui. Não há `* text=auto`: forçar
+# normalização em massa causaria ruído sem resolver nada, já que todo o
+# repositório foi criado com LF.
+#
+# Um `.sh` com CRLF não é detalhe cosmético — o bash lê o `\r` como parte
+# do comando e falha com mensagens que não ajudam ("bad interpreter",
+# "command not found" num comando que existe). Um editor no Windows
+# converte isso sem avisar; esta linha impede.
+#
+# O SQL entra pelo mesmo motivo: dentro de string com $$ o `\r` vira parte
+# do corpo da função.
+# ============================================================
+*.sh   text eol=lf
+*.sql  text eol=lf
+*.mjs  text eol=lf
