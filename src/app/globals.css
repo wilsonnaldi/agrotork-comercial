@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* ============================================================
+   Identidade visual AGROTORK
+   Extraída do logotipo e do site institucional.
+   ============================================================ */
+@theme {
+  --color-brand: #d42424;
+  --color-brand-dark: #a81c1c;
+  --color-brand-deep: #6e1414;
+  --color-brand-soft: #fdecec;
+
+  --color-graphite: #1c1c1e;
+  --color-graphite-700: #2b2b2e;
+  --color-graphite-500: #4a4a4d;
+  --color-graphite-300: #767678;
+
+  --color-sand: #f7f5f1;
+  --color-line: #e4e2df;
+  --color-whatsapp: #25d366;
+
+  --font-display: var(--font-oswald), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-work-sans), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 0.875rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-sand);
+    color: var(--color-graphite);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    letter-spacing: 0.01em;
+  }
+
+  /* iOS não dá zoom em campo com fonte >= 16px. Regra de ouro para uso em campo. */
+  input, select, textarea {
+    font-size: 16px;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  /* Números tabulares deixam colunas de preço alinhadas. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Respiro para a barra inferior do celular + área segura do iPhone. */
+  .pb-mobile-nav {
+    padding-bottom: calc(5rem + env(safe-area-inset-bottom));
+  }
+}

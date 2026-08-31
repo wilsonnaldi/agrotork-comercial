@@ -1,0 +1,40 @@
+{
+  "name": "agrotork-comercial",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Sistema comercial AGROTORK — clientes, produtos, kits, orçamentos e PDF",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "db:push": "supabase db push",
+    "db:types": "supabase gen types typescript --linked > src/types/database.types.ts",
+    "db:types:local": "bash supabase/db-tests/gen-types.sh",
+    "db:test": "node supabase/db-tests/run.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.58.0",
+    "@types/pdfkit": "^0.17.6",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.544.0",
+    "next": "^16.3.3",
+    "pdfkit": "^0.20.1",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "tailwind-merge": "^3.3.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
+    "@types/node": "^22.15.0",
+    "@types/react": "^19.1.0",
+    "@types/react-dom": "^19.1.0",
+    "eslint": "^9.36.0",
+    "eslint-config-next": "^16.3.3",
+    "tailwindcss": "^4.1.13",
+    "typescript": "^5.9.2"
+  }
+}

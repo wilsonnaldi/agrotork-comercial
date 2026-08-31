@@ -1,0 +1,16 @@
+{
+  "name": "agrotork-auth-double",
+  "private": true,
+  "type": "module",
+  "description": "Duplê de teste do Supabase (Auth + REST). NÃO é o Supabase real.",
+  "scripts": {
+    "start": "node server.mjs",
+    "e2e": "node e2e-autenticacao.mjs"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

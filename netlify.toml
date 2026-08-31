@@ -1,0 +1,38 @@
+# ============================================================
+# Netlify — AgroTork Sistema Comercial
+#
+# O adaptador Next.js da Netlify (OpenNext) detecta e configura o projeto
+# sozinho: App Router, Server Actions, Route Handlers e middleware saem
+# funcionando sem configuração. Este arquivo existe para fixar o que a
+# detecção automática NÃO adivinha, e nada além disso.
+#
+# De propósito NÃO fixamos a versão do adaptador: a Netlify o atualiza a
+# cada build, e travá-lo é a causa mais comum de build quebrado depois de
+# uma atualização do Next.
+# ============================================================
+
+[build]
+  command = "npm run build"
+  # O runtime do Next lê daqui; ele mesmo publica as funções de servidor.
+  publish = ".next"
+
+[build.environment]
+  # O projeto usa Node 22 no desenvolvimento; sem fixar, a Netlify pode
+  # escolher outra major e o `pdfkit` (CommonJS, nativo) é sensível a isso.
+  NODE_VERSION = "22"
+  # `next build` precisa das devDependencies (TypeScript, Tailwind, ESLint).
+  NPM_FLAGS = "--include=dev"
+
+# ── O que NÃO está aqui, e por quê ──────────────────────────
+#
+# • Cabeçalhos de segurança: ficam em `next.config.ts`, e a
+#   Content-Security-Policy é montada por requisição em `src/proxy.ts`
+#   (nonce diferente a cada resposta). Repetir aqui criaria duas fontes
+#   de verdade — e na Netlify os headers do `netlify.toml` são avaliados
+#   DEPOIS do middleware, o que poderia sobrescrever a CSP com nonce.
+#
+# • `[[redirects]]`: o roteamento é do Next. Redirect manual aqui
+#   atrapalharia `/orcamento-publico/[token]` e as rotas de PDF.
+#
+# • Variáveis de ambiente: nunca em arquivo versionado. Cadastre-as no
+#   painel da Netlify — ver DEPLOY.md.
