@@ -6,6 +6,15 @@ insert into auth.users (id, email, raw_user_meta_data) values
  ('33333333-3333-3333-3333-333333333333','trava.admin@teste.local','{"full_name":"Admin Trava","role":"admin"}'),
  ('44444444-4444-4444-4444-444444444444','trava.vend@teste.local','{"full_name":"Vendedor Trava","role":"salesperson"}');
 
+-- O papel NÃO vem mais do metadata (migration 2100): o trigger cria todo
+-- mundo como `salesperson`. Promover é operação explícita — exatamente o
+-- que o SETUP.md §5.3 manda fazer em produção. A fixture faz o mesmo.
+update public.profiles set role = 'admin'
+ where id in (
+ '33333333-3333-3333-3333-333333333333'
+ );
+
+
 insert into public.customers (name) values ('Cliente da Trava');
 
 -- um orçamento APROVADO e um RASCUNHO, ambos do mesmo vendedor

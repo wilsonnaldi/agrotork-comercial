@@ -30,6 +30,11 @@ insert into auth.users (id, email, encrypted_password, raw_user_meta_data) value
  ('bbbbbbbb-0000-4000-8000-000000000002','vendedor@teste.local',
   encode(digest('teste1234','sha256'),'hex'), '{"full_name":"Vendedor de Teste","role":"salesperson"}');
 
+-- O trigger cria todo mundo como vendedor (migration 2100). Promover o
+-- administrador é passo explícito, como em produção.
+update public.profiles set role = 'admin'
+ where id = 'aaaaaaaa-0000-4000-8000-000000000001';
+
 insert into public.customers (name, city, state, document, person_type) values
  ('Fazenda São João','Londrina','PR','12345678000195','company'),
  ('Agropecuária Canedo Ltda','Cambé','PR','98765432000110','company'),

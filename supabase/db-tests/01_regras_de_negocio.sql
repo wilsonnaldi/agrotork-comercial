@@ -3,6 +3,15 @@
 insert into auth.users (id, email, raw_user_meta_data)
 values ('11111111-1111-1111-1111-111111111111', 'admin@agrotork.com.br', '{"full_name":"Admin Teste","role":"admin"}'::jsonb);
 
+-- O papel NÃO vem mais do metadata (migration 2100): o trigger cria todo
+-- mundo como `salesperson`. Promover é operação explícita — exatamente o
+-- que o SETUP.md §5.3 manda fazer em produção. A fixture faz o mesmo.
+update public.profiles set role = 'admin'
+ where id in (
+ '11111111-1111-1111-1111-111111111111'
+ );
+
+
 select '1) profile criado por trigger' as teste, full_name, role from public.profiles;
 
 -- produto (o custo vive em product_costs desde a migration 1200)

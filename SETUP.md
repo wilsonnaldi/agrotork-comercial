@@ -100,9 +100,9 @@ banco definida em 3.1.
 npm run db:push             # equivale a: npx supabase db push
 ```
 
-Isso aplica, em ordem, as **20 migrations** de `supabase/migrations/`. A ordem
+Isso aplica, em ordem, as **21 migrations** de `supabase/migrations/`. A ordem
 é a alfabética do nome do arquivo, e ela importa: extensões e enums primeiro,
-depois tabelas, depois RLS, depois as correções. As 20 são aplicadas do zero a
+depois tabelas, depois RLS, depois as correções. As 21 são aplicadas do zero a
 cada `npm run db:test`, então a ordem e as dependências já estão verificadas.
 
 **Não** altere o schema pelo painel do Supabase. Toda mudança estrutural nasce
@@ -200,6 +200,10 @@ A migration `20260829000300_profiles.sql` instala um trigger em `auth.users`
 que cria automaticamente a linha correspondente em `public.profiles`. Não é
 preciso inserir nada à mão.
 
+O perfil nasce sempre como **vendedor** (`salesperson`), qualquer que seja o
+metadata do cadastro — é o que a migration `20260831002100` garante. Papel de
+administrador não se concede no cadastro; só pelo passo explícito abaixo.
+
 ### 5.3 Promover a administrador
 
 No **SQL Editor**, trocando o e-mail pelo real:
@@ -217,8 +221,9 @@ Confira:
 select email, full_name, role, is_active from public.profiles;
 ```
 
-> A partir do segundo usuário, quem cria é o próprio administrador pela tela de
-> Configurações (Fase 1). Este passo manual acontece uma vez só.
+> Enquanto o módulo de usuários não existir, este mesmo `update` é o caminho
+> para promover qualquer administrador. Vendedor não precisa dele: é o papel
+> padrão de todo cadastro.
 
 ### 5.4 Desativar alguém
 
@@ -411,7 +416,7 @@ não — é o comportamento correto, porque `http://localhost` não é HTTPS.
 Marque na ordem. Os quatro primeiros são obrigatórios; o resto é conferência.
 
 - [ ] Projeto Supabase criado (região São Paulo) e `supabase link` feito
-- [ ] `npm run db:push` aplicou as **20 migrations** sem erro
+- [ ] `npm run db:push` aplicou as **21 migrations** sem erro
 - [ ] `npm run db:types` regerou os tipos e `npm run typecheck` passou
 - [ ] Primeiro administrador criado e promovido (seção 5)
 - [ ] Dados da empresa preenchidos em `app_settings.company` (seção 8)

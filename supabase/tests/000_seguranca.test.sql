@@ -30,7 +30,7 @@ begin
 end $$;
 set local search_path = public, extensions;
 
-select plan(49);
+select plan(54);
 
 -- ── 1. RLS ligado em toda tabela de negócio ─────────────────
 -- Sem isto, qualquer policy vira decoração: o Postgres nem consulta.
@@ -238,6 +238,40 @@ select ok(
     where conrelid='public.quote_items'::regclass and contype='f'
       and conname like '%kit_id%' limit 1) = 'r',
   'quote_items.kit_id é on delete restrict — orçamento antigo não perde o kit'
+);
+
+-- ── 10. Cadastro não concede administrador ──────────────────
+-- O trigger de `auth.users` é o único ponto que escreve em `profiles` sem
+-- passar por RLS. Se ele voltar a ler o papel do metadata do cadastro,
+-- qualquer signup vira administrador — ver migration 2100.
+select ok(
+  (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname='handle_new_user') !~ 'raw_user_meta_data\s*->>\s*''role''',
+  'handle_new_user() NÃO lê ->>''role'' de raw_user_meta_data'
+);
+select ok(
+  (select prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname='handle_new_user') ~ '''salesperson''',
+  'handle_new_user() grava salesperson como literal'
+);
+select ok(
+  (select count(*)::int from pg_trigger
+    where tgrelid = 'auth.users'::regclass and not tgisinternal
+      and tgname = 'trg_on_auth_user_created') = 1,
+  'o trigger de criação de perfil continua instalado'
+);
+select is(
+  (select column_default from information_schema.columns
+    where table_schema='public' and table_name='profiles' and column_name='role'),
+  '''salesperson''::user_role',
+  'profiles.role tem default salesperson'
+);
+-- A promoção continua barrada pelo RLS depois do cadastro.
+select ok(
+  (select count(*)::int from pg_policies
+    where schemaname='public' and tablename='profiles' and policyname='profiles_update_self'
+      and coalesce(with_check,'') ~ 'auth_role') = 1,
+  'profiles_update_self impede o usuário de mudar o próprio papel'
 );
 
 select * from finish();
