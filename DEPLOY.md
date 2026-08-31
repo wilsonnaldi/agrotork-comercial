@@ -221,3 +221,200 @@ npm run db:test
 
 Os quatro têm de passar. O `db:test` usa um banco descartável e não encosta
 no Supabase.
+
+---
+
+# Produção
+
+Auditoria do deploy real em `https://agrotork-comercial.netlify.app` — o que
+está confirmado funcionando, e o que ainda depende de configuração no painel.
+
+## Netlify — confirmado
+
+| Item | Estado |
+|---|---|
+| Build | `npm run build`, publish `.next`, Node 22 (`netlify.toml`) |
+| Adaptador Next | automático, sem versão fixada |
+| SSR / App Router / Route Handlers / Server Actions | funcionando |
+| **Proxy (`src/proxy.ts`)** | **funcionando** — as cinco rotas protegidas redirecionam sem sessão, e `/login` redireciona para `/dashboard` com sessão |
+| **CSP com nonce** | **funcionando** — header presente, nonce diferente a cada resposta, 14 scripts carregando com ele, React hidratando |
+| Headers de segurança | `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy`, `Permissions-Policy` |
+| **PDF (pdfkit)** | **funcionando** nas duas rotas — `application/pdf`, assinatura `%PDF-` |
+
+Nada disso precisa de ajuste. O risco que existia — o proxy do Next 16 não ser
+publicado pelo adaptador — **não se concretizou**.
+
+### Variáveis de ambiente
+
+| Variável | Classificação | Observação |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | **obrigatória** (produção e dev) | 3 consumidores |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | **obrigatória** (produção e dev) | 3 consumidores |
+| `NEXT_PUBLIC_SITE_URL` | **opcional** | `env.siteUrl()` não tem nenhum consumidor; o link público vem do cabeçalho da requisição |
+| `SUPABASE_SERVICE_ROLE_KEY` | **não usar** | Único consumidor é `admin.ts`, que não tem importador. Não cadastrar |
+
+## Supabase — o que ainda depende do painel
+
+Nada abaixo pode ser feito por migration ou por código: são configurações do
+projeto. Estão em ordem de urgência.
+
+### 1. Cadastro público de usuários — VERIFICAR ANTES DE OPERAR
+
+**Authentication → Sign In / Providers → Email → "Allow new users to sign up".**
+
+O sistema não tem tela de cadastro, mas a API de Auth do Supabase é pública por
+natureza: a URL do projeto e a chave `anon` viajam no navegador, como devem. Se
+o cadastro estiver habilitado, qualquer pessoa com essas duas informações pode
+chamar `/auth/v1/signup` diretamente.
+
+E há um agravante específico deste schema. O trigger `handle_new_user`
+(migration 0300) monta o perfil assim:
+
+```sql
+coalesce((new.raw_user_meta_data ->> 'role')::public.user_role, 'salesperson')
+```
+
+O `raw_user_meta_data` é enviado por quem se cadastra. Um cadastro com
+`data: { role: "admin" }` nasceria **administrador** — e administrador enxerga
+custo, margem e todos os orçamentos.
+
+O RLS está correto e não é o furo: `profiles_update_self` já impede promoção
+depois (`role = public.auth_role()`). O problema é o momento do INSERT, feito
+por uma função `security definer`, fora do RLS.
+
+**Ação imediata:** desabilitar o cadastro público. Com ele desligado, usuários
+só nascem pelo painel ou por convite, e o vetor fecha.
+
+**Correção estrutural, para não depender de uma caixinha marcada:** uma
+migration nova que faça `handle_new_user` ignorar o `role` do metadata e
+sempre criar `salesperson`, deixando a promoção a admin como operação
+explícita. Não foi feita nesta etapa porque alterar migrations exige
+autorização — está proposta, aguardando.
+
+### 2. Auth para o domínio de produção
+
+**Authentication → URL Configuration**
+
+| Campo | Valor |
+|---|---|
+| Site URL | `https://agrotork-comercial.netlify.app` — e depois o domínio próprio |
+| Redirect URLs | `https://agrotork-comercial.netlify.app/**` |
+| Redirect URLs (prévia) | `https://deploy-preview-*--agrotork-comercial.netlify.app/**` |
+
+Escopo real: o login é e-mail e senha (`signInWithPassword`); não há OAuth,
+link mágico nem rota de callback. O Site URL passa a importar quando forem
+usados recuperação de senha ou convite — é ele que monta o link do e-mail.
+O link público do orçamento **não depende disto**: quem autoriza é o token.
+
+Ainda em Authentication, revisar e anotar a decisão de cada item:
+
+- **Confirm email** — ligado é o mais seguro; exige SMTP configurado, senão o
+  convite não chega.
+- **SMTP** — o remetente padrão do Supabase tem limite baixo e não serve para
+  operação real. Configurar um provedor próprio antes de convidar vendedores.
+- **Sessão** — definir JWT expiry e refresh token rotation conforme o uso em
+  campo (celular do vendedor tende a pedir sessão mais longa).
+- **Rate limits** — os padrões cobrem o caso normal; revisar se houver
+  tentativa de força bruta.
+- **MFA** — recomendável para as contas **admin**, que enxergam custo e
+  margem. Não é necessário para vendedor.
+
+### 3. Security Advisor
+
+**Database → Advisors → Security Advisor.** Rodar e resolver o que aparecer.
+O schema já nasce com RLS em todas as 13 tabelas de negócio e nenhuma policy
+alcançando `anon` — o esperado é uma lista curta.
+
+### 4. Storage
+
+Os buckets `public-assets` (leitura pública, escrita de admin, 5 MB, só
+imagem) e `private-docs` (admin) são criados pela migration 2000. Conferir em
+**Storage → Buckets** que ambos existem no projeto real.
+
+### 5. Backup e recuperação
+
+Não presumo qual plano está contratado — confira em **Settings → Billing**.
+
+| Plano | O que existe |
+|---|---|
+| Free | Backup diário, retenção curta, **sem PITR**. Restauração é abrir ticket |
+| Pro | Backup diário com retenção maior; **PITR é add-on pago** |
+
+Enquanto não houver PITR, o risco concreto é: um `UPDATE` ou `DELETE` sem
+`WHERE` no SQL Editor perde tudo o que aconteceu desde o último backup diário.
+
+Recomendação, na ordem do custo:
+
+1. **Nunca** rodar SQL de escrita no painel de produção. Toda mudança
+   estrutural nasce como migration versionada — é o que já está estabelecido.
+2. Exportar `pg_dump` antes de qualquer operação fora do comum, e guardar fora
+   do Supabase.
+3. Avaliar PITR quando o volume de orçamentos justificar. Para um sistema
+   comercial, perder um dia de propostas é caro.
+
+## Domínio
+
+Ainda não configurado. Quando `sistema.agrotork.com.br` (ou outro) estiver
+decidido:
+
+1. **Netlify → Domain management → Add a domain**.
+2. **DNS no Registro.br**: `CNAME` do subdomínio para o endereço que a Netlify
+   indicar. Se a Netlify for gerir a zona, trocar os nameservers.
+3. **HTTPS**: certificado Let's Encrypt automático; depois ligar **Force
+   HTTPS**. O `upgrade-insecure-requests` da CSP e os cookies `Secure` do
+   Supabase já assumem HTTPS.
+4. **Supabase Auth**: trocar Site URL e Redirect URLs para o domínio novo.
+5. **`NEXT_PUBLIC_SITE_URL`** na Netlify, e refazer o deploy.
+6. **Link público de orçamento**: acompanha o domínio automaticamente (vem do
+   cabeçalho da requisição). Links já gerados continuam válidos no endereço
+   antigo enquanto ele responder.
+
+## Usuários — limitação conhecida
+
+O modelo de papéis está completo: `admin` e `salesperson` no enum, matriz em
+`src/config/permissions.ts`, RLS por papel, e usuário desativado barrado no
+login e na sessão (`is_active`).
+
+**O que não existe é a tela.** Não há módulo de usuários: `/configuracoes` tem
+marcas, categorias, unidades e perfil. A permissão `users.manage` está
+declarada, sem implementação.
+
+Consequência prática: **para incluir um vendedor hoje, o administrador precisa
+criar o usuário no painel do Supabase** (Authentication → Users → Add user),
+com `full_name` no metadata. O trigger cria o perfil como `salesperson`.
+
+Isso funciona, mas não escala e depende de alguém com acesso ao painel — que é
+justamente o acesso que não se quer distribuir. O módulo de usuários é o
+próximo candidato natural de roadmap.
+
+## Smoke test
+
+Depois de todo deploy. Os três primeiros são os que podem quebrar na virada de
+infraestrutura.
+
+1. **Rota protegida sem sessão** — `/dashboard` em aba anônima redireciona
+   para `/login`.
+2. **CSP e hidratação** — página logada sem violação no console, e a interface
+   responde a clique.
+3. **PDF** — baixar o PDF de um orçamento.
+4. Login com admin; logout; login de novo.
+5. Criar marca, categoria, unidade, produto e kit.
+6. Criar orçamento, adicionar produto e kit, conferir o total.
+7. Gerar link público e abrir em **aba anônima**; baixar o PDF público.
+8. Conferir que a página pública **não** mostra custo, margem nem observação
+   interna.
+9. Entrar como vendedor: não vê orçamento alheio, não vê custo.
+10. Conferir 360 px, 768 px e 1440 px.
+
+## Rollback
+
+**Deploy:** Netlify → Deploys → o deploy anterior → **Publish deploy**. Volta
+em segundos e o Git não muda.
+
+**Código:** `git revert <hash>` e novo push. Nunca `push --force` em `main`.
+
+**Banco:** não tem botão. As migrations só andam para a frente; desfazer uma
+exige uma migration nova que reverta o efeito. Daí a regra que sustenta tudo
+isto: **nenhuma alteração de schema fora de migration versionada**. Um `ALTER`
+feito à mão no painel não existe no repositório, não é reproduzível e não tem
+como ser reproduzido — e é assim que um ambiente começa a divergir do outro.
