@@ -8,6 +8,28 @@ Estado de partida: código validado, commit local pronto, **nada publicado**.
 
 ---
 
+## Publicação no Netlify — a ordem
+
+Sete passos, nesta sequência. O domínio próprio é o **último**: tudo pode
+ser validado antes dele, no endereço `*.netlify.app`.
+
+| # | Passo | Detalhe |
+|---|---|---|
+| 1 | Criar o repositório no GitHub e enviar o código | §1 |
+| 2 | Conectar o repositório ao Netlify | §2 |
+| 3 | Cadastrar as variáveis de ambiente | §3 |
+| 4 | Disparar o primeiro deploy | §2 |
+| 5 | Anotar o endereço `https://<site>.netlify.app` | §2 |
+| 6 | Rodar os smoke tests nesse endereço | §7 |
+| 7 | **Só então** apontar o domínio próprio | §5 e §6 |
+
+Entre os passos 5 e 6, cadastre o endereço `*.netlify.app` nas URLs de
+Authentication do Supabase (§4) — sem isso, recuperação de senha e convite
+por e-mail apontariam para o lugar errado. O login por e-mail e senha e o
+link público do orçamento funcionam independentemente disso.
+
+---
+
 ## 1. GitHub
 
 O repositório ainda não existe — criá-lo é decisão do dono do projeto.
@@ -145,8 +167,16 @@ Na ordem, logo após o primeiro deploy. Os três primeiros são os que de
 fato podem quebrar na virada para a Netlify.
 
 1. **Middleware/proxy.** Abrir `/dashboard` sem sessão: tem de redirecionar
-   para `/login`. É o item nº 1 porque no Next 16 o middleware passou a se
-   chamar `proxy.ts`, e é a peça mais nova da cadeia de deploy.
+   para `/login`. É o item nº 1 por um motivo concreto: no Next 16 o
+   middleware virou `src/proxy.ts` e passou a ser compilado para o runtime
+   **Node**, deixando de aparecer como função edge no
+   `middleware-manifest.json` (que sai vazio). O artefato está completo —
+   `.next/server/middleware.js` carrega o chunk com as rotas públicas e a
+   CSP, e o rastreamento (`.nft.json`) o inclui —, mas quem liga esse
+   artefato à infraestrutura é o adaptador da Netlify. Se este teste
+   falhar, o sintoma será: página protegida abrindo sem login, ou CSP sem
+   nonce. Nesse caso, conferir a versão do adaptador antes de mexer no
+   código.
 2. **CSP com nonce.** Abrir qualquer página logada e conferir o console: sem
    violação de CSP, e a interface responde a clique (se o nonce não chegar,
    o React não hidrata e a tela fica "morta"). A Netlify avalia headers
