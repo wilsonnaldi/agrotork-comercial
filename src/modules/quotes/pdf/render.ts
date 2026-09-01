@@ -13,6 +13,7 @@ import {
   type DocumentItem,
   type QuoteDocument,
 } from "../share/document";
+import { sanitizarParaPdf } from "./winansi";
 
 /**
  * Geração do PDF do orçamento.
@@ -396,7 +397,11 @@ export function pdfFileName(document: QuoteDocument): string {
   return `${document.number}${cliente ? `-${cliente}` : ""}.pdf`;
 }
 
-export function renderQuotePdf(document: QuoteDocument): Promise<Buffer> {
+export function renderQuotePdf(entrada: QuoteDocument): Promise<Buffer> {
+  // As fontes padrão do pdfkit são de 8 bits (WinAnsi). Todo texto vindo do
+  // banco passa por aqui antes de virar papel — ver winansi.ts.
+  const document = sanitizarParaPdf(entrada);
+
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
       size: "A4",
