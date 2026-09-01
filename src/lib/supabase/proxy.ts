@@ -40,11 +40,31 @@ export async function updateSession(request: NextRequest) {
 
   let response = comCsp(NextResponse.next({ request: { headers: requestHeaders } }));
 
+  const { pathname } = request.nextUrl;
+
+  const paraLogin = () => {
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("next", pathname);
+    return comCsp(NextResponse.redirect(redirectUrl));
+  };
+
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  // Sem configuração ainda: deixa passar para a tela de setup explicar o que falta.
-  if (!url || !key) return response;
+  // Sem configuração o cliente do Supabase não existe, então não há como
+  // validar sessão nenhuma. O comportamento é deliberadamente diferente
+  // nos dois ambientes:
+  //
+  //   desenvolvimento — deixa passar, para a tela de setup explicar o que
+  //     falta em vez de jogar o dev num login que também não funciona;
+  //   produção — falha FECHADO. Se as variáveis sumirem do Netlify, rota
+  //     privada nenhuma pode ser servida sem sessão; só o que já é público
+  //     continua respondendo (e falha sozinho, com erro próprio).
+  if (!url || !key) {
+    if (process.env.NODE_ENV !== "production") return response;
+    return isPublic(pathname) ? response : paraLogin();
+  }
 
   const supabase = createServerClient<AppDatabase>(url, key, {
     cookies: {
@@ -65,14 +85,7 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const { pathname } = request.nextUrl;
-
-  if (!user && !isPublic(pathname)) {
-    const redirectUrl = request.nextUrl.clone();
-    redirectUrl.pathname = "/login";
-    redirectUrl.searchParams.set("next", pathname);
-    return comCsp(NextResponse.redirect(redirectUrl));
-  }
+  if (!user && !isPublic(pathname)) return paraLogin();
 
   if (user && pathname === "/login") {
     const redirectUrl = request.nextUrl.clone();
