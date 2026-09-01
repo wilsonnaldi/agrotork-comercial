@@ -419,8 +419,20 @@ função `next_quote_number()` com `update ... returning` dentro da transação 
 concorrência resolvida pelo próprio Postgres.
 
 **Expiração:** orçamentos com `valid_until < current_date` e status `sent` são
-marcados `expired` por uma função `expire_quotes()` (chamada por *cron* do
-Supabase — habilitada na Fase 2).
+marcados `expired` pela função `expire_quotes()`. A comparação é `<`: no
+próprio dia da validade o orçamento ainda vale. `valid_until` nulo nunca
+expira. A função ignora descartados (`deleted_at`) e não toca em `draft`,
+`approved`, `rejected`, `cancelled` nem no que já está `expired` — rodar duas
+vezes seguidas devolve 0 e não altera nada.
+
+Quem a chama é o job `expirar-orcamentos` do **pg_cron** (`5 3 * * *`,
+03h05 UTC = 00h05 em Brasília), agendado pela migration
+`20260901030000_expire_quotes_schedule.sql` — que também cria o índice
+parcial `idx_quotes_expiration (valid_until) where deleted_at is null and
+status = 'sent'`. O agendamento só acontece se a extensão já estiver
+instalada; enquanto o `pg_cron` não for habilitado no painel, a migration
+passa como no-op e a expiração continua dependendo de ação manual. Ver
+SETUP.md §9.
 
 ---
 

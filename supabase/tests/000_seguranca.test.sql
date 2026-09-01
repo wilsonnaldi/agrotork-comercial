@@ -30,7 +30,7 @@ begin
 end $$;
 set local search_path = public, extensions;
 
-select plan(54);
+select plan(58);
 
 -- ── 1. RLS ligado em toda tabela de negócio ─────────────────
 -- Sem isto, qualquer policy vira decoração: o Postgres nem consulta.
@@ -104,6 +104,33 @@ select ok(
 select ok(
   not has_function_privilege('authenticated', 'public.expire_quotes()', 'EXECUTE'),
   'authenticated NÃO pode executar expire_quotes()'
+);
+
+-- ── Expiração automática (Fase 6.2) ─────────────────────────
+-- O job roda como `postgres`, fora de qualquer sessão de usuário. O que
+-- precisa continuar verdadeiro é o contorno dele: ninguém que venha do
+-- navegador alcança a função, o `search_path` está preso, e o índice da
+-- varredura diária existe.
+select ok(
+  not has_function_privilege('anon', 'public.expire_quotes()', 'EXECUTE'),
+  'anon NÃO pode executar expire_quotes()'
+);
+
+select ok(
+  not has_function_privilege('public', 'public.expire_quotes()', 'EXECUTE'),
+  'PUBLIC NÃO pode executar expire_quotes()'
+);
+
+select ok(
+  (select p.proconfig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname='public' and p.proname='expire_quotes') @> array['search_path=public'],
+  'expire_quotes() tem search_path fixo'
+);
+
+select ok(
+  (select count(*)::int from pg_indexes
+    where schemaname='public' and indexname='idx_quotes_expiration') = 1,
+  'o índice parcial da expiração diária existe'
 );
 select ok(
   not has_function_privilege('authenticated', 'public.next_quote_number(integer)', 'EXECUTE'),

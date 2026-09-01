@@ -244,7 +244,12 @@ enxergar custo e o link público funcionando no domínio de produção.
 ## Fase 6 — Refino e operação ⬜
 
 - ⬜ Relatórios simples (orçamentos por período, por vendedor, taxa de conversão)
-- ⬜ Expiração automática de orçamentos (cron do Supabase)
+- 🟡 **Expiração automática de orçamentos (cron do Supabase)** — migration
+      `3000` cria o índice da varredura, reafirma os privilégios de
+      `expire_quotes()` e agenda o job `expirar-orcamentos` (`5 3 * * *`).
+      Coberto por `13_expiracao.sql` (25 verificações) e por
+      `e2e-expiracao.mjs` (15). **Pendente:** habilitar `pg_cron` no painel
+      do Supabase — enquanto isso a migration aplica como no-op. SETUP.md §9
 - ⬜ Log de auditoria
 - ⬜ Backup e rotina de restauração documentada
 - ⬜ Domínio próprio (`sistema.agrotork.com.br`) e ambiente de produção

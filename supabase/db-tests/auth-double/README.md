@@ -54,6 +54,12 @@ npm run build && npx next start -p 3302
 BASE_URL=http://localhost:3302 bash supabase/db-tests/auth-double/run-e2e.sh
 ```
 
+A suíte `e2e-expiracao.mjs` (Fase 6.2) roda `select public.expire_quotes();`
+como `postgres` — exatamente o comando do job do pg_cron — e confere que o
+resultado aparece sozinho na tela do vendedor, que o filtro **Expirado**
+passa a encontrá-lo, e que `/rest/v1/rpc/expire_quotes` é recusado tanto
+para o vendedor autenticado quanto para o anônimo.
+
 As suítes contam registros, então precisam de um banco limpo cada uma —
 é o que o `run-e2e.sh` garante. Rodar uma suíte solta também funciona:
 

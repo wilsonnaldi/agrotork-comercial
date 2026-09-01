@@ -329,36 +329,51 @@ update public.app_settings
 ## 9. Expiração automática dos orçamentos
 
 A função `expire_quotes()` existe desde a migration `0600` e passa para
-`expired` todo orçamento **enviado** cuja validade venceu. Hoje **ninguém a
-chama** — ela precisa de um agendamento.
+`expired` todo orçamento **enviado** cuja validade (`valid_until`) já venceu.
+A migration `20260901030000_expire_quotes_schedule.sql` (Fase 6.2) acrescenta
+o índice parcial da varredura e **agenda o job — mas só se o `pg_cron` já
+estiver instalado no banco onde ela for aplicada.**
 
-O `EXECUTE` dela foi revogado de `authenticated` na migration `1000`: só
-`service_role` executa. Isso é proposital, e o agendamento respeita:
+O `EXECUTE` da função foi revogado de `public`, `anon` e `authenticated` na
+migration `1000` e a `3000` reafirma isso: só `service_role` e o `postgres`
+executam. O agendamento respeita essa regra — o job roda como `postgres`, e
+o navegador continua sem caminho para disparar a expiração.
+
+**Habilitar `pg_cron` é passo de painel e continua sendo manual:**
 
 1. No painel: **Database → Extensions**, habilite **`pg_cron`**.
-2. No **SQL Editor**, agende a execução diária:
-
-```sql
-select cron.schedule(
-  'expirar-orcamentos',
-  '5 3 * * *',                       -- 03h05 UTC = 00h05 em Brasília
-  $$ select public.expire_quotes(); $$
-);
-```
-
+2. No **SQL Editor**, cole e rode `supabase/scripts/schedule-expire-quotes.sql`.
+   O arquivo é repetível e não cria job duplicado.
 3. Conferir o agendamento e as execuções:
 
 ```sql
-select jobid, schedule, jobname, active from cron.job;
-select * from cron.job_run_details order by start_time desc limit 10;
+select jobid, jobname, schedule, command, active from cron.job;
+
+select d.runid, j.jobname, d.status, d.return_message, d.start_time
+  from cron.job_run_details d
+  join cron.job j on j.jobid = d.jobid
+ where j.jobname = 'expirar-orcamentos'
+ order by d.runid desc limit 10;
 ```
 
 4. Para remover: `select cron.unschedule('expirar-orcamentos');`
 
-> **Não validado aqui.** `pg_cron` não existe no PostgreSQL local da suíte de
-> testes, então o agendamento acima é o procedimento documentado, não uma
-> configuração conferida. A função em si é testada (`04_travas_de_orcamento.sql`
-> confere que ela expira o que deve e que o vendedor não consegue executá-la).
+Horário: `5 3 * * *` — 03h05 UTC, 00h05 em Brasília. O pg_cron agenda em UTC
+e `current_date` também é avaliado em UTC; às 00h05 locais as duas datas
+coincidem, então o orçamento expira assim que o dia vira, nem antes nem
+depois.
+
+> **O que É validado automaticamente:** `supabase/db-tests/13_expiracao.sql`
+> (25 verificações) cobre a regra inteira — o que expira, o que não pode
+> expirar em nenhum status, o limite exato da validade, a idempotência, os
+> privilégios e o isolamento entre vendedores; e
+> `supabase/db-tests/auth-double/e2e-expiracao.mjs` confere que o resultado
+> aparece na tela do vendedor sem clique nenhum e que
+> `/rest/v1/rpc/expire_quotes` é recusado para vendedor e anônimo.
+>
+> **O que NÃO é validado aqui:** o `pg_cron` em si. Ele não existe no
+> PostgreSQL da suíte local, então o passo 1 acima continua sendo o único
+> ponto conferido a olho, no painel.
 
 ---
 
