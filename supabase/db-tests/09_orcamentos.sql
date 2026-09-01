@@ -401,6 +401,11 @@ where q.owner_id = '22222222-2222-2222-2222-222222222222'
   and q.customer_id = (select id from public.customers where name = 'Cliente do Orçamento');
 
 -- ── APROVADO É INTOCÁVEL PARA O VENDEDOR ────────────────────
+-- A migration 20260901201459 passou a exigir a máquina de estados no banco:
+-- não existe mais o salto draft -> approved. O caminho legítimo é via 'sent'.
+update public.quotes set status = 'sent'
+ where owner_id = '22222222-2222-2222-2222-222222222222'
+   and customer_id = (select id from public.customers where name = 'Cliente do Orçamento');
 update public.quotes set status = 'approved'
  where owner_id = '22222222-2222-2222-2222-222222222222'
    and customer_id = (select id from public.customers where name = 'Cliente do Orçamento');
@@ -477,6 +482,10 @@ select 'EW) admin enxerga orcamento de todos' as teste,
 from public.quotes
 where customer_id = (select id from public.customers where name = 'Cliente do Orçamento');
 
+-- Mesmo o admin passa pela máquina de estados: draft -> sent -> approved.
+update public.quotes set status = 'sent'
+ where owner_id = '11111111-1111-1111-1111-111111111111'
+   and customer_id = (select id from public.customers where name = 'Cliente do Orçamento');
 update public.quotes set status = 'approved'
  where owner_id = '11111111-1111-1111-1111-111111111111'
    and customer_id = (select id from public.customers where name = 'Cliente do Orçamento');

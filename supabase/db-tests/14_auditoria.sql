@@ -238,9 +238,17 @@ begin
 end $$;
 
 -- ── JJ) recusa e cancelamento ───────────────────────────────
+-- A migration 20260901201459 fechou a máquina de estados no banco. Sair de
+-- 'approved' é privilégio de administrador, e 'rejected' só vem de 'sent'.
+-- O que este teste afere é o VERBO registrado na auditoria, não o atalho.
+set role authenticated;
+set request.jwt.claim.sub = 'ffffffff-0000-4000-8000-00000000f001';   -- admin
+
 do $$
 declare v_rej integer; v_can integer;
 begin
+  update public.quotes set status = 'draft'     where id = 'ffffffff-0000-4000-8000-0000000000a1';
+  update public.quotes set status = 'sent'      where id = 'ffffffff-0000-4000-8000-0000000000a1';
   update public.quotes set status = 'rejected'  where id = 'ffffffff-0000-4000-8000-0000000000a1';
   update public.quotes set status = 'cancelled' where id = 'ffffffff-0000-4000-8000-0000000000a1';
 
@@ -256,11 +264,16 @@ begin
   end if;
 end $$;
 
+reset role;
+set request.jwt.claim.sub = '';
+
 -- ── JL) expiração pelo cron: ator é o sistema, não um usuário ──
 -- Roda exatamente como o pg_cron roda, sem sessão nenhuma.
 do $$
 declare r record; v_expirados integer;
 begin
+  update public.quotes set status = 'draft'
+   where id = 'ffffffff-0000-4000-8000-0000000000a1';
   update public.quotes
      set status = 'sent', valid_until = current_date - 1
    where id = 'ffffffff-0000-4000-8000-0000000000a1';
@@ -328,7 +341,10 @@ end $$;
 do $$
 declare v_token text; v_id uuid; r record; v_vazou integer;
 begin
-  update public.quotes set status = 'sent' where id = 'ffffffff-0000-4000-8000-0000000000a1';
+  -- O orçamento saiu de JL como 'expired'; só volta a 'sent' passando por
+  -- 'draft'. O que interessa aqui é o token, não o atalho de status.
+  update public.quotes set status = 'draft' where id = 'ffffffff-0000-4000-8000-0000000000a1';
+  update public.quotes set status = 'sent'  where id = 'ffffffff-0000-4000-8000-0000000000a1';
 
   insert into public.quote_share_tokens (quote_id)
   values ('ffffffff-0000-4000-8000-0000000000a1')
@@ -545,7 +561,8 @@ begin
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname = 'audit_capture';
 
-  if v_secdef and v_config @> array['search_path=public'] and not v_exec then
+  -- 20260901193926 trocou 'public' pelo search_path VAZIO, que é mais restrito.
+  if v_secdef and v_config @> array['search_path=""'] and not v_exec then
     raise notice 'JAD) OK: audit_capture() security definer, search_path fixo, sem EXECUTE para authenticated (dono %)', v_dono;
   else
     raise notice 'JAD) FALHA: secdef=% config=% execute=%', v_secdef, v_config, v_exec;

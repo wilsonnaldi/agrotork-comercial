@@ -78,13 +78,28 @@ grant select on shr_token to public;
 -- ── LEITURA PÚBLICA ─────────────────────────────────────────
 reset role; set role anon;
 
-select 'FH) anonimo nao le quotes direto' as teste,
-       case when count(*) = 0 then 'OK: nenhuma linha' else 'FALHA: viu ' || count(*) end as resultado
-from public.quotes;
+-- Depois de 20260901193812 anon nem tem GRANT nessas tabelas: o erro de
+-- privilegio e um resultado mais forte que "nenhuma linha", e vale como OK.
+-- O acesso legitimo ao orcamento publico continua sendo get_shared_quote().
+do $$
+declare v_n bigint;
+begin
+  begin
+    select count(*) into v_n from public.quotes;
+    if v_n = 0 then raise notice 'FH) OK: anonimo nao le quotes direto (nenhuma linha)';
+    else raise notice 'FH) FALHA DE SEGURANCA: anonimo viu % orcamento(s)', v_n; end if;
+  exception when insufficient_privilege then
+    raise notice 'FH) OK: anonimo sem GRANT em quotes (barrado antes da RLS)';
+  end;
 
-select 'FI) anonimo nao le quote_items direto' as teste,
-       case when count(*) = 0 then 'OK: nenhuma linha' else 'FALHA: viu ' || count(*) end as resultado
-from public.quote_items;
+  begin
+    select count(*) into v_n from public.quote_items;
+    if v_n = 0 then raise notice 'FI) OK: anonimo nao le quote_items direto (nenhuma linha)';
+    else raise notice 'FI) FALHA DE SEGURANCA: anonimo viu % item(ns)', v_n; end if;
+  exception when insufficient_privilege then
+    raise notice 'FI) OK: anonimo sem GRANT em quote_items (barrado antes da RLS)';
+  end;
+end $$;
 
 select 'FJ) token valido abre o orcamento' as teste,
        (public.get_shared_quote((select token from shr_token)) ->> 'number') as numero,

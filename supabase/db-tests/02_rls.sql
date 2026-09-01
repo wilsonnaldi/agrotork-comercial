@@ -55,7 +55,28 @@ select 'H) admin enxerga orçamentos' as teste, count(*) as visiveis from public
 select 'I) admin em app_settings' as teste, count(*) as chaves from public.app_settings;
 
 -- ── Contexto: ANÔNIMO ────────────────────────────────────────
+-- Antes, anon tinha GRANT e era a RLS que devolvia zero linhas. A migration
+-- 20260901193812 revogou o próprio GRANT: agora o banco barra um degrau antes.
+-- O que se afere continua o mesmo — anon não lê nada —, só que de forma mais
+-- estrita, então as duas respostas contam como OK.
 reset role; set role anon;
-select 'J) anônimo enxerga clientes' as teste, count(*) as visiveis from public.customers;
-select 'K) anônimo enxerga produtos' as teste, count(*) as visiveis from public.products;
+do $$
+declare v_n bigint;
+begin
+  begin
+    select count(*) into v_n from public.customers;
+    if v_n = 0 then raise notice 'J) OK: anonimo nao enxerga clientes (RLS, 0 linhas)';
+    else raise notice 'J) FALHA DE SEGURANCA: anonimo viu % cliente(s)', v_n; end if;
+  exception when insufficient_privilege then
+    raise notice 'J) OK: anonimo sem GRANT em customers (barrado antes da RLS)';
+  end;
+
+  begin
+    select count(*) into v_n from public.products;
+    if v_n = 0 then raise notice 'K) OK: anonimo nao enxerga produtos (RLS, 0 linhas)';
+    else raise notice 'K) FALHA DE SEGURANCA: anonimo viu % produto(s)', v_n; end if;
+  exception when insufficient_privilege then
+    raise notice 'K) OK: anonimo sem GRANT em products (barrado antes da RLS)';
+  end;
+end $$;
 reset role;

@@ -236,7 +236,9 @@ begin
   from pg_proc p join pg_namespace n on n.oid = p.pronamespace
   where n.nspname = 'public' and p.proname = 'expire_quotes';
 
-  if v_secdef and v_config @> array['search_path=public'] then
+  -- A migration 20260901193926 fixou o search_path VAZIO (mais restrito que
+  -- 'public'): a função só enxerga o que estiver qualificado por schema.
+  if v_secdef and v_config @> array['search_path=""'] then
     raise notice 'IT) OK: security definer com search_path fixo (dono: %)', v_dono;
   else
     raise notice 'IT) FALHA: secdef=% config=% dono=%', v_secdef, v_config, v_dono;
