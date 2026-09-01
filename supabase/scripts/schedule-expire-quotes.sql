@@ -3,7 +3,7 @@
 --
 -- QUANDO RODAR
 --
--- A migration `20260901030000_expire_quotes_schedule.sql` agenda o job
+-- A migration `20260901052525_expire_quotes_schedule.sql` agenda o job
 -- sozinha SE o pg_cron já estiver instalado quando ela for aplicada. Como
 -- no projeto `Agrotork system` a extensão ainda não está instalada, a
 -- migration passa como no-op e o agendamento fica pendente.

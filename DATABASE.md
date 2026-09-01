@@ -427,7 +427,7 @@ vezes seguidas devolve 0 e não altera nada.
 
 Quem a chama é o job `expirar-orcamentos` do **pg_cron** (`5 3 * * *`,
 03h05 UTC = 00h05 em Brasília), agendado pela migration
-`20260901030000_expire_quotes_schedule.sql` — que também cria o índice
+`20260901052525_expire_quotes_schedule.sql` — que também cria o índice
 parcial `idx_quotes_expiration (valid_until) where deleted_at is null and
 status = 'sent'`. O agendamento só acontece se a extensão já estiver
 instalada; enquanto o `pg_cron` não for habilitado no painel, a migration

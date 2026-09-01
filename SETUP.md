@@ -330,7 +330,7 @@ update public.app_settings
 
 A função `expire_quotes()` existe desde a migration `0600` e passa para
 `expired` todo orçamento **enviado** cuja validade (`valid_until`) já venceu.
-A migration `20260901030000_expire_quotes_schedule.sql` (Fase 6.2) acrescenta
+A migration `20260901052525_expire_quotes_schedule.sql` (Fase 6.2) acrescenta
 o índice parcial da varredura e **agenda o job — mas só se o `pg_cron` já
 estiver instalado no banco onde ela for aplicada.**
 

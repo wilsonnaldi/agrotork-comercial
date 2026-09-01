@@ -47,7 +47,7 @@
 --
 -- Não toca em nada da Fase 6.2 (`expire_quotes()`, o job
 -- `expirar-orcamentos`, o índice de expiração), nem nas quatro funções de
--- trigger protegidas pela migration 20260901020000, nem nas policies
+-- trigger protegidas pela migration 20260901052518, nem nas policies
 -- existentes, nem em `quote_sequences`, nem em `auth.*`. Nenhuma migration
 -- anterior foi alterada. Nenhuma função existente foi redefinida.
 --
@@ -402,7 +402,7 @@ $$;
 comment on function public.audit_capture() is
   'Escritor único da trilha de auditoria. Deriva o verbo de negócio do diff, congela o ator, ignora colunas derivadas e redige segredos na escrita. Chamada apenas por trigger.';
 
--- Mesma regra da migration 20260901020000: função de trigger não é RPC.
+-- Mesma regra da migration 20260901052518: função de trigger não é RPC.
 -- Sem isto ela nasceria com EXECUTE para anon e authenticated e apareceria
 -- em /rest/v1/rpc/, virando aviso do Security Advisor.
 revoke execute on function public.audit_capture()   from public, anon, authenticated;
