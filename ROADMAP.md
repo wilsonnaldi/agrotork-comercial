@@ -254,9 +254,23 @@ enxergar custo e o link público funcionando no domínio de produção.
 
 ---
 
-## Fase 6 — Refino e operação ⬜
+## Fase 6 — Refino e operação 🟡
 
-- ⬜ Relatórios simples (orçamentos por período, por vendedor, taxa de conversão)
+- ✅ **Relatórios** (`/relatorios`) — orçamentos por período (este mês, mês
+      anterior, 90 dias, ano), quebra por situação e por vendedor, valor emitido,
+      valor aprovado, ticket médio e **taxa de conversão**
+- ✅ Conversão é **aprovados ÷ decididos**, e "decidido" é aprovado, recusado ou
+      expirado. Rascunho e enviado seguem em aberto — contá-los como perda faria a
+      taxa cair só porque a proposta é recente. `cancelled` fica de fora: é
+      desistência nossa, não resposta do cliente. Nulo ≠ zero por cento
+- ✅ Agregação na aplicação, sem migration: o **RLS continua sendo o único** a
+      decidir o que cada um soma. Vendedor vê só a própria carteira e não enxerga
+      a quebra por vendedor (`reports.readAll`). O limite é conhecido e está
+      comentado no repository — com dezenas de milhares de orçamentos por ano, a
+      soma migra para uma view agregada
+- ✅ Testes: 17 verificações de ponta a ponta (`e2e-relatorios.mjs`) que semeiam
+      situações conhecidas e **conferem a aritmética** — total, aprovado, ticket
+      médio e conversão —, além do isolamento por RLS e 360/768/1440 px
 - ⬜ Expiração automática de orçamentos (cron do Supabase)
 - ⬜ Log de auditoria
 - ⬜ Backup e rotina de restauração documentada

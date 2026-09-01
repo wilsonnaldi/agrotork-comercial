@@ -25,6 +25,11 @@ export const PERMISSIONS = {
   "quotes.write": ["admin", "salesperson"],
   "quotes.delete": ["admin"],
 
+  /** Todo mundo abre o relatório; o RLS decide o que cada um soma. */
+  "reports.read": ["admin", "salesperson"],
+  /** Só o administrador compara vendedores entre si. */
+  "reports.readAll": ["admin"],
+
   "users.manage": ["admin"],
   "settings.manage": ["admin"],
 } as const satisfies Record<string, readonly UserRole[]>;
