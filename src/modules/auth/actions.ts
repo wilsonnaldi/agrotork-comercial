@@ -52,7 +52,11 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
     }
   }
 
-  const target = parsed.data.next?.startsWith("/") ? parsed.data.next : "/dashboard";
+  // Redirecionamento seguro: aceita apenas caminho interno. `//host` e
+  // `/\host` comecam com "/" mas o navegador resolve como URL absoluta,
+  // entao o startsWith("/") sozinho permitia sair do dominio depois do login.
+  const bruto = parsed.data.next ?? "";
+  const target = /^\/(?![/\\])/.test(bruto) ? bruto : "/dashboard";
   revalidatePath("/", "layout");
   redirect(target);
 }
