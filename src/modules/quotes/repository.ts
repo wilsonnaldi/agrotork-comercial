@@ -105,7 +105,7 @@ export async function findById(id: string): Promise<QuoteView | null> {
     customer_city: customer?.city ?? null,
     customer_document: customer?.document ?? null,
     owner_id: quote.owner_id,
-    owner_name: owner?.full_name ?? "—",
+    owner_name: owner?.full_name?.trim() || "—",
     issue_date: toDateOnly(quote.issue_date) ?? quote.issue_date,
     valid_until: toDateOnly(quote.valid_until),
     payment_terms: quote.payment_terms,

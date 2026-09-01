@@ -274,10 +274,10 @@ function totals(doc: Doc, document: QuoteDocument, y: number) {
 
   if (document.discount_percent > 0) {
     const valor = Math.round((document.subtotal_cents * document.discount_percent) / 100);
-    linhas.push([`Desconto ${percent(document.discount_percent)}`, `− ${money(valor)}`]);
+    linhas.push([`Desconto ${percent(document.discount_percent)}`, `- ${money(valor)}`]);
   }
   if (document.discount_amount_cents > 0) {
-    linhas.push(["Desconto", `− ${money(document.discount_amount_cents)}`]);
+    linhas.push(["Desconto", `- ${money(document.discount_amount_cents)}`]);
   }
   if (document.shipping_amount_cents > 0) {
     linhas.push(["Frete", `+ ${money(document.shipping_amount_cents)}`]);
