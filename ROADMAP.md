@@ -254,7 +254,7 @@ enxergar custo e o link público funcionando no domínio de produção.
       (somente-anexação, leitura só de administrador), a função
       `audit_capture()` e triggers em 13 tabelas. Registra quem, o quê,
       quando, em qual registro e o antes/depois. Coberto por
-      `14_auditoria.sql` (32 verificações), 12 asserções pgTAP e
+      `14_auditoria.sql` (32 verificações), 13 asserções pgTAP e
       `e2e-auditoria.mjs` (17). **Pendente:** aplicar a migration no
       Supabase remoto. DATABASE.md §4.13, ARCHITECTURE.md §9
 - ⬜ Backup e rotina de restauração documentada

@@ -30,7 +30,7 @@ begin
 end $$;
 set local search_path = public, extensions;
 
-select plan(70);
+select plan(71);
 
 -- ── 1. RLS ligado em toda tabela de negócio ─────────────────
 -- Sem isto, qualquer policy vira decoração: o Postgres nem consulta.
