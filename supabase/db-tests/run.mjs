@@ -53,6 +53,7 @@ const SUITES = [
   ["compartilhamento", "10_compartilhamento.sql", /^ [FG][A-Z]\)|NOTICE/],
   ["storage", "11_storage.sql", /^ G[A-Z]\)|NOTICE/],
   ["cadastro: papel não vem do metadata", "12_cadastro.sql", /^ H[A-Z]\)|NOTICE/],
+  ["empresa e usuários", "13_empresa_usuarios.sql", /^ I[A-Z]\)|NOTICE/],
   ["triggers e privilégios", "03_triggers_e_privilegios.sql", /^ [L-O]\)|NOTICE|ORC-/],
 ];
 

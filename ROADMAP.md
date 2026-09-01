@@ -32,7 +32,7 @@ corretamente conforme o papel. Falta apenas apontar para um Supabase real.
 
 ---
 
-## Fase 1 — Cadastros de apoio 🟡
+## Fase 1 — Cadastros de apoio ✅
 
 **Objetivo:** o admin consegue configurar o catálogo antes de cadastrar produto.
 
@@ -50,12 +50,25 @@ corretamente conforme o papel. Falta apenas apontar para um Supabase real.
 - ✅ Exclusão física recusada pelo banco enquanto houver produto vinculado
 - ✅ Testes: 26 verificações de banco (`07_cadastros.sql`) e 64 de ponta a ponta
       (`e2e-cadastros.mjs`), incluindo 360 px, 768 px e 1440 px
-- ⬜ CRUD de **Usuários** (convite por e-mail, papel, ativar/desativar)
-- ⬜ Tela de **Configurações da empresa** (dados que saem no PDF)
-- ⬜ Upload do logotipo da marca (depende do Storage do Supabase)
+- ✅ **Usuários** — papel (administrador ⇄ vendedor) e ativar/desativar, em
+      `Configurações → Usuários`. **Sem criação de conta**: criar usuário no Auth
+      exige a `service_role`, que ignora o RLS, e a decisão foi mantê-la fora do
+      ambiente. Contas nascem pelo painel (Invite user) e o trigger
+      `handle_new_user` as cria como VENDEDOR — sempre (migration 2100)
+- ✅ Travas contra travar o sistema: ninguém se rebaixa nem se desativa, e o
+      **último administrador ativo** não pode perder o papel — regra da aplicação,
+      registrada como tal no teste `IJ`
+- ✅ **Dados da empresa** — os 12 campos que saem no cabeçalho do PDF e na página
+      pública, gravados em `app_settings.company`. Só a razão social é obrigatória
+- ✅ **Upload do logotipo** para o bucket `public-assets`, com o RLS de admin
+      decidindo. Nome com sufixo de tempo (troca não fica presa em cache) e
+      remoção que tira do cadastro sem apagar o arquivo — um PDF já enviado
+      continua com a imagem
+- ✅ Testes: 10 verificações de banco (`13_empresa_usuarios.sql`) e 24 de ponta a
+      ponta (`e2e-empresa-usuarios.mjs`), incluindo 360 px, 768 px e 1440 px
 
 **Critério de pronto:** admin cadastra e edita marcas, categorias e unidades pela
-interface, sem SQL. ✅ — faltam Usuários e Dados da empresa para fechar a fase.
+interface, sem SQL. ✅ — **fase fechada.**
 
 ---
 
