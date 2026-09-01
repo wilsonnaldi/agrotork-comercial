@@ -585,6 +585,60 @@ Somente `admin` lê e escreve.
 
 ---
 
+### 4.13 `audit_log` — trilha de auditoria *(somente administrador)*
+
+Registro **somente-anexação** de quem fez o quê, quando, em qual registro e com
+qual mudança de estado. Não é histórico comercial: é evidência.
+
+| Grupo | Colunas |
+| --- | --- |
+| Quando | `id bigint identity`, `occurred_at` |
+| Quem | `actor_kind` (`user`/`system`/`anonymous`/`unknown`), `actor_user_id`, `actor_email`, `actor_name`, `actor_role`, `actor_db_role` |
+| O quê | `action` (`quote.approved`, `user.role_changed`…), `operation` |
+| Onde | `entity_type`, `entity_id` (**texto**), `entity_label`, `parent_type`, `parent_id` |
+| Mudança | `changed_fields`, `old_data`, `new_data` |
+| Extra | `metadata` (`txid` e tabela de origem) |
+
+**Sem chave estrangeira nenhuma**, de propósito: uma FK faria apagar um
+orçamento apagar (ou travar) a prova de que ele existiu, e apagar um usuário
+levaria o rastro dele junto. Por isso o ator vai denormalizado — nome, e-mail e
+papel **congelados no instante do fato**. `entity_id` é `text` porque
+`app_settings` tem chave primária textual.
+
+**Captura por trigger**, nunca pela aplicação: a expiração vem do pg_cron (sem
+sessão), a troca de papel vem do SQL Editor (sem tela), e o PostgREST não
+permite à aplicação anexar contexto a uma escrita. Uma única função,
+`audit_capture()`, atende as 13 tabelas auditadas — `profiles`, `customers`,
+`products`, `product_costs`, `kits`, `kit_items`, `quotes`, `quote_items`,
+`quote_share_tokens`, `app_settings`, `units`, `categories`, `brands`. Fora:
+`quote_sequences` (contador interno) e `auth.*` (onde moram senha, tokens e
+sessões).
+
+O que **não** vira evento: colunas derivadas (`subtotal`, `total`, `line_total`)
+— sem isso, cada item adicionado geraria um `quote.updated` fantasma —,
+`updated_at`/`updated_by`, e `view_count` do link público. Quando o diff fica
+vazio, nenhuma linha é gravada. O `token` de `quote_share_tokens` é gravado como
+`[REDIGIDO]` **na escrita**, não na leitura.
+
+**Acesso:** `revoke all` de `public`, `anon`, `authenticated` e `service_role`;
+só `select` volta, e a única policy exige `is_admin()`. Nem administrador
+escreve: não existe policy de INSERT/UPDATE/DELETE. Três triggers
+(`before update`, `before delete`, `before truncate`) recusam alteração
+inclusive para o **dono da tabela**, que o `revoke` não alcança.
+
+> **Pendência conhecida (LGPD):** o log sobrevive à exclusão do cliente. Nome,
+> CPF/CNPJ, telefone e endereço permanecem em `old_data` depois de o cliente ser
+> apagado. É a tensão clássica entre trilha de auditoria e direito de
+> eliminação. Se um dia existir rotina de esquecimento, ela terá de percorrer o
+> log também.
+
+Índices: `(entity_type, entity_id, occurred_at desc)`, `(actor_user_id,
+occurred_at desc)` parcial, `(occurred_at desc)`. Sem retenção automática —
+expurgo é mecanismo que apaga prova e fica como decisão explícita, a revisar
+por volta de 100 mil linhas.
+
+---
+
 ## 5. Row Level Security — resumo das políticas
 
 | Tabela | admin | salesperson |
@@ -598,6 +652,7 @@ Somente `admin` lê e escreve.
 | `quote_items` | tudo | apenas de orçamentos próprios **e não aprovados** |
 | `quote_share_tokens` | tudo | apenas de orçamentos próprios |
 | `app_settings` | tudo | lê apenas a chave `company` |
+| `audit_log` | **somente leitura** | **sem acesso** — nem dos próprios orçamentos |
 | `quote_sequences` | — | sem policy: ninguém acessa direto |
 
 Funções auxiliares (`security definer`, `search_path` fixo):

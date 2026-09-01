@@ -30,7 +30,7 @@ begin
 end $$;
 set local search_path = public, extensions;
 
-select plan(58);
+select plan(70);
 
 -- ── 1. RLS ligado em toda tabela de negócio ─────────────────
 -- Sem isto, qualquer policy vira decoração: o Postgres nem consulta.
@@ -299,6 +299,96 @@ select ok(
     where schemaname='public' and tablename='profiles' and policyname='profiles_update_self'
       and coalesce(with_check,'') ~ 'auth_role') = 1,
   'profiles_update_self impede o usuário de mudar o próprio papel'
+);
+
+-- ── Trilha de auditoria (Fase 6.3) ──────────────────────────
+-- O log é evidência: o que precisa ser verdade a qualquer momento é que
+-- ninguém escreve nele pela API, que só administrador lê, e que ele não
+-- pode ser corrigido nem apagado — nem pelo dono da tabela.
+select ok(
+  (select relrowsecurity from pg_class where oid = 'public.audit_log'::regclass),
+  'audit_log tem RLS ligado'
+);
+
+select is(
+  (select count(*)::int from pg_policies where schemaname='public' and tablename='audit_log'),
+  1,
+  'audit_log tem exatamente uma policy'
+);
+
+select is(
+  (select cmd from pg_policies where schemaname='public' and tablename='audit_log'),
+  'SELECT',
+  'a única policy de audit_log é de leitura'
+);
+
+select ok(
+  not has_table_privilege('authenticated', 'public.audit_log', 'INSERT'),
+  'authenticated NÃO pode inserir em audit_log'
+);
+
+select ok(
+  not has_table_privilege('authenticated', 'public.audit_log', 'UPDATE')
+  and not has_table_privilege('authenticated', 'public.audit_log', 'DELETE')
+  and not has_table_privilege('authenticated', 'public.audit_log', 'TRUNCATE'),
+  'authenticated NÃO pode alterar, apagar nem truncar audit_log'
+);
+
+select ok(
+  not has_table_privilege('anon', 'public.audit_log', 'SELECT')
+  and not has_table_privilege('anon', 'public.audit_log', 'INSERT'),
+  'anon não alcança audit_log de forma alguma'
+);
+
+select ok(
+  has_table_privilege('authenticated', 'public.audit_log', 'SELECT'),
+  'authenticated tem SELECT (o RLS é quem decide o que aparece)'
+);
+
+-- A tabela NÃO pode ter chave estrangeira: apagar o que ela descreve não
+-- pode levar a prova junto.
+select is(
+  (select count(*)::int from pg_constraint
+    where conrelid = 'public.audit_log'::regclass and contype = 'f'),
+  0,
+  'audit_log não tem chave estrangeira nenhuma'
+);
+
+select ok(
+  (select prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+    where n.nspname='public' and p.proname='audit_capture')
+  and (select proconfig from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='audit_capture') @> array['search_path=public'],
+  'audit_capture() é security definer com search_path fixo'
+);
+
+select ok(
+  not has_function_privilege('authenticated', 'public.audit_capture()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.audit_capture()', 'EXECUTE'),
+  'audit_capture() não é alcançável por RPC'
+);
+
+select ok(
+  not has_function_privilege('authenticated', 'public.audit_log_guard()', 'EXECUTE')
+  and not has_function_privilege('anon', 'public.audit_log_guard()', 'EXECUTE'),
+  'audit_log_guard() não é alcançável por RPC'
+);
+
+-- Os três guardas de imutabilidade e os treze triggers de captura.
+select is(
+  (select count(*)::int from pg_trigger
+    where tgrelid = 'public.audit_log'::regclass and not tgisinternal),
+  3,
+  'audit_log tem os três guardas (UPDATE, DELETE, TRUNCATE)'
+);
+
+select is(
+  (select count(*)::int from pg_trigger t
+     join pg_proc p on p.oid = t.tgfoid
+     join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname = 'public' and p.proname = 'audit_capture' and not t.tgisinternal),
+  13,
+  'as treze tabelas auditadas têm o trigger de captura instalado'
 );
 
 select * from finish();

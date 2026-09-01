@@ -54,6 +54,12 @@ npm run build && npx next start -p 3302
 BASE_URL=http://localhost:3302 bash supabase/db-tests/auth-double/run-e2e.sh
 ```
 
+A suíte `e2e-auditoria.mjs` (Fase 6.3) cria um cliente **pela tela**, aprova um
+orçamento pela API com a sessão do administrador e confere que cada ação virou
+exatamente um evento com o ator certo; depois prova que `/rest/v1/audit_log`
+não entrega nada ao vendedor nem ao anônimo e não aceita POST, PATCH nem
+DELETE de ninguém — nem do administrador.
+
 A suíte `e2e-expiracao.mjs` (Fase 6.2) roda `select public.expire_quotes();`
 como `postgres` — exatamente o comando do job do pg_cron — e confere que o
 resultado aparece sozinho na tela do vendedor, que o filtro **Expirado**

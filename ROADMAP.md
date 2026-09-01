@@ -250,7 +250,13 @@ enxergar custo e o link público funcionando no domínio de produção.
       Coberto por `13_expiracao.sql` (25 verificações) e por
       `e2e-expiracao.mjs` (15). **Pendente:** habilitar `pg_cron` no painel
       do Supabase — enquanto isso a migration aplica como no-op. SETUP.md §9
-- ⬜ Log de auditoria
+- 🟡 **Log de auditoria** — migration `4000` cria `audit_log`
+      (somente-anexação, leitura só de administrador), a função
+      `audit_capture()` e triggers em 13 tabelas. Registra quem, o quê,
+      quando, em qual registro e o antes/depois. Coberto por
+      `14_auditoria.sql` (32 verificações), 12 asserções pgTAP e
+      `e2e-auditoria.mjs` (17). **Pendente:** aplicar a migration no
+      Supabase remoto. DATABASE.md §4.13, ARCHITECTURE.md §9
 - ⬜ Backup e rotina de restauração documentada
 - ⬜ Domínio próprio (`sistema.agrotork.com.br`) e ambiente de produção
 - ⬜ Treinamento da equipe e manual curto de uso

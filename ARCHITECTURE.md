@@ -646,6 +646,46 @@ não está no ambiente não vaza em log, em variável de build nem em captura de
 tela. O `.env.example` e o `SETUP.md` instruem a **não** cadastrá-la, e o e2e
 confere que a expressão "service_role" não aparece no HTML servido.
 
+### Trilha de auditoria: por que trigger, e por que só administrador lê
+
+Três fatos do sistema decidiram a estratégia, e nenhum deles é preferência de
+estilo:
+
+1. A expiração automática roda pelo **pg_cron** como `postgres` — sem
+   `auth.uid()`, sem Server Action, sem requisição HTTP. Registrar
+   `quote.expired` pela aplicação é impossível.
+2. Trocar o papel de um usuário **não tem tela**: é `update public.profiles set
+   role='admin'` no SQL Editor. O evento mais sensível do sistema não passa por
+   nenhum código nosso.
+3. Toda mutação vai pelo PostgREST, e cada requisição é a sua própria
+   transação — a aplicação não consegue fazer `set_config('app.motivo', …)`
+   antes do `update` para o trigger ler. Por isso **não existe campo de motivo
+   livre**: o verbo de negócio (`quote.approved`, `product.cost_changed`) é
+   derivado do diff.
+
+Dentro de uma função `security definer`, `current_user` é o **dono** da função,
+não quem disparou a escrita. Usá-lo para identificar o ator classificaria todo
+mundo como sistema. O que sobrevive é o GUC `role` — exatamente o que o
+PostgREST define com `set local role authenticated`. É de lá que sai
+`actor_db_role`, e é ele que distingue "foi o cron" de "foi alguém no painel".
+
+Só administrador lê, e isso vem da migration `1200`: o custo saiu de `products`
+para `product_costs` porque o PostgreSQL **não filtra coluna por papel**.
+Auditar `cost_price` recria esse dado. Se o vendedor lesse a trilha, o custo
+vazaria por ali — e `05_custo_produto.sql` continuaria passando, porque ela
+testa `product_costs`, não o log. A trilha do vendedor sobre os próprios
+orçamentos é funcionalidade comercial, e fica para uma fase própria.
+
+O log é evidência, não tabela de trabalho: `revoke` total, uma única policy (de
+leitura), e três triggers que recusam UPDATE, DELETE e TRUNCATE — inclusive
+para o dono da tabela, que o `revoke` não alcança. Encadeamento de hash foi
+avaliado e adiado: serializa as inserções e é peso desproporcional para um
+sistema com dois usuários.
+
+Verificado em `supabase/db-tests/14_auditoria.sql`,
+`supabase/tests/000_seguranca.test.sql` e
+`supabase/db-tests/auth-double/e2e-auditoria.mjs`.
+
 ### Nota sobre o cookie de sessão
 
 O `@supabase/ssr` grava o cookie **sem** `httpOnly` por padrão, porque supõe um

@@ -14,7 +14,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$ROOT"
 
-for suite in e2e-autenticacao.mjs e2e-clientes.mjs e2e-produtos.mjs e2e-cadastros.mjs e2e-kits.mjs e2e-orcamentos.mjs e2e-pdf-compartilhamento.mjs e2e-expiracao.mjs; do
+for suite in e2e-autenticacao.mjs e2e-clientes.mjs e2e-produtos.mjs e2e-cadastros.mjs e2e-kits.mjs e2e-orcamentos.mjs e2e-pdf-compartilhamento.mjs e2e-expiracao.mjs e2e-auditoria.mjs; do
   echo "▶ semeando banco"
   bash supabase/db-tests/dev-seed.sh > /dev/null
   # Recriar o banco derruba o pool do duplê; dá tempo de reconectar.
