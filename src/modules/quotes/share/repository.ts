@@ -218,7 +218,7 @@ export async function findSharedDocument(token: string): Promise<QuoteDocument |
     payment_terms: payload.payment_terms,
     delivery_terms: payload.delivery_terms,
     notes: payload.notes,
-    owner_name: payload.owner_name ?? "—",
+    owner_name: payload.owner_name?.trim() || "—",
     customer: {
       name: payload.customer?.name ?? "—",
       document: payload.customer?.document ? formatDocument(payload.customer.document) : null,
