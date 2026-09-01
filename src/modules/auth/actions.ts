@@ -52,7 +52,8 @@ export async function signIn(_prev: ActionState, formData: FormData): Promise<Ac
     }
   }
 
-  const target = parsed.data.next?.startsWith("/") ? parsed.data.next : "/dashboard";
+  const bruto = parsed.data.next ?? "";
+  const target = /^\/(?![/\\])/.test(bruto) ? bruto : "/dashboard";
   revalidatePath("/", "layout");
   redirect(target);
 }
