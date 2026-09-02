@@ -39,6 +39,41 @@ function pdfText(buffer, nome) {
   return execFileSync("pdftotext", ["-layout", caminho, "-"], { stdio: "pipe" }).toString();
 }
 
+/**
+ * Busca uma rota AUTENTICADA usando o jarro de cookies do próprio navegador.
+ *
+ * `page.request` é um cliente HTTP em Node, com jarro de cookies separado,
+ * e ele aplica o atributo `Secure` ao pé da letra: cookie Secure só viaja
+ * em https. O Chromium é mais permissivo com 127.0.0.1 — trata como origem
+ * confiável e manda o cookie mesmo em http —, e é por isso que a sessão
+ * funcionava em toda navegação e sumia só nestas chamadas: o proxy não via
+ * usuário, redirecionava para /login, o `page.request` seguia o 307 e o
+ * teste recebia 200 com o HTML da tela de login no lugar do PDF.
+ *
+ * O cookie sai Secure porque o e2e sobe a aplicação com `next start`
+ * (NODE_ENV=production) e essa é a regra de produção — ela não muda por
+ * causa de teste. Buscando de dentro da página, a requisição parte do
+ * navegador já autenticado, e o `fetch` de mesma origem enxerga todos os
+ * cabeçalhos da resposta, inclusive o `content-disposition`.
+ *
+ * Devolve a mesma interface do APIResponse do Playwright para as
+ * verificações continuarem lendo `status()`, `headers()` e `body()`.
+ */
+async function buscaAutenticado(page, rota) {
+  const bruto = await page.evaluate(async (alvo) => {
+    const r = await fetch(alvo, { credentials: "same-origin" });
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    let binario = "";
+    for (const b of bytes) binario += String.fromCharCode(b);
+    return { status: r.status, headers: Object.fromEntries(r.headers.entries()), base64: btoa(binario) };
+  }, rota);
+  return {
+    status: () => bruto.status,
+    headers: () => bruto.headers,
+    body: async () => Buffer.from(bruto.base64, "base64"),
+  };
+}
+
 const browser = await chromium.launch(
   process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {},
 );
@@ -103,7 +138,7 @@ let tokenPublico = "";
   let body = await page.innerText("body");
   check("ficha oferece o download do PDF", contem(body, "Baixar PDF"));
 
-  let resp = await page.request.get(`${BASE}/api/orcamentos/${idQuote}/pdf`);
+  let resp = await buscaAutenticado(page, `/api/orcamentos/${idQuote}/pdf`);
   check("PDF responde 200", resp.status() === 200, String(resp.status()));
   check("PDF vem como application/pdf", resp.headers()["content-type"] === "application/pdf");
   check("PDF vem como anexo com nome do orçamento",
@@ -170,7 +205,7 @@ let tokenPublico = "";
   // A referência é tirada agora, com o orçamento já em "enviado": o
   // status aparece impresso, e comparar dois documentos de status
   // diferente mediria a coisa errada.
-  resp = await page.request.get(`${BASE}/api/orcamentos/${idQuote}/pdf`);
+  resp = await buscaAutenticado(page, `/api/orcamentos/${idQuote}/pdf`);
   const pdfAntes = pdfText(Buffer.from(await resp.body()), "e2e-antes.pdf");
 
   sql(`update public.products set sale_price = 9999, name = 'NOME TROCADO PELO TESTE' where code in ('P-001','P-002');`);
@@ -179,7 +214,7 @@ let tokenPublico = "";
   sql(`update public.kits set name='KIT RENOMEADO', is_active=false where code='K-002';`);
   sql(`update public.products set is_active=false where code='P-001';`);
 
-  resp = await page.request.get(`${BASE}/api/orcamentos/${idQuote}/pdf`);
+  resp = await buscaAutenticado(page, `/api/orcamentos/${idQuote}/pdf`);
   pdf = Buffer.from(await resp.body());
   texto = pdfText(pdf, "e2e-orcamento-depois.pdf");
 
@@ -313,7 +348,7 @@ let tokenPublico = "";
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await login(ctx, "vendedor@teste.local");
 
-  const resp = await page.request.get(`${BASE}/api/orcamentos/${idQuote}/pdf`);
+  const resp = await buscaAutenticado(page, `/api/orcamentos/${idQuote}/pdf`);
   check("vendedor não baixa PDF de orçamento alheio", resp.status() === 404, String(resp.status()));
 
   await page.goto(`${BASE}/orcamentos/${idQuote}`, { waitUntil: "domcontentloaded" });
