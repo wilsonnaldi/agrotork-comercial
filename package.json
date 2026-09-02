@@ -12,7 +12,9 @@
     "db:push": "supabase db push",
     "db:types": "supabase gen types typescript --linked > src/types/database.types.ts",
     "db:types:local": "bash supabase/db-tests/gen-types.sh",
-    "db:test": "node supabase/db-tests/run.mjs"
+    "db:test": "node supabase/db-tests/run.mjs",
+    "import:validar": "node supabase/importacao/validar.mjs",
+    "import:sql": "node supabase/importacao/gerar-sql.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
