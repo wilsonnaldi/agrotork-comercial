@@ -14,3 +14,13 @@ yarn-error.log*
 next-env.d.ts
 supabase/.branches
 supabase/.temp
+
+# Diagnósticos locais de banco: artefatos de `db pull`/`db diff`,
+# nunca versionados. Ver DEPLOY.md.
+_diagnostico/
+remote_schema*.sql
+remote_schema*.txt
+# O artefato do `db pull` chega como <timestamp>_remote_schema.sql dentro de
+# supabase/migrations/. Ele NAO e uma migration: e um dump do schema remoto,
+# e entrar no Git recria a divergencia entre historico e banco.
+supabase/migrations/*_remote_schema.sql
