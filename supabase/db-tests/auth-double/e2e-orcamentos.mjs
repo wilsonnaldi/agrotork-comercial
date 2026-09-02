@@ -446,7 +446,12 @@ let idAdmin = "";
   check("vendedor NÃO vê custo no orçamento", !contem(body, "R$ 100,00"));
   await page.screenshot({ path: "docs/screenshots/orcamentos-ficha-celular.png", fullPage: true });
 
-  // aprovado trava o vendedor
+  // aprovado trava o vendedor.
+  // O atalho `draft -> approved` deixou de existir: a migration
+  // 20260901201459 passou a validar a máquina de estados no banco, e o
+  // trigger trg_quotes_validate_status_transition recusa o salto. O caminho
+  // válido é o mesmo que a interface oferece — enviar e só então aprovar.
+  sql(`update public.quotes set status='sent'     where id='${idVendedor}';`);
   sql(`update public.quotes set status='approved' where id='${idVendedor}';`);
   await page.goto(`${BASE}/orcamentos/${idVendedor}/editar`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(800);
