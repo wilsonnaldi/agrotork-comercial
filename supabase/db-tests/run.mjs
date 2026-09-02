@@ -55,7 +55,7 @@ const SUITES = [
   ["cadastro: papel não vem do metadata", "12_cadastro.sql", /^ H[A-Z]\)|NOTICE/],
   ["expiração automática de orçamentos", "13_expiracao.sql", /^ I[A-Z]\)|NOTICE/],
   ["trilha de auditoria", "14_auditoria.sql", /^ J[A-Z]+\)|NOTICE/],
-  ["triggers e privilégios", "03_triggers_e_privilegios.sql", /^ [L-O]\)|NOTICE|ORC-/],
+  ["triggers e privilégios", "03_triggers_e_privilegios.sql", /^ [L-O]\)|^ SA\d\)|NOTICE|ORC-/],
 ];
 
 function roda(cmd, args, opcoes = {}) {
