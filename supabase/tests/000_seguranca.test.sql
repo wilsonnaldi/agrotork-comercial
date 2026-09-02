@@ -30,7 +30,7 @@ begin
 end $$;
 set local search_path = public, extensions;
 
-select plan(71);
+select plan(81);
 
 -- ── 1. RLS ligado em toda tabela de negócio ─────────────────
 -- Sem isto, qualquer policy vira decoração: o Postgres nem consulta.
@@ -121,9 +121,15 @@ select ok(
   'PUBLIC NÃO pode executar expire_quotes()'
 );
 
+-- O hardening de 20260901190334 endureceu o search_path de `public` para
+-- vazio, que e mais restritivo: a funcao passou a qualificar tudo. A
+-- asercao continua sendo "tem search_path fixo", nao "tem este valor".
 select ok(
-  (select p.proconfig from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-    where n.nspname='public' and p.proname='expire_quotes') @> array['search_path=public'],
+  exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname='public' and p.proname='expire_quotes'
+       and exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%')
+  ),
   'expire_quotes() tem search_path fixo'
 );
 
@@ -294,11 +300,15 @@ select is(
   'profiles.role tem default salesperson'
 );
 -- A promoção continua barrada pelo RLS depois do cadastro.
+-- A policy chamava-se `profiles_update_self` ate a consolidacao de
+-- 20260901214750, que fundiu as permissivas numa `profiles_update`. O que
+-- importa nao e o nome: e o `with_check` continuar exigindo que o papel
+-- gravado seja igual ao papel atual do usuario (`auth_role()`).
 select ok(
   (select count(*)::int from pg_policies
-    where schemaname='public' and tablename='profiles' and policyname='profiles_update_self'
-      and coalesce(with_check,'') ~ 'auth_role') = 1,
-  'profiles_update_self impede o usuário de mudar o próprio papel'
+    where schemaname='public' and tablename='profiles' and cmd='UPDATE'
+      and coalesce(with_check,'') ~ 'auth_role') >= 1,
+  'a policy de UPDATE de profiles impede o usuário de mudar o próprio papel'
 );
 
 -- ── Trilha de auditoria (Fase 6.3) ──────────────────────────
@@ -358,7 +368,7 @@ select ok(
   (select prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace
     where n.nspname='public' and p.proname='audit_capture')
   and (select proconfig from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-        where n.nspname='public' and p.proname='audit_capture') @> array['search_path=public'],
+        where n.nspname='public' and p.proname='audit_capture') @> array['search_path=""'],
   'audit_capture() é security definer com search_path fixo'
 );
 
@@ -390,6 +400,73 @@ select is(
   13,
   'as treze tabelas auditadas têm o trigger de captura instalado'
 );
+
+-- ── Custo por condição e preço de venda definido ────────────
+-- FASE B: `product_costs` deixou de ter PK em `product_id` para caber
+-- AVISTA e FATURADO do mesmo produto. Estas asserções existem para que a
+-- flexibilização não vire afrouxamento de acesso nem de unicidade.
+
+select has_table('public', 'price_conditions', 'price_conditions existe');
+
+select ok(
+  (select relrowsecurity from pg_class where oid = 'public.price_conditions'::regclass),
+  'price_conditions tem RLS ligada'
+);
+
+select is(
+  (select count(*)::int from pg_policies
+    where schemaname = 'public' and tablename = 'price_conditions' and cmd <> 'SELECT'),
+  3,
+  'price_conditions: escrita coberta por policies de INSERT, UPDATE e DELETE'
+);
+
+select ok(
+  not exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'price_conditions'
+       and 'anon' = any (roles)
+  ),
+  'nenhuma policy de price_conditions alcança anon'
+);
+
+select ok(
+  exists (select 1 from public.price_conditions where upper(code) = 'AVISTA' and is_default)
+  and exists (select 1 from public.price_conditions where upper(code) = 'FATURADO'),
+  'as duas condições que as fontes comprovam existem, com AVISTA como padrão'
+);
+
+select ok(
+  (select count(*)::int from pg_index i
+     join pg_class c on c.oid = i.indexrelid
+    where i.indrelid = 'public.product_costs'::regclass
+      and i.indisunique
+      and c.relname in ('idx_product_costs_vigente', 'idx_product_costs_historico')) = 2,
+  'product_costs tem as duas travas de unicidade: custo vigente e histórico'
+);
+
+select ok(
+  (select count(*)::int from pg_policies
+    where schemaname = 'public' and tablename = 'product_costs') >= 1
+  and not exists (
+    select 1 from pg_policies
+     where schemaname = 'public' and tablename = 'product_costs' and 'anon' = any (roles)
+  ),
+  'product_costs continua sem nenhuma policy que alcance anon'
+);
+
+select ok(
+  not (select prosecdef from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'set_product_cost'),
+  'set_product_cost() é SECURITY INVOKER — quem autoriza é a RLS, não a função'
+);
+
+select ok(
+  not has_function_privilege('anon', 'public.set_product_cost(uuid, numeric, text, uuid)', 'EXECUTE'),
+  'set_product_cost() não é alcançável por anon'
+);
+
+select has_column('public', 'products', 'sale_price_set_at',
+  'products.sale_price_set_at existe: nulo separa "sem preço" de R$ 0,00');
 
 select * from finish();
 rollback;

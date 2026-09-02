@@ -56,6 +56,12 @@ const SUITES = [
   ["expiração automática de orçamentos", "13_expiracao.sql", /^ I[A-Z]\)|NOTICE/],
   ["trilha de auditoria", "14_auditoria.sql", /^ J[A-Z]+\)|NOTICE/],
   ["triggers e privilégios", "03_triggers_e_privilegios.sql", /^ [L-O]\)|^ SA\d\)|NOTICE|ORC-/],
+  // A carga de catálogo entra por último: ela acrescenta 112 produtos, e as
+  // suítes acima contam linhas de `products`. O script é o MESMO que rodaria
+  // em produção — testar uma cópia adaptada não provaria nada.
+  ["carga de catálogo (script gerado)", "../importacao/carga_produtos.sql",
+   /RELATORIO|inseridos|atualizados|linhas de custo|sem nenhum custo|ATIVOS apos|preco definido/],
+  ["regras da importação de catálogo", "15_importacao_catalogo.sql", /PC\d+[a-z]?\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {

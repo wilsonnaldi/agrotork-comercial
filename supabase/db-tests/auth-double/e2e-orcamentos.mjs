@@ -139,6 +139,27 @@ let idAdmin = "";
   check("produto inativo não aparece na busca",
     !contem(body, "Controlador de vazão AGRES") || contem(body, "Nenhum produto ativo encontrado"));
 
+  // Não basta some da busca: o servidor tem de recusar o id forjado. É a
+  // trava em que a carga de catálogo se apoia — 112 produtos entram
+  // inativos justamente porque este caminho não existe.
+  const idProdutoInativo = sql("select id from public.products where is_active = false limit 1;");
+  await page.goto(editarUrl, { waitUntil: "domcontentloaded" });
+  await buscar(page, "P-001");
+  await page.$eval(
+    'form input[name="product_id"]',
+    (el, valor) => { el.value = valor; },
+    idProdutoInativo,
+  );
+  await page.locator('form input[name="quantity"]').last().fill("1");
+  await page.locator('form:has(input[name="product_id"]) button[type="submit"]').last().click();
+  await page.waitForTimeout(1600);
+  body = await page.innerText("body");
+  check("servidor recusa produto inativo pelo id forjado", contem(body, "está inativo"));
+  check("produto inativo não entrou no orçamento",
+    sql(`select count(*) from public.quote_items qi
+         join public.products p on p.id = qi.product_id
+         where qi.quote_id='${idAdmin}' and p.is_active = false;`) === "0");
+
   // ── kits: incompleto e inativo ficam de fora ───────────
   await page.goto(`${editarUrl}?aba=kits`, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(900);
