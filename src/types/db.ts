@@ -289,12 +289,64 @@ type TriggerOptional<T, Payload> = T extends keyof TriggerOwned
     }
   : Payload;
 
+/**
+ * Colunas `not null` que um trigger BEFORE INSERT preenche QUANDO chegam
+ * nulas. Diferente de `TriggerOwned`: aqui a aplicação PODE informar o
+ * valor — e o importador de catálogo informa, porque precisa distinguir
+ * AVISTA de FATURADO. O gerador do Supabase não tem como saber disso e
+ * marca a coluna como obrigatória; a lista abaixo a torna opcional.
+ */
+type TriggerDefaulted = {
+  /**
+   * `trg_product_costs_default_condition` -> `set_default_price_condition()`
+   * (migration 20260902120000). Nulo vira a condição padrão (AVISTA).
+   */
+  product_costs: "condition_id";
+};
+
+/** Trava: só entra aqui coluna que exista no `Insert` da tabela. */
+type TriggerDefaultOptional<T, Payload> = T extends keyof TriggerDefaulted
+  ? Omit<Payload, TriggerDefaulted[T]> & {
+      [P in TriggerDefaulted[T] & keyof Payload]?: Payload[P];
+    }
+  : Payload;
+
 type WidenTable<T extends keyof Public["Tables"]> = Omit<
   Public["Tables"][T],
   "Insert" | "Update"
 > & {
-  Insert: TriggerOptional<T, AcceptsDecimalString<Public["Tables"][T]["Insert"], NumericColumns<T>>>;
+  Insert: TriggerDefaultOptional<
+    T,
+    TriggerOptional<T, AcceptsDecimalString<Public["Tables"][T]["Insert"], NumericColumns<T>>>
+  >;
   Update: AcceptsDecimalString<Public["Tables"][T]["Update"], NumericColumns<T>>;
+};
+
+// ── Escrita de argumentos `numeric` em RPC ──────────────────
+//
+// Mesma razão das colunas: o gerador transforma `numeric` em `number`, e a
+// aplicação manda string decimal para não passar por ponto flutuante. A
+// lista é conferida pelo TypeScript — o argumento precisa existir na função
+// e ser numérico, senão `NumericArgs` não compila.
+
+type NumericArgsByFunction = {
+  /** migration 20260902120000 — grava o custo vigente do produto. */
+  set_product_cost: "p_cost_price";
+};
+
+type NumericArgKeys<Args> = {
+  [K in keyof Args]-?: number extends NonNullable<Args[K]> ? K : never;
+}[keyof Args];
+
+type NumericArgs<F extends keyof Public["Functions"]> = F extends keyof NumericArgsByFunction
+  ? Extract<NumericArgsByFunction[F], NumericArgKeys<Public["Functions"][F]["Args"]>>
+  : never;
+
+type WidenFunction<F extends keyof Public["Functions"]> = Omit<
+  Public["Functions"][F],
+  "Args"
+> & {
+  Args: AcceptsDecimalString<Public["Functions"][F]["Args"], NumericArgs<F>>;
 };
 
 /**
@@ -305,8 +357,9 @@ type WidenTable<T extends keyof Public["Tables"]> = Omit<
  * É isto que evita `as any` espalhado pelos repositories.
  */
 export type AppDatabase = Omit<Database, "public"> & {
-  public: Omit<Public, "Tables"> & {
+  public: Omit<Public, "Tables" | "Functions"> & {
     Tables: { [T in keyof Public["Tables"]]: WidenTable<T> };
+    Functions: { [F in keyof Public["Functions"]]: WidenFunction<F> };
   };
 };
 

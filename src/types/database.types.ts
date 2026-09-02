@@ -41,6 +41,72 @@ export type Database = {
           },
         ]
       }
+      audit_log: {
+        Row: {
+          action: string
+          actor_db_role: string
+          actor_email: string | null
+          actor_kind: string
+          actor_name: string | null
+          actor_role: Database["public"]["Enums"]["user_role"] | null
+          actor_user_id: string | null
+          changed_fields: string[] | null
+          entity_id: string
+          entity_label: string | null
+          entity_type: string
+          id: number
+          metadata: Json
+          new_data: Json | null
+          occurred_at: string
+          old_data: Json | null
+          operation: string
+          parent_id: string | null
+          parent_type: string | null
+        }
+        Insert: {
+          action: string
+          actor_db_role: string
+          actor_email?: string | null
+          actor_kind?: string
+          actor_name?: string | null
+          actor_role?: Database["public"]["Enums"]["user_role"] | null
+          actor_user_id?: string | null
+          changed_fields?: string[] | null
+          entity_id: string
+          entity_label?: string | null
+          entity_type: string
+          id?: number
+          metadata?: Json
+          new_data?: Json | null
+          occurred_at?: string
+          old_data?: Json | null
+          operation: string
+          parent_id?: string | null
+          parent_type?: string | null
+        }
+        Update: {
+          action?: string
+          actor_db_role?: string
+          actor_email?: string | null
+          actor_kind?: string
+          actor_name?: string | null
+          actor_role?: Database["public"]["Enums"]["user_role"] | null
+          actor_user_id?: string | null
+          changed_fields?: string[] | null
+          entity_id?: string
+          entity_label?: string | null
+          entity_type?: string
+          id?: number
+          metadata?: Json
+          new_data?: Json | null
+          occurred_at?: string
+          old_data?: Json | null
+          operation?: string
+          parent_id?: string | null
+          parent_type?: string | null
+        }
+        Relationships: []
+      }
       brands: {
         Row: {
           created_at: string
@@ -344,33 +410,100 @@ export type Database = {
           },
         ]
       }
-      product_costs: {
+      price_conditions: {
         Row: {
-          cost_price: number
+          code: string
           created_at: string
-          product_id: string
+          description: string | null
+          id: string
+          is_active: boolean
+          is_default: boolean
+          name: string
+          payment_days: number
+          sort_order: number
           updated_at: string
-          updated_by: string | null
         }
         Insert: {
-          cost_price?: number
+          code: string
           created_at?: string
-          product_id: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          name: string
+          payment_days?: number
+          sort_order?: number
           updated_at?: string
-          updated_by?: string | null
         }
         Update: {
+          code?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          is_default?: boolean
+          name?: string
+          payment_days?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      product_costs: {
+        Row: {
+          condition_id: string
+          cost_price: number
+          created_at: string
+          id: string
+          product_id: string
+          source_catalog: string | null
+          source_reference: string | null
+          source_version: string | null
+          updated_at: string
+          updated_by: string | null
+          valid_from: string
+          valid_to: string | null
+        }
+        Insert: {
+          condition_id: string
           cost_price?: number
           created_at?: string
-          product_id?: string
+          id?: string
+          product_id: string
+          source_catalog?: string | null
+          source_reference?: string | null
+          source_version?: string | null
           updated_at?: string
           updated_by?: string | null
+          valid_from?: string
+          valid_to?: string | null
+        }
+        Update: {
+          condition_id?: string
+          cost_price?: number
+          created_at?: string
+          id?: string
+          product_id?: string
+          source_catalog?: string | null
+          source_reference?: string | null
+          source_version?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          valid_from?: string
+          valid_to?: string | null
         }
         Relationships: [
           {
+            foreignKeyName: "product_costs_condition_id_fkey"
+            columns: ["condition_id"]
+            isOneToOne: false
+            referencedRelation: "price_conditions"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "product_costs_product_id_fkey"
             columns: ["product_id"]
-            isOneToOne: true
+            isOneToOne: false
             referencedRelation: "products"
             referencedColumns: ["id"]
           },
@@ -399,6 +532,7 @@ export type Database = {
           name: string
           notes: string | null
           sale_price: number
+          sale_price_set_at: string | null
           source_brand: string | null
           source_catalog: string | null
           source_imported_at: string | null
@@ -425,6 +559,7 @@ export type Database = {
           name: string
           notes?: string | null
           sale_price?: number
+          sale_price_set_at?: string | null
           source_brand?: string | null
           source_catalog?: string | null
           source_imported_at?: string | null
@@ -451,6 +586,7 @@ export type Database = {
           name?: string
           notes?: string | null
           sale_price?: number
+          sale_price_set_at?: string | null
           source_brand?: string | null
           source_catalog?: string | null
           source_imported_at?: string | null
@@ -888,6 +1024,7 @@ export type Database = {
           name: string | null
           notes: string | null
           sale_price: number | null
+          sale_price_set_at: string | null
           source_brand: string | null
           source_catalog: string | null
           source_imported_at: string | null
@@ -993,6 +1130,15 @@ export type Database = {
       recalculate_quote_totals: {
         Args: {
           p_quote_id: string
+        }
+        Returns: undefined
+      }
+      set_product_cost: {
+        Args: {
+          p_product_id: string
+          p_cost_price: number
+          p_condition_code?: string
+          p_updated_by?: string
         }
         Returns: undefined
       }

@@ -155,17 +155,23 @@ export async function update(id: string, record: ProductRecord, userId: string):
 /**
  * Grava o custo na tabela protegida. Se o usuário não for administrador,
  * o RLS recusa — não existe caminho de aplicação que contorne isso.
+ *
+ * Passa por `set_product_cost()` e não por `upsert` porque desde a
+ * migration 20260902120000 a unicidade do custo vigente é um índice
+ * PARCIAL (`where valid_to is null`), e o PostgREST não sabe inferir
+ * índice parcial em `onConflict`. A função é SECURITY INVOKER: quem
+ * autoriza continua sendo a RLS de `product_costs`, não a função.
+ *
+ * `p_condition_code` fica omitido de propósito — a aplicação ainda
+ * trabalha com um único custo, que é o da condição padrão (AVISTA).
  */
 export async function upsertCost(productId: string, costCents: number, userId: string): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase.from("product_costs").upsert(
-    {
-      product_id: productId,
-      cost_price: centsToDecimalString(costCents),
-      updated_by: userId,
-    },
-    { onConflict: "product_id" },
-  );
+  const { error } = await supabase.rpc("set_product_cost", {
+    p_product_id: productId,
+    p_cost_price: centsToDecimalString(costCents),
+    p_updated_by: userId,
+  });
   if (error) throw new Error(error.message);
 }
 
