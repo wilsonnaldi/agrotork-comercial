@@ -241,22 +241,28 @@ enxergar custo e o link público funcionando no domínio de produção.
 
 ---
 
-## Fase 6 — Refino e operação ⬜
+## Fase 6 — Refino e operação 🟡
 
 - ⬜ Relatórios simples (orçamentos por período, por vendedor, taxa de conversão)
-- 🟡 **Expiração automática de orçamentos (cron do Supabase)** — migration
-      `3000` cria o índice da varredura, reafirma os privilégios de
-      `expire_quotes()` e agenda o job `expirar-orcamentos` (`5 3 * * *`).
-      Coberto por `13_expiracao.sql` (25 verificações) e por
-      `e2e-expiracao.mjs` (15). **Pendente:** habilitar `pg_cron` no painel
-      do Supabase — enquanto isso a migration aplica como no-op. SETUP.md §9
-- 🟡 **Log de auditoria** — migration `4000` cria `audit_log`
-      (somente-anexação, leitura só de administrador), a função
+- ✅ **Expiração automática de orçamentos (cron do Supabase)** — migration
+      `20260901052525_expire_quotes_schedule` cria o índice da varredura,
+      reafirma os privilégios de `expire_quotes()` e agenda o job
+      `expirar-orcamentos` (`5 3 * * *`). Coberto por `13_expiracao.sql`
+      (25 verificações) e por `e2e-expiracao.mjs` (15). `pg_cron` 1.6.4 está
+      habilitado no projeto remoto e o job consta em `cron.job`. SETUP.md §9
+- ✅ **Log de auditoria** — migration `20260901060000_audit_log` cria
+      `audit_log` (somente-anexação, leitura só de administrador), a função
       `audit_capture()` e triggers em 13 tabelas. Registra quem, o quê,
       quando, em qual registro e o antes/depois. Coberto por
       `14_auditoria.sql` (32 verificações), 13 asserções pgTAP e
-      `e2e-auditoria.mjs` (17). **Pendente:** aplicar a migration no
-      Supabase remoto. DATABASE.md §4.13, ARCHITECTURE.md §9
+      `e2e-auditoria.mjs` (17). Aplicada no Supabase remoto.
+      DATABASE.md §4.13, ARCHITECTURE.md §9
+- ✅ **Endurecimento de RLS e privilégios** — 11 migrations entre
+      `20260901190230` e `20260901214750`: `search_path` vazio em todas as
+      25 funções, revogação de todo privilégio de tabela do `anon`, extensões
+      fora do schema `public`, máquina de estados do orçamento no banco,
+      proteção de `subtotal`/`total` contra PATCH direto e consolidação das
+      policies permissivas. Coberto por `db:test` (246 asserções).
 - ⬜ Backup e rotina de restauração documentada
 - ⬜ Domínio próprio (`sistema.agrotork.com.br`) e ambiente de produção
 - ⬜ Treinamento da equipe e manual curto de uso

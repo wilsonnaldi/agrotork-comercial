@@ -717,8 +717,38 @@ supabase/migrations/
 ├─ 20260829001600_kit_item_type.sql   # item obrigatório/opcional do kit, preço-base na view, FK de kit no orçamento
 ├─ 20260829001700_quotes_workflow.sql # status `cancelled`, prazo de entrega, totais não negativos, trava de cancelado
 ├─ 20260829001800_discard_draft.sql   # discard_quote_draft(): exclusão lógica de rascunho via security definer
-└─ 20260829001900_quote_sharing.sql   # get_shared_quote(): leitura pública por token, sem policy para anon
+├─ 20260829001900_quote_sharing.sql   # get_shared_quote(): leitura pública por token, sem policy para anon
+├─ 20260829002000_storage.sql         # buckets public-assets e private-docs, com policies próprias
+│
+│  ── Fase 6 e endurecimento ──────────────────────────────────────────
+├─ 20260831002100_signup_role_hardening.sql  # papel de admin não se concede no cadastro
+├─ 20260901052518_revoke_trigger_function_execute.sql # revoga EXECUTE direto das funções de trigger
+├─ 20260901052525_expire_quotes_schedule.sql # Fase 6.2: índice da varredura e job `expirar-orcamentos` no pg_cron
+├─ 20260901055000_reconciliar_comentarios_expiracao.sql # só COMMENT: reconciliação documental da 6.2
+├─ 20260901060000_audit_log.sql       # Fase 6.3: audit_log append-only, audit_capture() e triggers em 13 tabelas
+├─ 20260901190230_harden_function_search_path_and_rls_policies.sql # search_path vazio nos helpers de autorização; initPlan nas policies
+├─ 20260901190334_harden_remaining_function_search_paths.sql # search_path vazio nas demais funções de trigger/helper
+├─ 20260901191225_harden_quote_sequence_access.sql # quote_sequences fora do alcance de anon e authenticated
+├─ 20260901193812_revoke_anon_public_table_access.sql # revoga todo privilégio de tabela do anon no schema public
+├─ 20260901193926_harden_remaining_security_definer_search_path.sql # search_path vazio nas security definer restantes
+├─ 20260901194546_move_extensions_out_of_public.sql # pg_trgm e unaccent saem do schema public
+├─ 20260901195103_revoke_anon_trigger_function_execute.sql # revoga EXECUTE do anon nas funções de trigger
+├─ 20260901201459_enforce_quote_status_and_active_rls.sql # máquina de estados do orçamento no banco; RLS exige usuário ativo
+├─ 20260901211122_protect_quote_totals_from_direct_updates.sql # PATCH direto em subtotal/total dispara recálculo
+├─ 20260901211340_enforce_active_user_on_quote_items.sql # owns_quote() e quote_is_editable() exigem usuário ativo
+└─ 20260901214750_consolidate_permissive_rls_policies.sql # policies por comando, sem sobreposição admin ALL + leitura
 ```
+
+**36 migrations**, todas aplicadas no projeto remoto. A conferência é por
+checksum: a lista `version||'_'||name` de `supabase_migrations.schema_migrations`
+e a lista de arquivos deste diretório produzem o mesmo md5. Um banco montado do
+zero com estas 36 migrations reproduz o catálogo de produção — mesmas 47
+policies, 25 funções, 36 triggers e 15 tabelas.
+
+> `supabase db pull` deposita aqui um `<timestamp>_remote_schema.sql`. Isso **não
+> é uma migration**: é um dump do schema remoto, e versioná-lo reabre a
+> divergência entre o histórico do Git e o do banco. O `.gitignore` bloqueia
+> esse padrão de propósito.
 
 Verificação: `bash supabase/db-tests/run.mjs` aplica todas as migrations em um
 PostgreSQL descartável e confere regras de negócio, RLS e privilégios.
