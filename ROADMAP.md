@@ -348,14 +348,19 @@ vendido.
 - ✅ 19 asserções em `supabase/db-tests/18_pedidos.sql`, incluindo o teste
   crítico de histórico e o congelamento valendo para o administrador
 
-### Interface ⬜
+### Interface ✅ *(módulo `src/modules/orders/`)*
 
-- ⬜ Listagem de pedidos (`/pedidos`), com o padrão "meus pedidos" do vendedor
-- ⬜ Detalhe do pedido, somente leitura no comercial
-- ⬜ Botão "Gerar pedido" no orçamento aprovado
-- ⬜ Botão "Renegociar" no pedido, levando ao orçamento novo
-- ⬜ Mudança de situação com confirmação
-- ⬜ Responsividade em 360, 768 e 1440 px
+- ✅ Listagem `/pedidos` com busca, filtro por situação e por vendedor,
+  ordenação e paginação — tabela no desktop, lista no celular
+- ✅ Detalhe `/pedidos/[id]`, somente leitura no comercial, com selo
+  "Congelado" sobre os itens
+- ✅ Botão "Gerar pedido" no orçamento aprovado; quando o pedido já existe,
+  o cartão vira link para ele em vez de oferecer o botão de novo
+- ✅ Botão "Renegociar" no pedido, com confirmação, levando ao orçamento novo
+- ✅ Mudança de situação: só os botões que o banco aceita a partir da atual
+- ✅ Item "Pedidos" na navegação (sidebar e barra do celular)
+- ⬜ Conferência visual em 360, 768 e 1440 px — falta o olho humano
+- ⬜ Formulário de previsão de entrega (a coluna existe e é editável)
 
 ### O que NÃO entra nesta onda (de propósito)
 

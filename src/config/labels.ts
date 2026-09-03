@@ -1,10 +1,4 @@
-import type {
-  ItemKind,
-  PersonType,
-  ProductSourceType,
-  QuoteStatus,
-  UserRole,
-} from "@/types/db";
+import type { ItemKind, OrderStatus, PersonType, ProductSourceType, QuoteStatus, UserRole } from "@/types/db";
 
 /** Rótulos em português. O banco guarda o valor canônico em inglês. */
 
@@ -46,5 +40,21 @@ export const QUOTE_STATUS_TONE: Record<QuoteStatus, "neutral" | "info" | "succes
   approved: "success",
   rejected: "danger",
   expired: "warning",
+  cancelled: "neutral",
+};
+
+export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
+  confirmed: "Confirmado",
+  picking: "Em separação",
+  invoiced: "Faturado",
+  delivered: "Entregue",
+  cancelled: "Cancelado",
+};
+
+export const ORDER_STATUS_TONE: Record<OrderStatus, "neutral" | "info" | "success" | "danger" | "warning"> = {
+  confirmed: "info",
+  picking: "warning",
+  invoiced: "info",
+  delivered: "success",
   cancelled: "neutral",
 };

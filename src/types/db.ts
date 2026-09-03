@@ -83,6 +83,7 @@ export type KitItemType = Public["Enums"]["kit_item_type"];
  * (entrou na migration 1700).
  */
 export type QuoteStatus = Public["Enums"]["quote_status"];
+export type OrderStatus = Public["Enums"]["order_status"];
 
 /**
  * Os mesmos valores do enum, em forma de lista, para quem precisa deles em
@@ -121,6 +122,8 @@ export type Kit = TableRow<"kits">;
 export type KitItem = TableRow<"kit_items">;
 export type Quote = TableRow<"quotes">;
 export type QuoteItem = TableRow<"quote_items">;
+export type Order = TableRow<"orders">;
+export type OrderItem = TableRow<"order_items">;
 export type QuoteShareToken = TableRow<"quote_share_tokens">;
 export type AppSetting = TableRow<"app_settings">;
 
@@ -189,6 +192,38 @@ export type QuoteListRow = NotNull<ViewRow<"quotes_list">, (typeof QUOTE_LIST_CO
 
 export function toQuoteListRow(row: ViewRow<"quotes_list">): QuoteListRow {
   assertColumns(row, QUOTE_LIST_COLUMNS, "quotes_list");
+  return row;
+}
+
+/**
+ * `orders_list` = `orders` (where deleted_at is null) + cliente, vendedor,
+ * número do orçamento de origem e contagem de itens.
+ *
+ * Seguem nulos: `delivery_forecast`, `customer_city`, e o par
+ * `quote_id`/`quote_number` — o pedido nasce de um orçamento, mas o
+ * orçamento pode ter sido apagado depois (`on delete set null`), e o
+ * pedido não desaparece junto.
+ */
+const ORDER_LIST_COLUMNS = [
+  "id",
+  "number",
+  "status",
+  "issue_date",
+  "subtotal",
+  "total",
+  "created_at",
+  "updated_at",
+  "customer_id",
+  "customer_name",
+  "owner_id",
+  "owner_name",
+  "items_count",
+] as const satisfies readonly (keyof ViewRow<"orders_list">)[];
+
+export type OrderListRow = NotNull<ViewRow<"orders_list">, (typeof ORDER_LIST_COLUMNS)[number]>;
+
+export function toOrderListRow(row: ViewRow<"orders_list">): OrderListRow {
+  assertColumns(row, ORDER_LIST_COLUMNS, "orders_list");
   return row;
 }
 

@@ -4,6 +4,7 @@ import {
   Package,
   Boxes,
   FileText,
+  ClipboardCheck,
   ChartColumn,
   Settings,
   type LucideIcon,
@@ -27,6 +28,7 @@ export type NavItem = {
 export const NAV_ITEMS: NavItem[] = [
   { label: "Painel",     shortLabel: "Painel",   href: "/dashboard",     icon: LayoutDashboard, permission: "quotes.readOwn",   mobile: true },
   { label: "Orçamentos", shortLabel: "Orçam.",   href: "/orcamentos",    icon: FileText,        permission: "quotes.readOwn",   mobile: true },
+  { label: "Pedidos",    shortLabel: "Pedidos",  href: "/pedidos",       icon: ClipboardCheck,  permission: "orders.read",      mobile: true },
   { label: "Clientes",   shortLabel: "Clientes", href: "/clientes",      icon: Users,           permission: "customers.read",   mobile: true },
   { label: "Produtos",   shortLabel: "Produtos", href: "/produtos",      icon: Package,         permission: "products.read",    mobile: true },
   { label: "Kits",       shortLabel: "Kits",     href: "/kits",          icon: Boxes,           permission: "kits.read",        mobile: false },

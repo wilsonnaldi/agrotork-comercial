@@ -20,6 +20,16 @@ export const PERMISSIONS = {
   "kits.read": ["admin", "salesperson"],
   "kits.write": ["admin"],
 
+  /**
+   * Pedido de venda. Ler e mover a situação valem para os dois papéis:
+   * o vendedor acompanha e fatura o próprio pedido. Quem limita o alcance
+   * é o RLS — `orders_select` só devolve os pedidos do dono —, e o que
+   * NENHUM papel faz (mudar preço, item ou desconto) é barrado pelo
+   * gatilho `trg_orders_freeze`, não por esta matriz.
+   */
+  "orders.read": ["admin", "salesperson"],
+  "orders.write": ["admin", "salesperson"],
+
   "quotes.readOwn": ["admin", "salesperson"],
   "quotes.readAll": ["admin"],
   "quotes.write": ["admin", "salesperson"],

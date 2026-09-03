@@ -16,6 +16,8 @@ import { formatDate, formatDocument } from "@/lib/format";
 import { getQuoteWithItems, quoteIsEditable } from "@/modules/quotes/service";
 import { STATUS_TRANSITIONS } from "@/modules/quotes/types";
 import { changeStatusAction, deleteDraftAction } from "@/modules/quotes/actions";
+import { createOrderFromQuoteAction } from "@/modules/orders/actions";
+import { orderForQuote } from "@/modules/orders/service";
 import { listLinks } from "@/modules/quotes/share/service";
 import {
   createShareLinkAction,
@@ -94,6 +96,10 @@ export default async function QuotePage({
   const podeMudarStatus = isAdmin || isOwner;
 
   // Sair de "aprovado" é operação de administrador.
+  // O pedido vivo deste orçamento decide o que o cartão abaixo mostra:
+  // botão de gerar, ou o link para o pedido que já existe.
+  const pedido = await orderForQuote(quote.id);
+
   const proximos = podeMudarStatus
     ? STATUS_TRANSITIONS[quote.status].filter(
         (status) => isAdmin || quote.status !== "approved" || status === quote.status,
@@ -293,6 +299,42 @@ export default async function QuotePage({
               </div>
             </CardBody>
           </Card>
+
+          {(quote.status === "approved" || pedido) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Pedido</CardTitle>
+              </CardHeader>
+              <CardBody className="space-y-3 text-sm">
+                {pedido ? (
+                  <>
+                    <p>
+                      <span className="text-graphite-500">Este orçamento virou o pedido </span>
+                      <Link href={`/pedidos/${pedido.id}`} className="tnum font-medium hover:text-brand">
+                        {pedido.number}
+                      </Link>
+                    </p>
+                    <Button asChild variant="secondary" fullWidth>
+                      <Link href={`/pedidos/${pedido.id}`}>Abrir pedido</Link>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-graphite-500">
+                      Gerar o pedido copia os itens e <strong>congela</strong> preço e composição. Para
+                      mudar o que foi vendido depois, o caminho é renegociar.
+                    </p>
+                    <form action={createOrderFromQuoteAction}>
+                      <input type="hidden" name="quote_id" value={quote.id} />
+                      <Button type="submit" fullWidth>
+                        Gerar pedido
+                      </Button>
+                    </form>
+                  </>
+                )}
+              </CardBody>
+            </Card>
+          )}
 
           <Card>
             <CardHeader>
