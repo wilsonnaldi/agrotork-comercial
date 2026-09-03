@@ -53,4 +53,7 @@ $PSQL -d "$DB" -f "$ROOT/supabase/db-tests/11_storage.sql" 2>&1 | grep -E "^ G[A
 echo "▶ triggers e privilégios"
 $PSQL -d "$DB" -f "$ROOT/supabase/db-tests/03_triggers_e_privilegios.sql" 2>&1 | grep -E "^ [L-O]\)|NOTICE|ORC-" || true
 
+echo "▶ pedido de venda: conversão, congelamento e situações"
+$PSQL -d "$DB" -f "$ROOT/supabase/db-tests/18_pedidos.sql" 2>&1 | grep -E "PV[0-9]+\)|NOTICE" || true
+
 echo "✔ concluído"

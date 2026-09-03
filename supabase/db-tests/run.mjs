@@ -66,6 +66,7 @@ const SUITES = [
   ["classificação em setores (script gerado)", "../importacao/classificar_setores.sql",
    /Antes:|Depois:|^\s+\d+\s+\S/],
   ["margem por setor", "16_margens.sql", /MG\d+\)|NOTICE/],
+  ["pedido de venda", "18_pedidos.sql", /PV\d+\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {
