@@ -104,6 +104,36 @@ interface, sem SQL. ✅ — **fase fechada.**
       por marca), procedência (`source_*`), dados técnicos e massa de teste
       identificável/removível — **sem** o importador, conforme a diretriz
 
+### Custo, catálogo e margem ✅
+
+- ✅ **Custo por condição de pagamento** — migration `20260902120000`: as
+      tabelas de fabricante comprovam AVISTA e FATURADO, e só isso. `product_costs`
+      passa a ter histórico (`valid_from`/`valid_to`) com um único custo vigente
+      por produto e condição, garantido por índice único parcial. Como o
+      PostgREST não infere índice parcial no `onConflict`, a gravação vai por
+      `set_product_cost()`
+- ✅ **"Preço nunca definido" ≠ R$ 0,00** — migration `20260902120100`:
+      `sale_price_set_at` nulo significa que ninguém precificou ainda. Produto
+      nessa situação entra inativo, e o app já recusa produto inativo em
+      orçamento novo. É o que impede o catálogo de nascer valendo zero
+- ✅ **Carga do catálogo** — 112 produtos das tabelas DJI (subdealer) e JR,
+      com 186 linhas de custo nas duas condições e rastreabilidade até a linha
+      do PDF de origem. Validador e gerador em `supabase/importacao/`; 25
+      verificações em `15_importacao_catalogo.sql`
+- ✅ **Marco Zero** — `supabase/marco-zero/`: inventário, limpeza com sete
+      guards, e verificação antes e depois. Executado em 02/09/2026 com 29/29
+      conferências OK
+- ✅ **Setores comerciais** — os 112 classificados em 7 setores por lista
+      explícita de códigos, não por palavra no nome: os 24 "DRONE MIX" da JR
+      não são aeronaves, são misturadores de solo
+- ✅ **Margem por setor** (`Configurações → Margens`) — migration
+      `20260903020000`: percentual, markup sobre o custo **ou** margem sobre a
+      venda, base de custo e arredondamento comercial, um por setor. A regra
+      **sugere**, não impõe: aplicar é um segundo passo, com a lista do que
+      mudaria na tela antes de gravar. Visível só ao administrador, no mesmo
+      nível do custo. 16 verificações em `16_margens.sql`
+- ⬜ Precificar os 112 e ativá-los — depende do percentual de cada setor
+
 **Critério de pronto:** dá para cadastrar um cliente e um produto pelo celular
 em menos de um minuto. ✅
 
