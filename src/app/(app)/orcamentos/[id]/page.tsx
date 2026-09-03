@@ -90,21 +90,28 @@ export default async function QuotePage({
   const query = await searchParams;
   const links = await listLinks(quote.id, await currentBaseUrl());
   const linkAtivo = links.find((link) => link.is_active) ?? null;
-  const editable = quoteIsEditable(quote, user.profile.role, user.id);
   const isOwner = quote.owner_id === user.id;
   const isAdmin = user.profile.role === "admin";
   const podeMudarStatus = isAdmin || isOwner;
 
-  // Sair de "aprovado" é operação de administrador.
-  // O pedido vivo deste orçamento decide o que o cartão abaixo mostra:
-  // botão de gerar, ou o link para o pedido que já existe.
+  // O pedido vivo deste orçamento decide duas coisas: o que o cartão
+  // PEDIDO mostra (botão de gerar, ou link para o que já existe) e se
+  // este orçamento ainda é um documento de trabalho.
   const pedido = await orderForQuote(quote.id);
 
-  const proximos = podeMudarStatus
-    ? STATUS_TRANSITIONS[quote.status].filter(
-        (status) => isAdmin || quote.status !== "approved" || status === quote.status,
-      )
-    : [];
+  // Orçamento que virou pedido é HISTÓRICO, não rascunho: alterá-lo
+  // faria o pedido apontar para uma origem que não diz mais o que foi
+  // vendido. O banco recusa desde a migration 20260903080000; aqui a
+  // tela para de oferecer o caminho, para o botão não existir só para
+  // devolver erro.
+  const editable = quoteIsEditable(quote, user.profile.role, user.id) && !pedido;
+
+  const proximos =
+    podeMudarStatus && !pedido
+      ? STATUS_TRANSITIONS[quote.status].filter(
+          (status) => isAdmin || quote.status !== "approved" || status === quote.status,
+        )
+      : [];
 
   const erro = typeof query.erro === "string" ? query.erro : null;
 
@@ -376,6 +383,13 @@ export default async function QuotePage({
                     </form>
                   ))}
                 </div>
+              )}
+
+              {pedido && (
+                <p className="border-t border-line pt-3 text-xs text-graphite-300">
+                  Este orçamento virou o pedido {pedido.number} e não muda mais. Para alterar o
+                  que foi vendido, use <strong>Renegociar</strong> na ficha do pedido.
+                </p>
               )}
 
               {quote.status === "draft" && podeMudarStatus && (

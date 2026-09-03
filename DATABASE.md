@@ -722,9 +722,29 @@ migration 1700: `order_items` é legível pelo dono do pedido, e o PostgreSQL
 não filtra coluna por papel de aplicação — guardar custo ali exporia a margem
 ao vendedor. Custo histórico para relatório é decisão da fase de relatórios.
 
-Verificação: `supabase/db-tests/18_pedidos.sql`, 19 asserções (PV1–PV19),
-incluindo o teste crítico de histórico (o catálogo muda e o pedido não) e o
-congelamento valendo para o administrador.
+### 4.16 A trava recíproca — orçamento que virou pedido
+
+*(migration `20260903080000`, achado da homologação FASE D)*
+
+Congelar o pedido não bastava. O orçamento de origem continuava editável
+pelo administrador, e `orders.quote_id` aponta para ele como prova do que
+foi vendido — se a prova muda depois, ela deixa de provar.
+
+Enquanto `quote_has_live_order(quote_id)` for verdadeiro (pedido não
+cancelado, não excluído):
+
+| travado no orçamento | continua livre |
+| --- | --- |
+| itens (via `quote_is_editable`, para vendedor **e** administrador), situação, cliente, desconto, frete, subtotal, total, data de emissão | `notes`, `internal_notes`, condições em texto |
+
+Cancelar o pedido devolve o orçamento ao normal: se o negócio não
+aconteceu, o documento volta a ser comum. Quem precisa mudar o que foi
+vendido **renegocia** — o caminho que cria documento novo.
+
+Verificação: `supabase/db-tests/18_pedidos.sql`, 25 asserções (PV1–PV25),
+incluindo o teste crítico de histórico (o catálogo muda e o pedido não), o
+congelamento valendo para o administrador nos dois documentos, e o
+cancelamento devolvendo a edição.
 
 ---
 

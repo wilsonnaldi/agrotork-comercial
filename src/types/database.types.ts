@@ -1506,6 +1506,12 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: number
       }
+      quote_has_live_order: {
+        Args: {
+          p_quote_id: string
+        }
+        Returns: boolean
+      }
       quote_is_editable: {
         Args: {
           p_quote_id: string

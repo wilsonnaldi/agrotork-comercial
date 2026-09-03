@@ -362,6 +362,22 @@ vendido.
 - ⬜ Conferência visual em 360, 768 e 1440 px — falta o olho humano
 - ⬜ Formulário de previsão de entrega (a coluna existe e é editável)
 
+### Homologação FASE D — 03/09/2026 ✅
+
+Ciclo completo validado no app publicado (cliente → orçamento → aprovar →
+gerar pedido), com os valores conferindo centavo a centavo. Três defeitos
+encontrados e corrigidos:
+
+- ✅ **Médio** — orçamento aprovado com pedido vivo continuava editável.
+  Corrigido na migration `20260903080000` (banco) e na tela do orçamento,
+  que parou de oferecer Editar e mudança de situação
+- ✅ **Baixo** — coluna "Vendedor" saía em branco quando `full_name` é
+  texto vazio; agora cai para "—" na ficha e na lista
+- ✅ **Baixo** — dois botões primários competindo no cartão de situação;
+  só o primeiro passo do caminho normal é primário
+- ⚠️ **Aberto** — ações de escrita levam 15–25 s (partida a frio das
+  funções na Netlify). Não é erro; medir de novo com o site quente
+
 ### O que NÃO entra nesta onda (de propósito)
 
 - Estoque: dar baixa exige `stock_movements`, que é a Onda 2

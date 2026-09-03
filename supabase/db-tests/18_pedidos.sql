@@ -339,3 +339,130 @@ begin
     then raise notice 'PV19) OK: PED em % e ORC em % — sequencias separadas', v_ped, v_orc;
     else raise notice 'PV19) FALHA: PED %, ORC %', v_ped, v_orc; end if;
 end $$;
+
+-- ── PV20: orçamento que virou pedido para de ser editável ───
+-- Achado da homologação (FASE D). O pedido congela — isso PV6/PV12 já
+-- provam. Aqui é o outro lado: a ORIGEM não pode mudar depois, senão o
+-- pedido aponta para uma prova que deixou de provar.
+--
+-- `set role authenticated` é obrigatório: como dono da tabela o
+-- PostgreSQL ignora RLS, e o teste passaria sem provar nada.
+set role authenticated;
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b001', false);
+
+do $$
+declare v_q uuid;
+begin
+  select id into v_q from public.quotes
+   where owner_id = 'bbbbbbbb-0000-4000-8000-00000000b002' and origin_order_id is null;
+  if public.quote_is_editable(v_q)
+    then raise notice 'PV20) FALHA: orcamento com pedido vivo continua editavel';
+    else raise notice 'PV20) OK: quote_is_editable = false com pedido vivo — nem para o administrador'; end if;
+end $$;
+
+-- ── PV21: e os itens do orçamento realmente não se movem ────
+do $$
+declare v_q uuid; v_qtd numeric; v_depois numeric; v_apagados int;
+begin
+  select id into v_q from public.quotes
+   where owner_id = 'bbbbbbbb-0000-4000-8000-00000000b002' and origin_order_id is null;
+  select quantity into v_qtd from public.quote_items
+   where quote_id = v_q and code_snapshot = 'PED-001';
+
+  begin update public.quote_items set quantity = 99
+         where quote_id = v_q and code_snapshot = 'PED-001';
+  exception when others then null; end;
+  begin delete from public.quote_items where quote_id = v_q and code_snapshot = 'PED-002';
+  exception when others then null; end;
+
+  select quantity into v_depois from public.quote_items
+   where quote_id = v_q and code_snapshot = 'PED-001';
+  select count(*)::int into v_apagados from public.quote_items where quote_id = v_q;
+
+  if v_depois = v_qtd and v_apagados = 2
+    then raise notice 'PV21) OK: administrador nao altera nem apaga item de orcamento ja fechado';
+    else raise notice 'PV21) FALHA: quantidade % -> %, restaram % itens', v_qtd, v_depois, v_apagados; end if;
+end $$;
+
+-- ── PV22: e não volta para rascunho ─────────────────────────
+do $$
+declare v_q uuid; v_st text; v_erro text;
+begin
+  select id into v_q from public.quotes
+   where owner_id = 'bbbbbbbb-0000-4000-8000-00000000b002' and origin_order_id is null;
+  begin
+    update public.quotes set status = 'draft' where id = v_q;
+    raise notice 'PV22) FALHA: reabriu orcamento com pedido vivo';
+  exception when others then
+    get stacked diagnostics v_erro = message_text;
+    select status::text into v_st from public.quotes where id = v_q;
+    if v_st = 'approved'
+      then raise notice 'PV22) OK: continua aprovado — %', left(v_erro, 55);
+      else raise notice 'PV22) FALHA: situacao virou %', v_st; end if;
+  end;
+end $$;
+
+-- ── PV23: nem o desconto, nem o frete ───────────────────────
+do $$
+declare v_q uuid; v_falhas text := '';
+begin
+  select id into v_q from public.quotes
+   where owner_id = 'bbbbbbbb-0000-4000-8000-00000000b002' and origin_order_id is null;
+  begin update public.quotes set discount_percent = 40 where id = v_q;
+        v_falhas := v_falhas || ' desconto'; exception when others then null; end;
+  begin update public.quotes set shipping_amount = 0 where id = v_q;
+        v_falhas := v_falhas || ' frete'; exception when others then null; end;
+  if v_falhas = ''
+    then raise notice 'PV23) OK: desconto e frete do orcamento tambem congelados';
+    else raise notice 'PV23) FALHA: passou em ->%', v_falhas; end if;
+end $$;
+
+-- ── PV24: observação continua livre ─────────────────────────
+-- Congelar tudo impediria anotar "cliente confirmou por telefone".
+do $$
+declare v_q uuid; v_erro text;
+begin
+  select id into v_q from public.quotes
+   where owner_id = 'bbbbbbbb-0000-4000-8000-00000000b002' and origin_order_id is null;
+  update public.quotes set internal_notes = 'Anotacao posterior ao fechamento' where id = v_q;
+  raise notice 'PV24) OK: observacao interna continua editavel com pedido vivo';
+exception when others then
+  get stacked diagnostics v_erro = message_text;
+  raise notice 'PV24) FALHA: travou tambem a observacao — %', left(v_erro, 60);
+end $$;
+
+-- ── PV25: pedido CANCELADO devolve o orçamento ao normal ────
+-- Se o negocio nao aconteceu, o orcamento volta a ser documento comum.
+-- Par novo, para nao mexer no pedido faturado dos testes anteriores.
+--
+-- Roda como ADMINISTRADOR de proposito: para o vendedor, orcamento
+-- aprovado ja era travado antes desta migration (regra da 1700), entao
+-- so o administrador consegue mostrar a diferenca que a trava nova faz.
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b001', false);
+
+do $$
+declare v_q uuid; v_o uuid; v_antes boolean; v_depois boolean;
+begin
+  insert into public.quotes (customer_id, owner_id, status)
+  select c.id, 'bbbbbbbb-0000-4000-8000-00000000b002', 'draft'
+    from public.customers c where c.name = 'Cliente do Pedido'
+  returning id into v_q;
+
+  insert into public.quote_items (quote_id, product_id, name_snapshot, quantity, unit_price)
+  select v_q, p.id, p.name, 1, 500 from public.products p where p.code = 'PED-002';
+
+  update public.quotes set status = 'sent'     where id = v_q;
+  update public.quotes set status = 'approved' where id = v_q;
+
+  v_o := public.create_order_from_quote(v_q);
+  v_antes := public.quote_is_editable(v_q);
+
+  update public.orders set status = 'cancelled' where id = v_o;
+  v_depois := public.quote_is_editable(v_q);
+
+  if v_antes = false and v_depois = true
+    then raise notice 'PV25) OK: com pedido vivo trava; cancelado o pedido, o orcamento volta a ser editavel';
+    else raise notice 'PV25) FALHA: antes % / depois % (esperado false / true)', v_antes, v_depois; end if;
+end $$;
+
+reset role;

@@ -214,19 +214,24 @@ export default async function OrderPage({
                 </div>
                 <div className="flex justify-between gap-4">
                   <dt className="text-graphite-500">Vendedor</dt>
-                  <dd>{order.owner_name}</dd>
+                  {/* `full_name` vazio não é nulo: sem o trim a linha sairia
+                      em branco, como saiu na homologação. */}
+                  <dd>{order.owner_name?.trim() || "—"}</dd>
                 </div>
               </dl>
 
               {proximos.length > 0 && podeMover && (
                 <div className="space-y-2 border-t border-line pt-3">
-                  {proximos.map((status) => (
+                  {/* Só o primeiro passo do caminho normal é primário. Dois
+                      botões vermelhos lado a lado não dizem qual é o próximo
+                      passo — e "Faturado" é o mais consequente dos dois. */}
+                  {proximos.map((status, indice) => (
                     <form key={status} action={changeStatusAction}>
                       <input type="hidden" name="id" value={order.id} />
                       <input type="hidden" name="status" value={status} />
                       <Button
                         type="submit"
-                        variant={status === "cancelled" ? "secondary" : "primary"}
+                        variant={indice === 0 && status !== "cancelled" ? "primary" : "secondary"}
                         fullWidth
                       >
                         Marcar como {ORDER_STATUS_LABELS[status]}

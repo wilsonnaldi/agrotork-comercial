@@ -149,7 +149,11 @@ export default async function OrdersPage({ searchParams }: { searchParams: Searc
                         <span className="block text-xs text-graphite-300">{order.customer_city}</span>
                       )}
                     </td>
-                    {canReadAll && <td className="px-5 py-3 text-graphite-500">{order.owner_name}</td>}
+                    {canReadAll && (
+                      <td className="px-5 py-3 text-graphite-500">
+                        {order.owner_name?.trim() || "—"}
+                      </td>
+                    )}
                     <td className="px-5 py-3 tnum text-graphite-500">{formatDate(order.issue_date)}</td>
                     <td className="px-5 py-3 tnum text-graphite-500">{formatDate(order.delivery_forecast)}</td>
                     <td className="px-5 py-3 text-right tnum text-graphite-500">{order.items_count}</td>
