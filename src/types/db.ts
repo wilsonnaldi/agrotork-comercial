@@ -86,6 +86,7 @@ export type QuoteStatus = Public["Enums"]["quote_status"];
 export type OrderStatus = Public["Enums"]["order_status"];
 export type StockReason = Public["Enums"]["stock_reason"];
 export type SerialStatus = Public["Enums"]["serial_status"];
+export type PurchaseStatus = Public["Enums"]["purchase_status"];
 
 /**
  * Os mesmos valores do enum, em forma de lista, para quem precisa deles em
@@ -123,6 +124,8 @@ export type Customer = TableRow<"customers">;
 export type Supplier = TableRow<"suppliers">;
 export type StockMovement = TableRow<"stock_movements">;
 export type ProductSerial = TableRow<"product_serials">;
+export type Purchase = TableRow<"purchases">;
+export type PurchaseItem = TableRow<"purchase_items">;
 export type Kit = TableRow<"kits">;
 export type KitItem = TableRow<"kit_items">;
 export type Quote = TableRow<"quotes">;
@@ -229,6 +232,41 @@ export type OrderListRow = NotNull<ViewRow<"orders_list">, (typeof ORDER_LIST_CO
 
 export function toOrderListRow(row: ViewRow<"orders_list">): OrderListRow {
   assertColumns(row, ORDER_LIST_COLUMNS, "orders_list");
+  return row;
+}
+
+/**
+ * `purchases_list` = `purchases` (where deleted_at is null) com JOIN
+ * INTERNO em `suppliers` e `price_conditions` — por isso `supplier_name`
+ * e `condition_name` nunca são nulos. `items_count` é
+ * `count(*)::integer`, que também não é nulo.
+ *
+ * Seguem nulos: `received_date` (a nota ainda é rascunho),
+ * `invoice_number` (entrada sem nota — brinde, garantia) e
+ * `supplier_city`.
+ */
+const PURCHASE_LIST_COLUMNS = [
+  "id",
+  "number",
+  "status",
+  "issue_date",
+  "items_total",
+  "total",
+  "created_at",
+  "updated_at",
+  "supplier_id",
+  "supplier_name",
+  "condition_name",
+  "items_count",
+] as const satisfies readonly (keyof ViewRow<"purchases_list">)[];
+
+export type PurchaseListRow = NotNull<
+  ViewRow<"purchases_list">,
+  (typeof PURCHASE_LIST_COLUMNS)[number]
+>;
+
+export function toPurchaseListRow(row: ViewRow<"purchases_list">): PurchaseListRow {
+  assertColumns(row, PURCHASE_LIST_COLUMNS, "purchases_list");
   return row;
 }
 

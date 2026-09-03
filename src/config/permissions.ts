@@ -48,6 +48,13 @@ export const PERMISSIONS = {
   "stock.read": ["admin", "salesperson"],
   "stock.manage": ["admin"],
 
+  /**
+   * Entrada de mercadoria. Não tem par `read`: uma nota de compra é
+   * custo da primeira à última linha, e o vendedor não a enxerga nem
+   * para consultar. O que ele vê é o SALDO que a entrada gerou.
+   */
+  "purchases.manage": ["admin"],
+
   "quotes.readOwn": ["admin", "salesperson"],
   "quotes.readAll": ["admin"],
   "quotes.write": ["admin", "salesperson"],

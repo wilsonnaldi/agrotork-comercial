@@ -3,6 +3,7 @@ import type {
   OrderStatus,
   PersonType,
   ProductSourceType,
+  PurchaseStatus,
   QuoteStatus,
   SerialStatus,
   StockReason,
@@ -97,4 +98,16 @@ export const SERIAL_STATUS_TONE: Record<SerialStatus, "neutral" | "info" | "succ
   returned: "warning",
   defective: "danger",
   written_off: "neutral",
+};
+
+export const PURCHASE_STATUS_LABELS: Record<PurchaseStatus, string> = {
+  draft: "Rascunho",
+  received: "Recebida",
+  cancelled: "Cancelada",
+};
+
+export const PURCHASE_STATUS_TONE: Record<PurchaseStatus, "neutral" | "info" | "success" | "danger" | "warning"> = {
+  draft: "warning",
+  received: "success",
+  cancelled: "neutral",
 };

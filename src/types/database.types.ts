@@ -1063,6 +1063,194 @@ export type Database = {
           },
         ]
       }
+      purchase_items: {
+        Row: {
+          created_at: string
+          freight_share: number
+          id: string
+          landed_cost: number | null
+          line_total: number | null
+          notes: string | null
+          previous_cost: number | null
+          product_id: string
+          purchase_id: string
+          quantity: number
+          sort_order: number
+          unit_cost: number
+        }
+        Insert: {
+          created_at?: string
+          freight_share?: number
+          id?: string
+          landed_cost?: number | null
+          line_total?: number | null
+          notes?: string | null
+          previous_cost?: number | null
+          product_id: string
+          purchase_id: string
+          quantity: number
+          sort_order?: number
+          unit_cost?: number
+        }
+        Update: {
+          created_at?: string
+          freight_share?: number
+          id?: string
+          landed_cost?: number | null
+          line_total?: number | null
+          notes?: string | null
+          previous_cost?: number | null
+          product_id?: string
+          purchase_id?: string
+          quantity?: number
+          sort_order?: number
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchase_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchase_items_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchases"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      purchase_sequences: {
+        Row: {
+          last_number: number
+          year: number
+        }
+        Insert: {
+          last_number?: number
+          year: number
+        }
+        Update: {
+          last_number?: number
+          year?: number
+        }
+        Relationships: []
+      }
+      purchases: {
+        Row: {
+          cancelled_at: string | null
+          condition_id: string
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          discount_amount: number
+          freight_amount: number
+          id: string
+          invoice_key: string | null
+          invoice_number: string | null
+          invoice_series: string | null
+          issue_date: string
+          items_total: number
+          notes: string | null
+          number: string
+          other_amount: number
+          received_at: string | null
+          received_date: string | null
+          sequence_number: number
+          sequence_year: number
+          status: Database["public"]["Enums"]["purchase_status"]
+          supplier_id: string
+          total: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          cancelled_at?: string | null
+          condition_id: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          discount_amount?: number
+          freight_amount?: number
+          id?: string
+          invoice_key?: string | null
+          invoice_number?: string | null
+          invoice_series?: string | null
+          issue_date?: string
+          items_total?: number
+          notes?: string | null
+          number: string
+          other_amount?: number
+          received_at?: string | null
+          received_date?: string | null
+          sequence_number: number
+          sequence_year: number
+          status?: Database["public"]["Enums"]["purchase_status"]
+          supplier_id: string
+          total?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          cancelled_at?: string | null
+          condition_id?: string
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          discount_amount?: number
+          freight_amount?: number
+          id?: string
+          invoice_key?: string | null
+          invoice_number?: string | null
+          invoice_series?: string | null
+          issue_date?: string
+          items_total?: number
+          notes?: string | null
+          number?: string
+          other_amount?: number
+          received_at?: string | null
+          received_date?: string | null
+          sequence_number?: number
+          sequence_year?: number
+          status?: Database["public"]["Enums"]["purchase_status"]
+          supplier_id?: string
+          total?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "purchases_condition_id_fkey"
+            columns: ["condition_id"]
+            isOneToOne: false
+            referencedRelation: "price_conditions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchases_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchases_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "purchases_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       quote_items: {
         Row: {
           brand_snapshot: string | null
@@ -1678,6 +1866,26 @@ export type Database = {
         }
         Relationships: []
       }
+      purchases_list: {
+        Row: {
+          condition_name: string | null
+          created_at: string | null
+          id: string | null
+          invoice_number: string | null
+          issue_date: string | null
+          items_count: number | null
+          items_total: number | null
+          number: string | null
+          received_date: string | null
+          status: Database["public"]["Enums"]["purchase_status"] | null
+          supplier_city: string | null
+          supplier_id: string | null
+          supplier_name: string | null
+          total: number | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
       quotes_list: {
         Row: {
           created_at: string | null
@@ -1726,6 +1934,12 @@ export type Database = {
       auth_role: {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
+      }
+      cancel_purchase: {
+        Args: {
+          p_purchase_id: string
+        }
+        Returns: boolean
       }
       create_order_from_quote: {
         Args: {
@@ -1776,6 +1990,16 @@ export type Database = {
         Returns: boolean
       }
       next_order_number: {
+        Args: {
+          p_year?: number
+        }
+        Returns: {
+          seq_year: number
+          seq_number: number
+          formatted: string
+        }[]
+      }
+      next_purchase_number: {
         Args: {
           p_year?: number
         }
@@ -1841,11 +2065,23 @@ export type Database = {
         }
         Returns: undefined
       }
+      recalculate_purchase_totals: {
+        Args: {
+          p_purchase_id: string
+        }
+        Returns: undefined
+      }
       recalculate_quote_totals: {
         Args: {
           p_quote_id: string
         }
         Returns: undefined
+      }
+      receive_purchase: {
+        Args: {
+          p_purchase_id: string
+        }
+        Returns: number
       }
       register_stock_movement: {
         Args: {
@@ -1904,6 +2140,7 @@ export type Database = {
       order_status: "confirmed" | "picking" | "invoiced" | "delivered" | "cancelled"
       person_type: "individual" | "company"
       product_source_type: "manual" | "manufacturer_catalog" | "price_list" | "test_data"
+      purchase_status: "draft" | "received" | "cancelled"
       quote_status: "draft" | "sent" | "approved" | "rejected" | "expired" | "cancelled"
       serial_status: "in_stock" | "sold" | "returned" | "defective" | "written_off"
       stock_reason: "initial" | "purchase" | "sale" | "return_in" | "return_out" | "adjustment" | "loss"
@@ -2010,6 +2247,7 @@ export const Constants = {
       order_status: ["confirmed", "picking", "invoiced", "delivered", "cancelled"],
       person_type: ["individual", "company"],
       product_source_type: ["manual", "manufacturer_catalog", "price_list", "test_data"],
+      purchase_status: ["draft", "received", "cancelled"],
       quote_status: ["draft", "sent", "approved", "rejected", "expired", "cancelled"],
       serial_status: ["in_stock", "sold", "returned", "defective", "written_off"],
       stock_reason: ["initial", "purchase", "sale", "return_in", "return_out", "adjustment", "loss"],
