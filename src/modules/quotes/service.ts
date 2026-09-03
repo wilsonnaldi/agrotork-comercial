@@ -490,10 +490,17 @@ export async function updateItem(
     assertQuantityFitsUnit(input.quantity_milli, product?.allows_fraction ?? true, item.name_snapshot);
   }
 
-  await repository.updateItem(itemId, {
+  const afetadas = await repository.updateItem(itemId, {
     quantityMilli: input.quantity_milli,
     discountPercent: input.discount_percent,
   });
+  // Zero linha afetada com o item existindo = a RLS recusou. Antes
+  // disto a operação voltava calada e a tela recarregava igual.
+  if (afetadas === 0) {
+    throw new BusinessError(
+      "Este orçamento não pode mais ser alterado. Se ele já virou pedido, use Renegociar na ficha do pedido.",
+    );
+  }
 }
 
 /**
@@ -523,15 +530,29 @@ export async function updateKitOptionals(
         : component.product_id !== null && escolhidos.has(component.product_id),
   }));
 
-  await repository.updateItem(itemId, {
+  const afetadas = await repository.updateItem(itemId, {
     components,
     unitPriceCents: kitUnitPriceCents(components),
   });
+  // Zero linha afetada com o item existindo = a RLS recusou. Antes
+  // disto a operação voltava calada e a tela recarregava igual.
+  if (afetadas === 0) {
+    throw new BusinessError(
+      "Este orçamento não pode mais ser alterado. Se ele já virou pedido, use Renegociar na ficha do pedido.",
+    );
+  }
 }
 
 export async function removeItem(itemId: string, role: UserRole, userId: string): Promise<void> {
   await loadItemForWrite(itemId, role, userId);
-  await repository.deleteItem(itemId);
+  const afetadas = await repository.deleteItem(itemId);
+  // Zero linha afetada com o item existindo = a RLS recusou. Antes
+  // disto a operação voltava calada e a tela recarregava igual.
+  if (afetadas === 0) {
+    throw new BusinessError(
+      "Este orçamento não pode mais ser alterado. Se ele já virou pedido, use Renegociar na ficha do pedido.",
+    );
+  }
 }
 
 /** Quantidade efetiva de um componente: por kit × quantidade da linha. */

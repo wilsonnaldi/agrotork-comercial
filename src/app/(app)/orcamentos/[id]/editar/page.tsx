@@ -28,6 +28,7 @@ import {
   updateKitOptionalsAction,
   updateQuoteHeaderAction,
 } from "@/modules/quotes/actions";
+import { orderForQuote } from "@/modules/orders/service";
 import { QuoteHeaderForm } from "../../quote-header-form";
 import {
   AddProductRow,
@@ -54,6 +55,17 @@ export default async function EditQuotePage({
   const { id } = await params;
   const quote = await getQuoteWithItems(id);
   if (!quote) notFound();
+
+  // Orçamento que virou pedido não tem tela de edição. Sem esta guarda a
+  // rota abria com os campos e os botões ativos: o banco recusava a
+  // escrita (migration 20260903080000), mas em SILÊNCIO — quem chegasse
+  // aqui por um link antigo clicava, nada acontecia e nada explicava.
+  //
+  // `quoteIsEditable` sozinho não enxerga isto: é a versão TypeScript da
+  // regra e não consulta `orders`. Quem sabe da verdade é o banco; aqui
+  // perguntamos ao módulo de pedidos, que é o dono dessa informação.
+  const pedido = await orderForQuote(quote.id);
+  if (pedido) redirect(`/orcamentos/${quote.id}?bloqueado=pedido`);
 
   const editable = quoteIsEditable(quote, user.profile.role, user.id);
   // Orçamento travado não tem tela de edição: a ficha já mostra tudo.

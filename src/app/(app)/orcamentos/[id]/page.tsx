@@ -177,9 +177,15 @@ export default async function QuotePage({
       )}
       {typeof query.bloqueado === "string" && (
         <Alert tone="warning" className="mb-4">
-          {quote.status === "approved"
-            ? "Orçamento aprovado não pode ser editado. Um administrador precisa reabri-lo."
-            : "Orçamento cancelado não pode ser editado. Reabra-o para voltar a mexer."}
+          {/* Três motivos diferentes, três saídas diferentes. Dizer
+              "um administrador precisa reabri-lo" para um orçamento que
+              virou pedido mandaria a pessoa pedir algo que ninguém pode
+              fazer. */}
+          {query.bloqueado === "pedido"
+            ? `Este orçamento virou o pedido ${pedido?.number ?? ""} e não pode mais ser editado. Para mudar o que foi vendido, use Renegociar na ficha do pedido.`
+            : quote.status === "approved"
+              ? "Orçamento aprovado não pode ser editado. Um administrador precisa reabri-lo."
+              : "Orçamento cancelado não pode ser editado. Reabra-o para voltar a mexer."}
         </Alert>
       )}
 

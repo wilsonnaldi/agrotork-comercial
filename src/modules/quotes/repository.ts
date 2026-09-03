@@ -307,7 +307,7 @@ export async function updateItem(
     unitPriceCents?: number;
     components?: KitComponentSnapshot[];
   },
-): Promise<void> {
+): Promise<number> {
   const supabase = await createClient();
   const record: {
     quantity?: string;
@@ -321,14 +321,30 @@ export async function updateItem(
   if (patch.unitPriceCents !== undefined) record.unit_price = centsToDecimalString(patch.unitPriceCents);
   if (patch.components !== undefined) record.components_snapshot = patch.components as never;
 
-  const { error } = await supabase.from("quote_items").update(record).eq("id", itemId);
+  // `.select()` devolve as linhas afetadas — e é o que distingue "não
+  // tinha o que mudar" de "a RLS recusou". Sem ele, uma escrita barrada
+  // pela policy volta SEM erro e com zero linhas: a tela recarrega igual,
+  // ninguém é avisado, e a pessoa acha que o sistema travou. Foi
+  // exatamente o que a homologação de 03/09 encontrou.
+  const { data, error } = await supabase
+    .from("quote_items")
+    .update(record)
+    .eq("id", itemId)
+    .select("id");
   if (error) throw new Error(error.message);
+  return (data ?? []).length;
 }
 
-export async function deleteItem(itemId: string): Promise<void> {
+/** Devolve quantas linhas o banco realmente apagou. Zero = RLS recusou. */
+export async function deleteItem(itemId: string): Promise<number> {
   const supabase = await createClient();
-  const { error } = await supabase.from("quote_items").delete().eq("id", itemId);
+  const { data, error } = await supabase
+    .from("quote_items")
+    .delete()
+    .eq("id", itemId)
+    .select("id");
   if (error) throw new Error(error.message);
+  return (data ?? []).length;
 }
 
 export async function nextSortOrder(quoteId: string): Promise<number> {
