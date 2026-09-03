@@ -55,6 +55,7 @@ const SUITES = [
   ["cadastro: papel não vem do metadata", "12_cadastro.sql", /^ H[A-Z]\)|NOTICE/],
   ["expiração automática de orçamentos", "13_expiracao.sql", /^ I[A-Z]\)|NOTICE/],
   ["trilha de auditoria", "14_auditoria.sql", /^ J[A-Z]+\)|NOTICE/],
+  ["empresa e usuários", "17_empresa_usuarios.sql", /EU\d+\)|NOTICE/],
   ["triggers e privilégios", "03_triggers_e_privilegios.sql", /^ [L-O]\)|^ SA\d\)|NOTICE|ORC-/],
   // A carga de catálogo entra por último: ela acrescenta 112 produtos, e as
   // suítes acima contam linhas de `products`. O script é o MESMO que rodaria
