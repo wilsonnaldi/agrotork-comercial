@@ -326,14 +326,53 @@ enxergar custo e o link público funcionando no domínio de produção.
 
 ---
 
+## Onda 1 — Pedido de venda 🟡
+
+**Objetivo:** registrar o negócio fechado, sem tornar editável o que já foi
+vendido.
+
+### Banco ✅ *(migration `20260903060000`, publicada em 03/09/2026)*
+
+- ✅ `orders`, `order_items`, `order_sequences` — espelham
+  `quotes`/`quote_items`: mesmos snapshots, `line_total` gerado, totais
+  calculados pelo banco
+- ✅ Numeração `PED-AAAA-NNNN` em sequência própria, separada do orçamento
+- ✅ `create_order_from_quote()` — só orçamento aprovado, e uma vez só
+- ✅ `create_quote_from_order()` — renegociar cria orçamento novo em rascunho,
+  ligado à origem, sem tocar no pedido
+- ✅ `trg_orders_freeze` — conteúdo comercial congelado para vendedor **e**
+  administrador; situação e operacional seguem editáveis
+- ✅ Situações `confirmed → picking → invoiced → delivered`, com `cancelled`
+  antes do faturamento, e carimbo de data em cada uma
+- ✅ `order_items` sem policy de escrita: a composição só nasce pela conversão
+- ✅ 19 asserções em `supabase/db-tests/18_pedidos.sql`, incluindo o teste
+  crítico de histórico e o congelamento valendo para o administrador
+
+### Interface ⬜
+
+- ⬜ Listagem de pedidos (`/pedidos`), com o padrão "meus pedidos" do vendedor
+- ⬜ Detalhe do pedido, somente leitura no comercial
+- ⬜ Botão "Gerar pedido" no orçamento aprovado
+- ⬜ Botão "Renegociar" no pedido, levando ao orçamento novo
+- ⬜ Mudança de situação com confirmação
+- ⬜ Responsividade em 360, 768 e 1440 px
+
+### O que NÃO entra nesta onda (de propósito)
+
+- Estoque: dar baixa exige `stock_movements`, que é a Onda 2
+- Emissão de nota fiscal: fica fora do app, via API de terceiro
+- Custo no item do pedido: exporia a margem ao vendedor; é da fase de
+  relatórios, com tabela própria e RLS de administrador
+
+---
+
 ## Backlog — depois do núcleo estável
 
 Nada aqui entra sem que as fases 1–6 estejam concluídas.
 
 | Item | Depende de |
 | --- | --- |
-| Pedidos | Fase 4 |
-| Estoque e movimentações | Pedidos |
+| Estoque e movimentações | Onda 1 (banco ✅, interface pendente) |
 | Fornecedores e compras | Estoque |
 | Vendedores externos e comissões | Fase 4 + relatórios |
 | Tabelas de preço e margens por cliente/região | Fase 2 |

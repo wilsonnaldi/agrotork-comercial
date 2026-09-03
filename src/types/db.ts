@@ -252,6 +252,9 @@ type NumericColumnsByTable = {
     | "unit_cost_snapshot"
     | "discount_percent"
     | "line_total";
+  /** Pedido de venda (migration 20260903060000). Mesmo dinheiro, mesma regra. */
+  orders: "discount_percent" | "discount_amount" | "shipping_amount" | "subtotal" | "total";
+  order_items: "quantity" | "unit_price" | "discount_percent" | "line_total";
 };
 
 /** Trava: só é aceita como coluna decimal o que for `number` na tabela. */

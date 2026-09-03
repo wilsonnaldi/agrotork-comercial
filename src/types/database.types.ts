@@ -467,6 +467,251 @@ export type Database = {
           },
         ]
       }
+      order_items: {
+        Row: {
+          brand_snapshot: string | null
+          code_snapshot: string | null
+          components_snapshot: Json | null
+          created_at: string
+          description_snapshot: string | null
+          discount_percent: number
+          id: string
+          image_url_snapshot: string | null
+          kind: Database["public"]["Enums"]["item_kind"]
+          kit_id: string | null
+          line_total: number | null
+          name_snapshot: string
+          notes: string | null
+          order_id: string
+          product_id: string | null
+          quantity: number
+          sort_order: number
+          unit_price: number
+          unit_snapshot: string | null
+        }
+        Insert: {
+          brand_snapshot?: string | null
+          code_snapshot?: string | null
+          components_snapshot?: Json | null
+          created_at?: string
+          description_snapshot?: string | null
+          discount_percent?: number
+          id?: string
+          image_url_snapshot?: string | null
+          kind?: Database["public"]["Enums"]["item_kind"]
+          kit_id?: string | null
+          line_total?: number | null
+          name_snapshot: string
+          notes?: string | null
+          order_id: string
+          product_id?: string | null
+          quantity?: number
+          sort_order?: number
+          unit_price?: number
+          unit_snapshot?: string | null
+        }
+        Update: {
+          brand_snapshot?: string | null
+          code_snapshot?: string | null
+          components_snapshot?: Json | null
+          created_at?: string
+          description_snapshot?: string | null
+          discount_percent?: number
+          id?: string
+          image_url_snapshot?: string | null
+          kind?: Database["public"]["Enums"]["item_kind"]
+          kit_id?: string | null
+          line_total?: number | null
+          name_snapshot?: string
+          notes?: string | null
+          order_id?: string
+          product_id?: string | null
+          quantity?: number
+          sort_order?: number
+          unit_price?: number
+          unit_snapshot?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_kit_id_fkey"
+            columns: ["kit_id"]
+            isOneToOne: false
+            referencedRelation: "kits"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "order_items_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_sequences: {
+        Row: {
+          last_number: number
+          year: number
+        }
+        Insert: {
+          last_number?: number
+          year: number
+        }
+        Update: {
+          last_number?: number
+          year?: number
+        }
+        Relationships: []
+      }
+      orders: {
+        Row: {
+          cancelled_at: string | null
+          confirmed_at: string
+          created_at: string
+          created_by: string | null
+          customer_id: string
+          deleted_at: string | null
+          delivered_at: string | null
+          delivery_forecast: string | null
+          delivery_terms: string | null
+          discount_amount: number
+          discount_percent: number
+          id: string
+          internal_notes: string | null
+          invoiced_at: string | null
+          issue_date: string
+          notes: string | null
+          number: string
+          owner_id: string
+          payment_terms: string | null
+          picking_at: string | null
+          quote_id: string | null
+          sequence_number: number
+          sequence_year: number
+          shipping_amount: number
+          status: Database["public"]["Enums"]["order_status"]
+          subtotal: number
+          supersedes_order_id: string | null
+          total: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          cancelled_at?: string | null
+          confirmed_at?: string
+          created_at?: string
+          created_by?: string | null
+          customer_id: string
+          deleted_at?: string | null
+          delivered_at?: string | null
+          delivery_forecast?: string | null
+          delivery_terms?: string | null
+          discount_amount?: number
+          discount_percent?: number
+          id?: string
+          internal_notes?: string | null
+          invoiced_at?: string | null
+          issue_date?: string
+          notes?: string | null
+          number: string
+          owner_id: string
+          payment_terms?: string | null
+          picking_at?: string | null
+          quote_id?: string | null
+          sequence_number: number
+          sequence_year: number
+          shipping_amount?: number
+          status?: Database["public"]["Enums"]["order_status"]
+          subtotal?: number
+          supersedes_order_id?: string | null
+          total?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          cancelled_at?: string | null
+          confirmed_at?: string
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string
+          deleted_at?: string | null
+          delivered_at?: string | null
+          delivery_forecast?: string | null
+          delivery_terms?: string | null
+          discount_amount?: number
+          discount_percent?: number
+          id?: string
+          internal_notes?: string | null
+          invoiced_at?: string | null
+          issue_date?: string
+          notes?: string | null
+          number?: string
+          owner_id?: string
+          payment_terms?: string | null
+          picking_at?: string | null
+          quote_id?: string | null
+          sequence_number?: number
+          sequence_year?: number
+          shipping_amount?: number
+          status?: Database["public"]["Enums"]["order_status"]
+          subtotal?: number
+          supersedes_order_id?: string | null
+          total?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_supersedes_order_id_fkey"
+            columns: ["supersedes_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_conditions: {
         Row: {
           code: string
@@ -906,15 +1151,18 @@ export type Database = {
           issue_date: string
           notes: string | null
           number: string
+          origin_order_id: string | null
           owner_id: string
           payment_terms: string | null
           rejected_at: string | null
+          revision: number
           sent_at: string | null
           sequence_number: number
           sequence_year: number
           shipping_amount: number
           status: Database["public"]["Enums"]["quote_status"]
           subtotal: number
+          supersedes_quote_id: string | null
           total: number
           updated_at: string
           updated_by: string | null
@@ -934,15 +1182,18 @@ export type Database = {
           issue_date?: string
           notes?: string | null
           number: string
+          origin_order_id?: string | null
           owner_id: string
           payment_terms?: string | null
           rejected_at?: string | null
+          revision?: number
           sent_at?: string | null
           sequence_number: number
           sequence_year: number
           shipping_amount?: number
           status?: Database["public"]["Enums"]["quote_status"]
           subtotal?: number
+          supersedes_quote_id?: string | null
           total?: number
           updated_at?: string
           updated_by?: string | null
@@ -962,15 +1213,18 @@ export type Database = {
           issue_date?: string
           notes?: string | null
           number?: string
+          origin_order_id?: string | null
           owner_id?: string
           payment_terms?: string | null
           rejected_at?: string | null
+          revision?: number
           sent_at?: string | null
           sequence_number?: number
           sequence_year?: number
           shipping_amount?: number
           status?: Database["public"]["Enums"]["quote_status"]
           subtotal?: number
+          supersedes_quote_id?: string | null
           total?: number
           updated_at?: string
           updated_by?: string | null
@@ -992,10 +1246,24 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "quotes_origin_order_id_fkey"
+            columns: ["origin_order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "quotes_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotes_supersedes_quote_id_fkey"
+            columns: ["supersedes_quote_id"]
+            isOneToOne: false
+            referencedRelation: "quotes"
             referencedColumns: ["id"]
           },
           {
@@ -1059,6 +1327,28 @@ export type Database = {
           optional_total: number | null
           required_count: number | null
           suggested_price: number | null
+          updated_at: string | null
+        }
+        Relationships: []
+      }
+      orders_list: {
+        Row: {
+          created_at: string | null
+          customer_city: string | null
+          customer_id: string | null
+          customer_name: string | null
+          delivery_forecast: string | null
+          id: string | null
+          issue_date: string | null
+          items_count: number | null
+          number: string | null
+          owner_id: string | null
+          owner_name: string | null
+          quote_id: string | null
+          quote_number: string | null
+          status: Database["public"]["Enums"]["order_status"] | null
+          subtotal: number | null
+          total: number | null
           updated_at: string | null
         }
         Relationships: []
@@ -1138,6 +1428,18 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      create_order_from_quote: {
+        Args: {
+          p_quote_id: string
+        }
+        Returns: string
+      }
+      create_quote_from_order: {
+        Args: {
+          p_order_id: string
+        }
+        Returns: string
+      }
       discard_quote_draft: {
         Args: {
           p_quote_id: string
@@ -1162,6 +1464,16 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }
+      next_order_number: {
+        Args: {
+          p_year?: number
+        }
+        Returns: {
+          seq_year: number
+          seq_number: number
+          formatted: string
+        }[]
+      }
       next_quote_number: {
         Args: {
           p_year?: number
@@ -1177,6 +1489,12 @@ export type Database = {
           value: string
         }
         Returns: string
+      }
+      owns_order: {
+        Args: {
+          p_order_id: string
+        }
+        Returns: boolean
       }
       owns_quote: {
         Args: {
@@ -1199,6 +1517,12 @@ export type Database = {
           p_status: Database["public"]["Enums"]["quote_status"]
         }
         Returns: boolean
+      }
+      recalculate_order_totals: {
+        Args: {
+          p_order_id: string
+        }
+        Returns: undefined
       }
       recalculate_quote_totals: {
         Args: {
@@ -1238,6 +1562,7 @@ export type Database = {
     Enums: {
       item_kind: "product" | "kit" | "custom"
       kit_item_type: "required" | "optional"
+      order_status: "confirmed" | "picking" | "invoiced" | "delivered" | "cancelled"
       person_type: "individual" | "company"
       product_source_type: "manual" | "manufacturer_catalog" | "price_list" | "test_data"
       quote_status: "draft" | "sent" | "approved" | "rejected" | "expired" | "cancelled"
@@ -1341,6 +1666,7 @@ export const Constants = {
     Enums: {
       item_kind: ["product", "kit", "custom"],
       kit_item_type: ["required", "optional"],
+      order_status: ["confirmed", "picking", "invoiced", "delivered", "cancelled"],
       person_type: ["individual", "company"],
       product_source_type: ["manual", "manufacturer_catalog", "price_list", "test_data"],
       quote_status: ["draft", "sent", "approved", "rejected", "expired", "cancelled"],

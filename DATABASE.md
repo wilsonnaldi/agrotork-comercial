@@ -66,6 +66,13 @@ create type item_kind    as enum ('product', 'kit', 'custom');
 create type product_source_type as enum (
   'manual', 'manufacturer_catalog', 'price_list', 'test_data'
 );
+
+-- Situação do pedido de venda (migration 20260903060000)
+create type order_status as enum (
+  'confirmed', 'picking', 'invoiced', 'delivered', 'cancelled'
+);
+-- Depois de faturado não há cancelamento: o caminho é devolução, que é
+-- assunto da onda fiscal.
 ```
 
 Novos papéis entram com `alter type user_role add value 'manager';` — sem
@@ -639,6 +646,88 @@ por volta de 100 mil linhas.
 
 ---
 
+### 4.14 `orders` — pedidos de venda *(negócio fechado)*
+
+O orçamento negocia; o pedido registra o negócio fechado. São **dois
+documentos, não três**: a "venda" é o pedido chegando ao fim, e o "pedido"
+informal do cliente já é o rascunho do orçamento.
+
+A conversão vale nos dois sentidos, e são operações diferentes:
+
+| sentido | função | o que faz |
+| --- | --- | --- |
+| orçamento → pedido | `create_order_from_quote(uuid)` | fecha: copia a composição inteira e congela |
+| pedido → orçamento | `create_quote_from_order(uuid)` | reabre: cria orçamento novo em rascunho, marcado `revision + 1` |
+
+Reabrir **não edita** o pedido. A corrente `pedido → orçamento → pedido`
+(`orders.supersedes_order_id`, `quotes.origin_order_id`) é o histórico da
+renegociação, e `quotes.revision` é o "foi refeito tantas vezes" da tela.
+
+Numeração `PED-AAAA-NNNN` por `next_order_number()`, em sequência **própria**
+(`order_sequences`), separada da do orçamento: o número do pedido é o que o
+cliente e a nota fiscal citam, e não pode andar quando alguém cria um
+orçamento.
+
+**A trava (`trg_orders_freeze`).** O pedido nasce fechado — não existe
+rascunho de pedido, para isso serve o orçamento. Então a trava não olha o
+status: vale desde o primeiro instante, **para o vendedor e para o
+administrador**.
+
+| congelado | continua editável |
+| --- | --- |
+| itens, quantidades, preços, descontos, frete, subtotal, total, cliente, data de emissão, número | `status`, `notes`, `internal_notes`, `delivery_forecast` |
+
+Congelar tudo tornaria impossível marcar um pedido como entregue — a divisão
+é entre **conteúdo comercial** e **situação/operacional**. A única exceção à
+trava é a escrita de `recalculate_order_totals()`, que abre uma marca de
+transação e a fecha em seguida, dentro da própria função.
+
+**Situações** (`trg_orders_status`), e só estas transições:
+
+```
+confirmed ──> picking ──> invoiced ──> delivered
+    │            │
+    └────────────┴──> cancelled        (nunca depois de faturado)
+```
+
+Cada mudança carimba a data correspondente (`picking_at`, `invoiced_at`,
+`delivered_at`, `cancelled_at`), uma vez só.
+
+**Acesso:** RLS ligada; `revoke all` de `anon`. Vendedor enxerga e move o
+próprio pedido, administrador enxerga todos. **Não existe policy de INSERT** —
+pedido nasce só por `create_order_from_quote()`, que é `security definer`. É o
+que impede um pedido "solto", sem orçamento aprovado atrás.
+
+Índices: `number` único, `(customer_id)`, `(owner_id)`, `(status)`,
+`(issue_date desc)`, `(quote_id)` e `(owner_id, issue_date desc)` — este
+último é a tela do vendedor, "meus pedidos, mais recentes primeiro".
+
+### 4.15 `order_items` — itens do pedido *(cópia congelada)*
+
+Mesmo padrão de `quote_items`: cada linha guarda a fotografia do produto ou
+kit no momento do fechamento (`code_snapshot`, `name_snapshot`,
+`unit_snapshot`, `brand_snapshot`, `image_url_snapshot`,
+`components_snapshot`). Mudar o catálogo depois não altera pedido nenhum.
+
+`line_total` é coluna **gerada** — `round(quantity * unit_price * (1 -
+discount_percent / 100), 2)` —, e `recalculate_order_totals()` soma a partir
+dela. A aplicação nunca envia subtotal nem total.
+
+**Acesso:** só `select`, e só para quem é dono do pedido ou administrador.
+**Nenhum papel escreve — nem o administrador.** A composição nasce com o
+pedido, pela função de conversão, e não muda.
+
+`unit_cost_snapshot` **não existe aqui**, pelo mesmo motivo documentado na
+migration 1700: `order_items` é legível pelo dono do pedido, e o PostgreSQL
+não filtra coluna por papel de aplicação — guardar custo ali exporia a margem
+ao vendedor. Custo histórico para relatório é decisão da fase de relatórios.
+
+Verificação: `supabase/db-tests/18_pedidos.sql`, 19 asserções (PV1–PV19),
+incluindo o teste crítico de histórico (o catálogo muda e o pedido não) e o
+congelamento valendo para o administrador.
+
+---
+
 ## 5. Row Level Security — resumo das políticas
 
 | Tabela | admin | salesperson |
@@ -763,10 +852,12 @@ qualquer mudança nasce como arquivo de migration versionado no Git.
 
 Documentadas apenas para garantir que o modelo atual as comporta:
 
-`orders`, `order_items`, `stock_movements`, `warehouses`, `suppliers`,
-`purchase_orders`, `price_lists`, `price_list_items`, `commissions`,
-`commission_rules`, `customer_interactions`, `attachments`,
-`quote_approvals`, `signatures`, `audit_log`.
+`stock_movements`, `warehouses`, `suppliers`, `purchase_orders`,
+`price_lists`, `price_list_items`, `commissions`, `commission_rules`,
+`customer_interactions`, `attachments`, `quote_approvals`, `signatures`.
+
+`orders` e `order_items` saíram desta lista: foram criadas na migration
+`20260903060000` e estão documentadas em 4.14 e 4.15.
 
 ### Importação de catálogos de fabricante — forma prevista
 
