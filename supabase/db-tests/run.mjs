@@ -64,6 +64,7 @@ const SUITES = [
   ["regras da importação de catálogo", "15_importacao_catalogo.sql", /PC\d+[a-z]?\)|NOTICE/],
   ["classificação em setores (script gerado)", "../importacao/classificar_setores.sql",
    /Antes:|Depois:|^\s+\d+\s+\S/],
+  ["margem por setor", "16_margens.sql", /MG\d+\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {
