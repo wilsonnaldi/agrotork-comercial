@@ -106,7 +106,8 @@ begin
    where category_id = (select id from public.categories where name='Setor Margem Teste');
   select public.suggested_sale_price(id) into v_nov from public.products where code='MG-001';
 
-  if v_dez = 130 and v_cem = 200 and v_nov = 190 and v_dez >= 130 and v_cem >= 130
+  if v_dez = 130 and v_cem = 200 and v_nov = 190
+     and v_dez >= 130 and v_cem >= 130 and v_nov >= 130
     then raise notice 'MG6) OK: arredondamento dezena=%, centena=%, noventa=% — nenhum abaixo do calculado', v_dez, v_cem, v_nov;
     else raise notice 'MG6) FALHA: dezena=%, centena=%, noventa=%', v_dez, v_cem, v_nov; end if;
 
@@ -219,6 +220,48 @@ begin
   raise notice 'MG16) FALHA: aceitou duas regras padrao';
 exception when unique_violation then
   raise notice 'MG16) OK: segunda regra padrao recusada';
+end $$;
+
+-- ── MG17: regressão do "terminar em 90" ─────────────────────
+-- O teste antigo (MG6) usava só 130, que a fórmula quebrada acertava
+-- por sorte. Estes são os valores em que ela devolvia MENOS do que a
+-- entrada — 100 virava 90.
+do $$
+declare r record; v_falhas int := 0; v_lista text := '';
+begin
+  for r in
+    select v, public.round_commercial(v, 'ninety') as saida
+      from (values (90),(100),(191),(1291),(1295),(1300)) t(v)
+  loop
+    if r.saida < r.v then
+      v_falhas := v_falhas + 1;
+      v_lista := v_lista || format(' %s->%s', r.v, r.saida);
+    end if;
+  end loop;
+  if v_falhas = 0
+    then raise notice 'MG17) OK: nenhum dos 6 valores de regressao arredondou para baixo';
+    else raise notice 'MG17) FALHA: % valor(es) abaixo da entrada:%', v_falhas, v_lista; end if;
+end $$;
+
+-- ── MG18: a promessa vale no domínio inteiro ────────────────
+-- Não é amostra: varre 1 a 5.000 nos três modos que prometem "nunca
+-- para baixo". A fórmula antiga falhava em 500 desses valores.
+do $$
+declare v_ten int; v_hundred int; v_ninety int; v_fora int;
+begin
+  select count(*) into v_ten     from generate_series(1,5000) v where public.round_commercial(v,'ten')     < v;
+  select count(*) into v_hundred from generate_series(1,5000) v where public.round_commercial(v,'hundred') < v;
+  select count(*) into v_ninety  from generate_series(1,5000) v where public.round_commercial(v,'ninety')  < v;
+  if v_ten = 0 and v_hundred = 0 and v_ninety = 0
+    then raise notice 'MG18) OK: 5.000 valores x 3 modos, nenhum abaixo da entrada';
+    else raise notice 'MG18) FALHA: abaixo da entrada — dezena %, centena %, noventa %', v_ten, v_hundred, v_ninety; end if;
+
+  -- E o resultado de "ninety" tem mesmo de terminar em 90.
+  select count(*) into v_fora from generate_series(1,5000) v
+   where (public.round_commercial(v,'ninety'))::bigint % 100 <> 90;
+  if v_fora = 0
+    then raise notice 'MG19) OK: os 5.000 resultados de ninety terminam em 90';
+    else raise notice 'MG19) FALHA: % resultado(s) nao terminam em 90', v_fora; end if;
 end $$;
 
 reset role;
