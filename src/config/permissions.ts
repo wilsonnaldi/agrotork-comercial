@@ -39,6 +39,15 @@ export const PERMISSIONS = {
   "orders.read": ["admin", "salesperson"],
   "orders.write": ["admin", "salesperson"],
 
+  /**
+   * Estoque. Ler é dos dois papéis: negar o saldo ao vendedor é empurrar
+   * a pergunta "tem em estoque?" para o WhatsApp. Lançar entrada, ajuste
+   * e perda é da administração — e a saída por venda não é de ninguém:
+   * ela acontece sozinha quando o pedido é faturado.
+   */
+  "stock.read": ["admin", "salesperson"],
+  "stock.manage": ["admin"],
+
   "quotes.readOwn": ["admin", "salesperson"],
   "quotes.readAll": ["admin"],
   "quotes.write": ["admin", "salesperson"],

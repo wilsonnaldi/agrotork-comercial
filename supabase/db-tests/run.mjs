@@ -69,6 +69,7 @@ const SUITES = [
   ["pedido de venda", "18_pedidos.sql", /PV\d+\)|NOTICE/],
   ["fornecedores", "19_fornecedores.sql", /FN\d+[a-z]?\)|NOTICE/],
   ["excluir cliente", "20_excluir_cliente.sql", /EX\d+\)|NOTICE/],
+  ["estoque e numeros de serie", "21_estoque.sql", /(ES|SN)\d*[A-Z]?\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {

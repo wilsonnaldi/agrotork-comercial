@@ -17,6 +17,7 @@ import { formatDate } from "@/lib/format";
 import { getOrderWithItems } from "@/modules/orders/service";
 import { STATUS_TRANSITIONS } from "@/modules/orders/types";
 import { changeStatusAction, renegotiateAction } from "@/modules/orders/actions";
+import { SerialsCard } from "./serials-card";
 
 export const metadata: Metadata = { title: "Pedido" };
 
@@ -68,6 +69,16 @@ export default async function OrderPage({
       {typeof query.erro === "string" && (
         <Alert tone="warning" className="mb-4">
           {query.erro}
+        </Alert>
+      )}
+      {query.serie === "1" && (
+        <Alert tone="success" className="mb-4">
+          Aparelho vinculado ao pedido.
+        </Alert>
+      )}
+      {query.serie === "0" && (
+        <Alert tone="success" className="mb-4">
+          Aparelho desvinculado e de volta ao galpão.
         </Alert>
       )}
 
@@ -248,6 +259,13 @@ export default async function OrderPage({
               )}
             </CardBody>
           </Card>
+
+          <SerialsCard
+            orderId={order.id}
+            status={order.status}
+            items={order.items}
+            podeGerenciar={can(user.profile.role, "stock.manage")}
+          />
 
           <Card>
             <CardHeader>

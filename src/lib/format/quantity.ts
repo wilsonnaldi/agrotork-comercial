@@ -23,19 +23,46 @@ export function parseQuantityToMilli(input: string | null | undefined): number |
   return Number.isSafeInteger(milli) ? milli : null;
 }
 
-/** Milésimos -> texto pt-BR: 2500 -> "2,5"; 1000 -> "1". */
-export function formatQuantity(milli: number): string {
-  const whole = Math.floor(milli / QUANTITY_SCALE);
-  const fraction = milli % QUANTITY_SCALE;
-  if (fraction === 0) return String(whole);
-  return `${whole},${String(fraction).padStart(3, "0").replace(/0+$/, "")}`;
+/**
+ * Aceita sinal, ao contrário de `parseQuantityToMilli`.
+ *
+ * Existe por causa do estoque: ajuste de contagem vai para os dois lados,
+ * e saldo negativo é informação legítima (a lista do que falta acertar).
+ * Em orçamento e kit a quantidade continua sendo positiva por definição,
+ * e por isso a função de lá segue recusando o sinal.
+ */
+export function parseSignedQuantityToMilli(input: string | null | undefined): number | null {
+  if (input === null || input === undefined) return null;
+  const cleaned = input.trim().replace(/\s/g, "").replace(",", ".");
+  const negativo = cleaned.startsWith("-");
+  const semSinal = cleaned.replace(/^[+-]/, "");
+  const milli = parseQuantityToMilli(semSinal);
+  if (milli === null) return null;
+  return negativo ? -milli : milli;
 }
 
-/** Milésimos -> string decimal para o banco: 2500 -> "2.500". */
+/**
+ * Milésimos -> texto pt-BR: 2500 -> "2,5"; 1000 -> "1"; -2500 -> "-2,5".
+ *
+ * O sinal sai antes e a parte fracionária é calculada sobre o valor
+ * absoluto: com `Math.floor` direto, −2500 virava "−3,500".
+ */
+export function formatQuantity(milli: number): string {
+  const sinal = milli < 0 ? "-" : "";
+  const absoluto = Math.abs(milli);
+  const whole = Math.floor(absoluto / QUANTITY_SCALE);
+  const fraction = absoluto % QUANTITY_SCALE;
+  if (fraction === 0) return `${sinal}${whole}`;
+  return `${sinal}${whole},${String(fraction).padStart(3, "0").replace(/0+$/, "")}`;
+}
+
+/** Milésimos -> string decimal para o banco: 2500 -> "2.500"; -2500 -> "-2.500". */
 export function milliToDecimalString(milli: number): string {
-  const whole = Math.floor(milli / QUANTITY_SCALE);
-  const fraction = String(milli % QUANTITY_SCALE).padStart(3, "0");
-  return `${whole}.${fraction}`;
+  const sinal = milli < 0 ? "-" : "";
+  const absoluto = Math.abs(milli);
+  const whole = Math.floor(absoluto / QUANTITY_SCALE);
+  const fraction = String(absoluto % QUANTITY_SCALE).padStart(3, "0");
+  return `${sinal}${whole}.${fraction}`;
 }
 
 /** `numeric` lido do banco -> milésimos. */

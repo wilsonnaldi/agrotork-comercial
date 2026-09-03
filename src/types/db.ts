@@ -84,6 +84,8 @@ export type KitItemType = Public["Enums"]["kit_item_type"];
  */
 export type QuoteStatus = Public["Enums"]["quote_status"];
 export type OrderStatus = Public["Enums"]["order_status"];
+export type StockReason = Public["Enums"]["stock_reason"];
+export type SerialStatus = Public["Enums"]["serial_status"];
 
 /**
  * Os mesmos valores do enum, em forma de lista, para quem precisa deles em
@@ -119,6 +121,8 @@ export type ProductCost = TableRow<"product_costs">;
 export type MarginRule = TableRow<"margin_rules">;
 export type Customer = TableRow<"customers">;
 export type Supplier = TableRow<"suppliers">;
+export type StockMovement = TableRow<"stock_movements">;
+export type ProductSerial = TableRow<"product_serials">;
 export type Kit = TableRow<"kits">;
 export type KitItem = TableRow<"kit_items">;
 export type Quote = TableRow<"quotes">;
@@ -225,6 +229,37 @@ export type OrderListRow = NotNull<ViewRow<"orders_list">, (typeof ORDER_LIST_CO
 
 export function toOrderListRow(row: ViewRow<"orders_list">): OrderListRow {
   assertColumns(row, ORDER_LIST_COLUMNS, "orders_list");
+  return row;
+}
+
+/**
+ * `product_stock` = `products` (where deleted_at is null) + a SOMA do
+ * livro `stock_movements`.
+ *
+ * `quantity` passa por `coalesce(..., 0)`: produto sem nenhum movimento
+ * aparece com zero, e não some da lista — sumir esconderia justamente o
+ * que ninguém contou ainda.
+ *
+ * Segue nulo `last_movement_at` (não há movimento), e seguem nulos
+ * `category_id` e `brand_id`, que são opcionais no produto.
+ */
+const PRODUCT_STOCK_COLUMNS = [
+  "product_id",
+  "code",
+  "name",
+  "unit_id",
+  "is_active",
+  "tracks_serial",
+  "quantity",
+] as const satisfies readonly (keyof ViewRow<"product_stock">)[];
+
+export type ProductStockRow = NotNull<
+  ViewRow<"product_stock">,
+  (typeof PRODUCT_STOCK_COLUMNS)[number]
+>;
+
+export function toProductStockRow(row: ViewRow<"product_stock">): ProductStockRow {
+  assertColumns(row, PRODUCT_STOCK_COLUMNS, "product_stock");
   return row;
 }
 

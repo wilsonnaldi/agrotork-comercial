@@ -818,6 +818,87 @@ export type Database = {
           },
         ]
       }
+      product_serials: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          order_id: string | null
+          order_item_id: string | null
+          product_id: string
+          serial: string
+          sold_at: string | null
+          status: Database["public"]["Enums"]["serial_status"]
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          order_id?: string | null
+          order_item_id?: string | null
+          product_id: string
+          serial: string
+          sold_at?: string | null
+          status?: Database["public"]["Enums"]["serial_status"]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          order_id?: string | null
+          order_item_id?: string | null
+          product_id?: string
+          serial?: string
+          sold_at?: string | null
+          status?: Database["public"]["Enums"]["serial_status"]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_serials_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_serials_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_serials_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_serials_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "product_serials_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       products: {
         Row: {
           brand_id: string | null
@@ -842,6 +923,7 @@ export type Database = {
           source_type: Database["public"]["Enums"]["product_source_type"]
           source_version: string | null
           technical_data: Json
+          tracks_serial: boolean
           unit_id: string
           updated_at: string
           updated_by: string | null
@@ -869,6 +951,7 @@ export type Database = {
           source_type?: Database["public"]["Enums"]["product_source_type"]
           source_version?: string | null
           technical_data?: Json
+          tracks_serial?: boolean
           unit_id: string
           updated_at?: string
           updated_by?: string | null
@@ -896,6 +979,7 @@ export type Database = {
           source_type?: Database["public"]["Enums"]["product_source_type"]
           source_version?: string | null
           technical_data?: Json
+          tracks_serial?: boolean
           unit_id?: string
           updated_at?: string
           updated_by?: string | null
@@ -1275,6 +1359,97 @@ export type Database = {
           },
         ]
       }
+      stock_movement_costs: {
+        Row: {
+          created_at: string
+          movement_id: string
+          unit_cost: number
+        }
+        Insert: {
+          created_at?: string
+          movement_id: string
+          unit_cost?: number
+        }
+        Update: {
+          created_at?: string
+          movement_id?: string
+          unit_cost?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movement_costs_movement_id_fkey"
+            columns: ["movement_id"]
+            isOneToOne: true
+            referencedRelation: "stock_movements"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_movements: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          notes: string | null
+          order_id: string | null
+          order_item_id: string | null
+          product_id: string
+          quantity: number
+          reason: Database["public"]["Enums"]["stock_reason"]
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          order_id?: string | null
+          order_item_id?: string | null
+          product_id: string
+          quantity: number
+          reason: Database["public"]["Enums"]["stock_reason"]
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          notes?: string | null
+          order_id?: string | null
+          order_item_id?: string | null
+          product_id?: string
+          quantity?: number
+          reason?: Database["public"]["Enums"]["stock_reason"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_order_item_id_fkey"
+            columns: ["order_item_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           address: string | null
@@ -1455,6 +1630,21 @@ export type Database = {
         }
         Relationships: []
       }
+      product_stock: {
+        Row: {
+          brand_id: string | null
+          category_id: string | null
+          code: string | null
+          is_active: boolean | null
+          last_movement_at: string | null
+          name: string | null
+          product_id: string | null
+          quantity: number | null
+          tracks_serial: boolean | null
+          unit_id: string | null
+        }
+        Relationships: []
+      }
       products_list: {
         Row: {
           brand_id: string | null
@@ -1525,6 +1715,13 @@ export type Database = {
           preco_sugerido: number
           aplicado: boolean
         }[]
+      }
+      assign_serial_to_order: {
+        Args: {
+          p_serial_id: string
+          p_order_item_id: string
+        }
+        Returns: boolean
       }
       auth_role: {
         Args: Record<PropertyKey, never>
@@ -1650,6 +1847,28 @@ export type Database = {
         }
         Returns: undefined
       }
+      register_stock_movement: {
+        Args: {
+          p_product_id: string
+          p_reason: Database["public"]["Enums"]["stock_reason"]
+          p_quantity: number
+          p_notes?: string
+        }
+        Returns: string
+      }
+      release_serial: {
+        Args: {
+          p_serial_id: string
+        }
+        Returns: boolean
+      }
+      return_order_stock: {
+        Args: {
+          p_order_id: string
+          p_notes?: string
+        }
+        Returns: number
+      }
       round_commercial: {
         Args: {
           p_value: number
@@ -1686,6 +1905,8 @@ export type Database = {
       person_type: "individual" | "company"
       product_source_type: "manual" | "manufacturer_catalog" | "price_list" | "test_data"
       quote_status: "draft" | "sent" | "approved" | "rejected" | "expired" | "cancelled"
+      serial_status: "in_stock" | "sold" | "returned" | "defective" | "written_off"
+      stock_reason: "initial" | "purchase" | "sale" | "return_in" | "return_out" | "adjustment" | "loss"
       user_role: "admin" | "salesperson"
     }
     CompositeTypes: {
@@ -1790,6 +2011,8 @@ export const Constants = {
       person_type: ["individual", "company"],
       product_source_type: ["manual", "manufacturer_catalog", "price_list", "test_data"],
       quote_status: ["draft", "sent", "approved", "rejected", "expired", "cancelled"],
+      serial_status: ["in_stock", "sold", "returned", "defective", "written_off"],
+      stock_reason: ["initial", "purchase", "sale", "return_in", "return_out", "adjustment", "loss"],
       user_role: ["admin", "salesperson"],
     },
   },
