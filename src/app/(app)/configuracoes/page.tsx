@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Boxes, Building2, ChevronRight, Ruler, Tags, Users } from "lucide-react";
+import { Boxes, Building2, ChevronRight, Percent, Ruler, Tags, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { requirePermission } from "@/lib/auth/session";
@@ -25,6 +25,12 @@ const CADASTROS = [
     icon: Ruler,
     title: "Unidades de medida",
     description: "UN, KG, L, M, JG, HR… usadas em produtos e orçamentos.",
+  },
+  {
+    href: "/configuracoes/margens",
+    icon: Percent,
+    title: "Margens por setor",
+    description: "O percentual de lucro de cada setor, e o preço que ele sugere.",
   },
 ];
 

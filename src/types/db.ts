@@ -115,6 +115,7 @@ export type Category = TableRow<"categories">;
 export type Brand = TableRow<"brands">;
 export type Product = TableRow<"products">;
 export type ProductCost = TableRow<"product_costs">;
+export type MarginRule = TableRow<"margin_rules">;
 export type Customer = TableRow<"customers">;
 export type Kit = TableRow<"kits">;
 export type KitItem = TableRow<"kit_items">;
@@ -240,6 +241,8 @@ export function toKitListRow(row: ViewRow<"kits_with_price">): KitListRow {
 type NumericColumnsByTable = {
   products: "sale_price";
   product_costs: "cost_price";
+  /** Percentual da regra de margem (migration 20260903020000). */
+  margin_rules: "percent";
   kits: "discount_percent";
   kit_items: "quantity";
   quotes: "discount_percent" | "discount_amount" | "shipping_amount" | "subtotal" | "total";
@@ -332,6 +335,8 @@ type WidenTable<T extends keyof Public["Tables"]> = Omit<
 type NumericArgsByFunction = {
   /** migration 20260902120000 — grava o custo vigente do produto. */
   set_product_cost: "p_cost_price";
+  /** migration 20260903020000 — arredondamento comercial do preço. */
+  round_commercial: "p_value";
 };
 
 type NumericArgKeys<Args> = {

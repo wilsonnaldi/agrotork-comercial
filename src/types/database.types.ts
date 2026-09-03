@@ -410,6 +410,63 @@ export type Database = {
           },
         ]
       }
+      margin_rules: {
+        Row: {
+          category_id: string | null
+          cost_basis: string
+          created_at: string
+          id: string
+          is_active: boolean
+          mode: string
+          notes: string | null
+          percent: number
+          rounding: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          category_id?: string | null
+          cost_basis?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          mode?: string
+          notes?: string | null
+          percent: number
+          rounding?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          category_id?: string | null
+          cost_basis?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          mode?: string
+          notes?: string | null
+          percent?: number
+          rounding?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "margin_rules_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: true
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "margin_rules_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       price_conditions: {
         Row: {
           code: string
@@ -1061,6 +1118,22 @@ export type Database = {
       }
     }
     Functions: {
+      apply_margin_rules: {
+        Args: {
+          p_category_id?: string
+          p_todas?: boolean
+          p_dry_run?: boolean
+        }
+        Returns: {
+          product_id: string
+          code: string
+          name: string
+          categoria: string
+          preco_atual: number
+          preco_sugerido: number
+          aplicado: boolean
+        }[]
+      }
       auth_role: {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
@@ -1133,6 +1206,13 @@ export type Database = {
         }
         Returns: undefined
       }
+      round_commercial: {
+        Args: {
+          p_value: number
+          p_mode: string
+        }
+        Returns: number
+      }
       set_product_cost: {
         Args: {
           p_product_id: string
@@ -1147,6 +1227,12 @@ export type Database = {
           value: string
         }
         Returns: string
+      }
+      suggested_sale_price: {
+        Args: {
+          p_product_id: string
+        }
+        Returns: number
       }
     }
     Enums: {
