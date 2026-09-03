@@ -60,7 +60,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Se
       />
 
       {/* Busca em destaque: é a primeira coisa que se faz nesta tela. */}
-      <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-[1fr_auto_auto]">
+      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto_auto]">
         <div className="col-span-2 sm:col-span-1">
           <SearchInput placeholder="Buscar por nome, documento ou cidade…" />
         </div>

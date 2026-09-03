@@ -23,7 +23,14 @@ export default async function DashboardPage({
   const { erro } = await searchParams;
   const user = await requireUser();
   const summary = await getDashboardSummary();
-  const firstName = (user.profile.full_name || user.email).split(" ")[0];
+  // `full_name` vazio não é nulo, então o `||` caía no e-mail INTEIRO — e
+  // `split(" ")` não corta e-mail nenhum. No celular isso virava três
+  // linhas de caixa alta ocupando a tela toda. Sem nome cadastrado,
+  // usamos só o que vem antes do @.
+  const nomeCadastrado = user.profile.full_name?.trim();
+  const firstName = nomeCadastrado
+    ? nomeCadastrado.split(" ")[0]
+    : (user.email.split("@")[0] ?? user.email);
 
   return (
     <>

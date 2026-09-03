@@ -91,7 +91,7 @@ export default async function QuotesPage({ searchParams }: { searchParams: Searc
 
       <div className="mb-4 space-y-3">
         <SearchInput placeholder="Buscar por número ou cliente…" />
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <UrlSelect param="status" defaultValue="all" ariaLabel="Filtrar por situação" options={STATUS_OPTIONS} />
           {canReadAll && (
             <UrlSelect
@@ -190,10 +190,12 @@ export default async function QuotesPage({ searchParams }: { searchParams: Searc
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate font-medium">{quote.customer_name}</p>
+                        <p className="mt-0.5 truncate text-xs font-medium tnum text-graphite-300">
+                          {quote.number}
+                        </p>
                         <p className="mt-0.5 truncate text-xs text-graphite-300">
-                          <span className="tnum">{quote.number}</span>
-                          {` · ${formatDate(quote.issue_date)}`}
-                          {` · ${quote.items_count} item(ns)`}
+                          {formatDate(quote.issue_date)}
+                          {` · ${quote.items_count} ${quote.items_count === 1 ? "item" : "itens"}`}
                         </p>
                       </div>
                       <div className="shrink-0 text-right">

@@ -75,7 +75,7 @@ export default async function OrdersPage({ searchParams }: { searchParams: Searc
 
       <div className="mb-4 space-y-3">
         <SearchInput placeholder="Buscar por número ou cliente…" />
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           <UrlSelect param="status" defaultValue="all" ariaLabel="Filtrar por situação" options={STATUS_OPTIONS} />
           {canReadAll && (
             <UrlSelect
@@ -175,10 +175,15 @@ export default async function OrdersPage({ searchParams }: { searchParams: Searc
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate font-medium">{order.customer_name}</p>
+                        {/* Duas linhas, não uma: no celular o número, a data e
+                            a contagem juntos não cabiam e a data saía cortada
+                            ("03/09/202…"), que é pior do que não mostrar. */}
+                        <p className="mt-0.5 truncate text-xs font-medium tnum text-graphite-300">
+                          {order.number}
+                        </p>
                         <p className="mt-0.5 truncate text-xs text-graphite-300">
-                          <span className="tnum">{order.number}</span>
-                          {` · ${formatDate(order.issue_date)}`}
-                          {` · ${order.items_count} item(ns)`}
+                          {formatDate(order.issue_date)}
+                          {` · ${order.items_count} ${order.items_count === 1 ? "item" : "itens"}`}
                         </p>
                       </div>
                       <div className="shrink-0 text-right">

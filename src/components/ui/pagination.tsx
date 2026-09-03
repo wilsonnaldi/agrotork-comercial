@@ -9,17 +9,25 @@ export function Pagination({
   total,
   buildHref,
   itemLabel = "registros",
+  itemLabelSingular,
 }: {
   page: number;
   pageCount: number;
   total: number;
   buildHref: (page: number) => string;
   itemLabel?: string;
+  /** Só quando o singular não for o plural sem o "s" final. */
+  itemLabelSingular?: string;
 }) {
+  // "1 orçamentos" e "1 clientes" apareceram na homologação em celular.
+  // Todos os rótulos deste sistema fazem plural com "s"; quando algum não
+  // fizer, quem chama informa o singular.
+  const rotulo =
+    total === 1 ? (itemLabelSingular ?? itemLabel.replace(/s$/, "")) : itemLabel;
   if (pageCount <= 1) {
     return (
       <p className="px-4 py-3 text-xs text-graphite-300 sm:px-5">
-        {total} {itemLabel}
+        {total} {rotulo}
       </p>
     );
   }
@@ -32,7 +40,7 @@ export function Pagination({
       aria-label="Paginação"
     >
       <p className="text-xs text-graphite-300">
-        Página {page} de {pageCount} · {total} {itemLabel}
+        Página {page} de {pageCount} · {total} {rotulo}
       </p>
 
       <div className="flex gap-2">

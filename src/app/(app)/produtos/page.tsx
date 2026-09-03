@@ -76,7 +76,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Sea
 
       <div className="mb-4 space-y-3">
         <SearchInput placeholder="Buscar por código, código do fabricante, nome ou descrição…" />
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <UrlSelect
             param="brand"
             ariaLabel="Filtrar por marca"
