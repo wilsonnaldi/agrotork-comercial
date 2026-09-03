@@ -91,13 +91,19 @@ export async function update(id: string, payload: UpdateOf<"customers">): Promis
   if (error) throw new Error(error.message);
 }
 
-/** Nunca apagamos: histórico comercial depende do cliente. */
-export async function softDelete(id: string, userId: string): Promise<void> {
+/**
+ * Nunca apagamos: histórico comercial depende do cliente.
+ *
+ * Vai por RPC, e não por `update`, porque a policy `customers_select`
+ * exige `deleted_at is null` — e o PostgreSQL aplica as policies de
+ * SELECT também sobre a linha RESULTANTE de um UPDATE. O update direto
+ * era recusado para todo mundo, administrador incluído. A função
+ * `delete_customer` é `security definer` e confere a permissão por conta
+ * própria (migration 20260903110000).
+ */
+export async function softDelete(id: string): Promise<void> {
   const supabase = await createClient();
-  const { error } = await supabase
-    .from("customers")
-    .update({ deleted_at: new Date().toISOString(), updated_by: userId })
-    .eq("id", id);
+  const { error } = await supabase.rpc("delete_customer", { p_customer_id: id });
   if (error) throw new Error(error.message);
 }
 

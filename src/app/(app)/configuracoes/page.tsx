@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Boxes, Building2, ChevronRight, Percent, Ruler, Tags, Users } from "lucide-react";
+import { Boxes, Building2, ChevronRight, Percent, Ruler, Tags, Truck, Users } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { requirePermission } from "@/lib/auth/session";
@@ -31,6 +31,12 @@ const CADASTROS = [
     icon: Percent,
     title: "Margens por setor",
     description: "O percentual de lucro de cada setor, e o preço que ele sugere.",
+  },
+  {
+    href: "/configuracoes/fornecedores",
+    icon: Truck,
+    title: "Fornecedores",
+    description: "De quem a empresa compra: DJI, distribuidores, oficinas.",
   },
 ];
 

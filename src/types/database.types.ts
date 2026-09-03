@@ -1275,6 +1275,108 @@ export type Database = {
           },
         ]
       }
+      suppliers: {
+        Row: {
+          address: string | null
+          address_complement: string | null
+          address_number: string | null
+          city: string | null
+          contact_name: string | null
+          created_at: string
+          created_by: string | null
+          deleted_at: string | null
+          district: string | null
+          document: string | null
+          email: string | null
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          payment_terms: string | null
+          person_type: Database["public"]["Enums"]["person_type"]
+          phone: string | null
+          state: string | null
+          state_registration: string | null
+          trade_name: string | null
+          updated_at: string
+          updated_by: string | null
+          website: string | null
+          whatsapp: string | null
+          zip_code: string | null
+        }
+        Insert: {
+          address?: string | null
+          address_complement?: string | null
+          address_number?: string | null
+          city?: string | null
+          contact_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          district?: string | null
+          document?: string | null
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          payment_terms?: string | null
+          person_type?: Database["public"]["Enums"]["person_type"]
+          phone?: string | null
+          state?: string | null
+          state_registration?: string | null
+          trade_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          website?: string | null
+          whatsapp?: string | null
+          zip_code?: string | null
+        }
+        Update: {
+          address?: string | null
+          address_complement?: string | null
+          address_number?: string | null
+          city?: string | null
+          contact_name?: string | null
+          created_at?: string
+          created_by?: string | null
+          deleted_at?: string | null
+          district?: string | null
+          document?: string | null
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          payment_terms?: string | null
+          person_type?: Database["public"]["Enums"]["person_type"]
+          phone?: string | null
+          state?: string | null
+          state_registration?: string | null
+          trade_name?: string | null
+          updated_at?: string
+          updated_by?: string | null
+          website?: string | null
+          whatsapp?: string | null
+          zip_code?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "suppliers_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "suppliers_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       units: {
         Row: {
           allows_fraction: boolean
@@ -1439,6 +1541,18 @@ export type Database = {
           p_order_id: string
         }
         Returns: string
+      }
+      delete_customer: {
+        Args: {
+          p_customer_id: string
+        }
+        Returns: boolean
+      }
+      delete_supplier: {
+        Args: {
+          p_supplier_id: string
+        }
+        Returns: boolean
       }
       discard_quote_draft: {
         Args: {

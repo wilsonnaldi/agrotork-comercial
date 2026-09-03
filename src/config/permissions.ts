@@ -17,6 +17,15 @@ export const PERMISSIONS = {
   "products.viewCost": ["admin"],
 
   "catalog.manage": ["admin"], // categorias, marcas, unidades
+
+  /**
+   * Fornecedores. O vendedor LÊ — precisa saber de quem vem a peça que
+   * prometeu ao cliente —, mas quem decide de quem a empresa compra é a
+   * administração. É o mesmo desenho de marcas e categorias, não o de
+   * clientes.
+   */
+  "suppliers.read": ["admin", "salesperson"],
+  "suppliers.manage": ["admin"],
   "kits.read": ["admin", "salesperson"],
   "kits.write": ["admin"],
 

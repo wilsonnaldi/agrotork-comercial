@@ -118,6 +118,7 @@ export type Product = TableRow<"products">;
 export type ProductCost = TableRow<"product_costs">;
 export type MarginRule = TableRow<"margin_rules">;
 export type Customer = TableRow<"customers">;
+export type Supplier = TableRow<"suppliers">;
 export type Kit = TableRow<"kits">;
 export type KitItem = TableRow<"kit_items">;
 export type Quote = TableRow<"quotes">;

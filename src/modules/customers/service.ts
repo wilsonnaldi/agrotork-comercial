@@ -98,13 +98,27 @@ export async function setCustomerActive(id: string, isActive: boolean, userId: s
 /**
  * Exclusão lógica. Reservada ao administrador (ver PERMISSIONS).
  * Um cliente com histórico deve ser desativado, não excluído.
+ *
+ * Quem decide é o banco: `delete_customer` confere o papel e o histórico
+ * (orçamentos E pedidos) dentro da transação. Aqui só traduzimos a
+ * recusa para a linguagem de quem está na tela — a checagem prévia que
+ * existia aqui olhava apenas orçamentos, e olhava com o RLS do usuário,
+ * então não enxergava o histórico de outro vendedor.
  */
-export async function deleteCustomer(id: string, userId: string): Promise<void> {
-  const history = await repository.findHistory(id);
-  if (history.quotes.length > 0) {
-    throw new BusinessError(
-      "Este cliente tem orçamentos registrados. Desative-o em vez de excluir, para preservar o histórico.",
-    );
+export async function deleteCustomer(id: string): Promise<void> {
+  try {
+    await repository.softDelete(id);
+  } catch (error) {
+    const mensagem = error instanceof Error ? error.message : "";
+    if (mensagem.includes("Desative-o em vez de excluir")) {
+      throw new BusinessError(mensagem);
+    }
+    if (mensagem.includes("Somente administrador")) {
+      throw new BusinessError("Somente administrador pode excluir cliente.");
+    }
+    if (mensagem.includes("não encontrado")) {
+      throw new BusinessError("Cliente não encontrado.");
+    }
+    throw error;
   }
-  await repository.softDelete(id, userId);
 }
