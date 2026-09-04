@@ -1062,6 +1062,7 @@ export type Database = {
           created_by: string | null
           deleted_at: string | null
           description: string | null
+          gtin: string | null
           id: string
           image_url: string | null
           is_active: boolean
@@ -1090,6 +1091,7 @@ export type Database = {
           created_by?: string | null
           deleted_at?: string | null
           description?: string | null
+          gtin?: string | null
           id?: string
           image_url?: string | null
           is_active?: boolean
@@ -1118,6 +1120,7 @@ export type Database = {
           created_by?: string | null
           deleted_at?: string | null
           description?: string | null
+          gtin?: string | null
           id?: string
           image_url?: string | null
           is_active?: boolean
@@ -1792,6 +1795,61 @@ export type Database = {
           },
         ]
       }
+      supplier_products: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          id: string
+          product_id: string
+          supplier_code: string
+          supplier_description: string | null
+          supplier_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          product_id: string
+          supplier_code: string
+          supplier_description?: string | null
+          supplier_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          id?: string
+          product_id?: string
+          supplier_code?: string
+          supplier_description?: string | null
+          supplier_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "supplier_products_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_products_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "supplier_products_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       suppliers: {
         Row: {
           address: string | null
@@ -2175,6 +2233,18 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: boolean
       }
+      known_supplier_products: {
+        Args: {
+          p_supplier_id: string
+        }
+        Returns: {
+          supplier_code: string
+          product_id: string
+          product_code: string
+          product_name: string
+          gtin: string
+        }[]
+      }
       next_order_number: {
         Args: {
           p_year?: number
@@ -2299,6 +2369,15 @@ export type Database = {
           p_serial_id: string
         }
         Returns: boolean
+      }
+      remember_supplier_product: {
+        Args: {
+          p_supplier_id: string
+          p_code: string
+          p_product_id: string
+          p_description?: string
+        }
+        Returns: string
       }
       return_order_stock: {
         Args: {

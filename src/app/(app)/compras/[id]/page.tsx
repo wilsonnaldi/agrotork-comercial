@@ -81,6 +81,12 @@ export default async function PurchasePage({
         }
       />
 
+      {typeof query.importada === "string" && (
+        <Alert tone="success" className="mb-4">
+          Nota importada do XML. Confira os itens e confirme o recebimento para o estoque e o
+          custo se mexerem.
+        </Alert>
+      )}
       {typeof query.criada === "string" && (
         <Alert tone="success" className="mb-4">
           Rascunho criado. Adicione os itens e depois confirme o recebimento.

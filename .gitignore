@@ -24,3 +24,4 @@ remote_schema*.txt
 # supabase/migrations/. Ele NAO e uma migration: e um dump do schema remoto,
 # e entrar no Git recria a divergencia entre historico e banco.
 supabase/migrations/*_remote_schema.sql
+.nfe-check-*/

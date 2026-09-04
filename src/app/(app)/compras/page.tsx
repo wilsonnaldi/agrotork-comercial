@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { PackagePlus, Plus } from "lucide-react";
+import { FileUp, PackagePlus, Plus } from "lucide-react";
 import { PageHeader } from "@/components/ui/page-header";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,12 +51,23 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Se
         title="Entradas"
         description="A nota que chegou do fornecedor. É ela que atualiza o estoque e o custo."
         action={
-          <Button asChild size="lg" className="hidden sm:inline-flex">
-            <Link href="/compras/nova">
-              <Plus className="size-4" aria-hidden />
-              Nova entrada
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            {/* Importar vem primeiro: é o caminho que a AgroTork deve
+                usar sempre que o fornecedor mandar o XML. Digitar é a
+                exceção — brinde, garantia, nota que não chegou. */}
+            <Button asChild size="lg" className="hidden sm:inline-flex">
+              <Link href="/compras/importar">
+                <FileUp className="size-4" aria-hidden />
+                Importar NF-e
+              </Link>
+            </Button>
+            <Button asChild variant="secondary" className="hidden sm:inline-flex">
+              <Link href="/compras/nova">
+                <Plus className="size-4" aria-hidden />
+                Digitar
+              </Link>
+            </Button>
+          </div>
         }
       />
 
@@ -88,9 +99,9 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Se
             action={
               !isFiltered && (
                 <Button asChild className="mt-2">
-                  <Link href="/compras/nova">
-                    <Plus className="size-4" aria-hidden />
-                    Nova entrada
+                  <Link href="/compras/importar">
+                    <FileUp className="size-4" aria-hidden />
+                    Importar NF-e
                   </Link>
                 </Button>
               )
@@ -180,12 +191,20 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Se
         )}
       </Card>
 
-      <Button asChild size="lg" fullWidth className="mt-4 sm:hidden">
-        <Link href="/compras/nova">
-          <Plus className="size-4" aria-hidden />
-          Nova entrada
-        </Link>
-      </Button>
+      <div className="mt-4 space-y-2 sm:hidden">
+        <Button asChild size="lg" fullWidth>
+          <Link href="/compras/importar">
+            <FileUp className="size-4" aria-hidden />
+            Importar NF-e
+          </Link>
+        </Button>
+        <Button asChild variant="secondary" fullWidth>
+          <Link href="/compras/nova">
+            <Plus className="size-4" aria-hidden />
+            Digitar à mão
+          </Link>
+        </Button>
+      </div>
     </>
   );
 }

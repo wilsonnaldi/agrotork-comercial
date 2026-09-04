@@ -270,3 +270,90 @@ export async function productOptions(
   if (error) throw new Error(error.message);
   return data ?? [];
 }
+
+// ── Importação de NF-e ──────────────────────────────────────
+
+export async function findSupplierByDocument(
+  document: string,
+): Promise<{ id: string; name: string } | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("suppliers")
+    .select("id, name")
+    .eq("document", document)
+    .is("deleted_at", null)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+/** O de-para que já existe deste fornecedor, mais o GTIN de cada produto. */
+export async function knownSupplierProducts(supplierId: string): Promise<
+  { supplier_code: string; product_id: string; product_code: string; product_name: string; gtin: string | null }[]
+> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("known_supplier_products", {
+    p_supplier_id: supplierId,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as never;
+}
+
+/** Produtos com GTIN, para casar pelo código de barras da nota. */
+export async function findProductsByGtin(
+  gtins: string[],
+): Promise<{ id: string; code: string; name: string; gtin: string | null }[]> {
+  const unicos = [...new Set(gtins.filter(Boolean))];
+  if (unicos.length === 0) return [];
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("products")
+    .select("id, code, name, gtin")
+    .in("gtin", unicos)
+    .is("deleted_at", null);
+
+  if (error) throw new Error(error.message);
+  return data ?? [];
+}
+
+export async function rememberSupplierProduct(
+  supplierId: string,
+  code: string,
+  productId: string,
+  description?: string | null,
+): Promise<void> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("remember_supplier_product", {
+    p_supplier_id: supplierId,
+    p_code: code,
+    p_product_id: productId,
+    ...(description ? { p_description: description } : {}),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function insertSupplierFromNfe(dados: {
+  name: string;
+  trade_name: string | null;
+  document: string | null;
+  state_registration: string | null;
+  address: string | null;
+  address_number: string | null;
+  district: string | null;
+  city: string | null;
+  state: string | null;
+  zip_code: string | null;
+  phone: string | null;
+}, userId: string): Promise<string> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("suppliers")
+    .insert({ ...dados, created_by: userId, updated_by: userId } as never)
+    .select("id")
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data.id;
+}

@@ -72,6 +72,7 @@ const SUITES = [
   ["estoque e numeros de serie", "21_estoque.sql", /(ES|SN)\d*[A-Z]?\)|NOTICE/],
   ["entrada de mercadoria", "22_compras.sql", /CP\d+[a-z]?\)|NOTICE/],
   ["financeiro", "23_financeiro.sql", /FI\d+\)|NOTICE/],
+  ["importação de NF-e", "24_importacao_nfe.sql", /NF\d+\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {
