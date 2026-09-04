@@ -87,6 +87,8 @@ export type OrderStatus = Public["Enums"]["order_status"];
 export type StockReason = Public["Enums"]["stock_reason"];
 export type SerialStatus = Public["Enums"]["serial_status"];
 export type PurchaseStatus = Public["Enums"]["purchase_status"];
+export type FinancialKind = Public["Enums"]["financial_kind"];
+export type FinancialStatus = Public["Enums"]["financial_status"];
 
 /**
  * Os mesmos valores do enum, em forma de lista, para quem precisa deles em
@@ -126,6 +128,8 @@ export type StockMovement = TableRow<"stock_movements">;
 export type ProductSerial = TableRow<"product_serials">;
 export type Purchase = TableRow<"purchases">;
 export type PurchaseItem = TableRow<"purchase_items">;
+export type FinancialEntry = TableRow<"financial_entries">;
+export type FinancialPayment = TableRow<"financial_payments">;
 export type Kit = TableRow<"kits">;
 export type KitItem = TableRow<"kit_items">;
 export type Quote = TableRow<"quotes">;
@@ -232,6 +236,46 @@ export type OrderListRow = NotNull<ViewRow<"orders_list">, (typeof ORDER_LIST_CO
 
 export function toOrderListRow(row: ViewRow<"orders_list">): OrderListRow {
   assertColumns(row, ORDER_LIST_COLUMNS, "orders_list");
+  return row;
+}
+
+/**
+ * `financial_position` = `financial_entries` + a soma das baixas.
+ *
+ * `paid_amount`, `open_amount`, `is_overdue` e `days_overdue` passam por
+ * `coalesce`/`case` na view — nenhum é nulo, nem para título sem
+ * nenhuma baixa. `party_name` é `coalesce(cliente, fornecedor)`, e a
+ * constraint da tabela garante que exatamente um dos dois existe.
+ *
+ * Seguem nulos: `order_number` e `purchase_number` (o documento de
+ * origem pode ter sido apagado, ou o título pode ter nascido à mão).
+ */
+const FINANCIAL_POSITION_COLUMNS = [
+  "id",
+  "kind",
+  "status",
+  "description",
+  "due_date",
+  "amount",
+  "installment",
+  "installments",
+  "created_at",
+  "party_name",
+  "paid_amount",
+  "open_amount",
+  "is_overdue",
+  "days_overdue",
+] as const satisfies readonly (keyof ViewRow<"financial_position">)[];
+
+export type FinancialPositionRow = NotNull<
+  ViewRow<"financial_position">,
+  (typeof FINANCIAL_POSITION_COLUMNS)[number]
+>;
+
+export function toFinancialPositionRow(
+  row: ViewRow<"financial_position">,
+): FinancialPositionRow {
+  assertColumns(row, FINANCIAL_POSITION_COLUMNS, "financial_position");
   return row;
 }
 

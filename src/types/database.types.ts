@@ -289,6 +289,160 @@ export type Database = {
           },
         ]
       }
+      financial_entries: {
+        Row: {
+          amount: number
+          cancelled_at: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string | null
+          description: string
+          due_date: string
+          id: string
+          installment: number
+          installments: number
+          kind: Database["public"]["Enums"]["financial_kind"]
+          notes: string | null
+          order_id: string | null
+          purchase_id: string | null
+          status: Database["public"]["Enums"]["financial_status"]
+          supplier_id: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          amount: number
+          cancelled_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          description: string
+          due_date: string
+          id?: string
+          installment?: number
+          installments?: number
+          kind: Database["public"]["Enums"]["financial_kind"]
+          notes?: string | null
+          order_id?: string | null
+          purchase_id?: string | null
+          status?: Database["public"]["Enums"]["financial_status"]
+          supplier_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          amount?: number
+          cancelled_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          description?: string
+          due_date?: string
+          id?: string
+          installment?: number
+          installments?: number
+          kind?: Database["public"]["Enums"]["financial_kind"]
+          notes?: string | null
+          order_id?: string | null
+          purchase_id?: string | null
+          status?: Database["public"]["Enums"]["financial_status"]
+          supplier_id?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_entries_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entries_customer_id_fkey"
+            columns: ["customer_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entries_order_id_fkey"
+            columns: ["order_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entries_purchase_id_fkey"
+            columns: ["purchase_id"]
+            isOneToOne: false
+            referencedRelation: "purchases"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entries_supplier_id_fkey"
+            columns: ["supplier_id"]
+            isOneToOne: false
+            referencedRelation: "suppliers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_entries_updated_by_fkey"
+            columns: ["updated_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      financial_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          created_by: string | null
+          entry_id: string
+          id: string
+          method: string | null
+          notes: string | null
+          paid_on: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          created_by?: string | null
+          entry_id: string
+          id?: string
+          method?: string | null
+          notes?: string | null
+          paid_on?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          created_by?: string | null
+          entry_id?: string
+          id?: string
+          method?: string | null
+          notes?: string | null
+          paid_on?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "financial_payments_created_by_fkey"
+            columns: ["created_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "financial_payments_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "financial_entries"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       kit_items: {
         Row: {
           created_at: string
@@ -1775,6 +1929,31 @@ export type Database = {
       }
     }
     Views: {
+      financial_position: {
+        Row: {
+          amount: number | null
+          created_at: string | null
+          customer_id: string | null
+          days_overdue: number | null
+          description: string | null
+          due_date: string | null
+          id: string | null
+          installment: number | null
+          installments: number | null
+          is_overdue: boolean | null
+          kind: Database["public"]["Enums"]["financial_kind"] | null
+          open_amount: number | null
+          order_id: string | null
+          order_number: string | null
+          paid_amount: number | null
+          party_name: string | null
+          purchase_id: string | null
+          purchase_number: string | null
+          status: Database["public"]["Enums"]["financial_status"] | null
+          supplier_id: string | null
+        }
+        Relationships: []
+      }
       kits_with_price: {
         Row: {
           category_id: string | null
@@ -1935,6 +2114,13 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      cancel_financial_entry: {
+        Args: {
+          p_entry_id: string
+          p_notes?: string
+        }
+        Returns: boolean
+      }
       cancel_purchase: {
         Args: {
           p_purchase_id: string
@@ -2083,6 +2269,22 @@ export type Database = {
         }
         Returns: number
       }
+      refresh_financial_status: {
+        Args: {
+          p_entry_id: string
+        }
+        Returns: undefined
+      }
+      register_financial_payment: {
+        Args: {
+          p_entry_id: string
+          p_amount: number
+          p_paid_on?: string
+          p_method?: string
+          p_notes?: string
+        }
+        Returns: string
+      }
       register_stock_movement: {
         Args: {
           p_product_id: string
@@ -2127,6 +2329,15 @@ export type Database = {
         }
         Returns: string
       }
+      split_financial_entry: {
+        Args: {
+          p_entry_id: string
+          p_installments: number
+          p_first_due?: string
+          p_interval?: number
+        }
+        Returns: number
+      }
       suggested_sale_price: {
         Args: {
           p_product_id: string
@@ -2135,6 +2346,8 @@ export type Database = {
       }
     }
     Enums: {
+      financial_kind: "receivable" | "payable"
+      financial_status: "open" | "partial" | "settled" | "cancelled"
       item_kind: "product" | "kit" | "custom"
       kit_item_type: "required" | "optional"
       order_status: "confirmed" | "picking" | "invoiced" | "delivered" | "cancelled"
@@ -2242,6 +2455,8 @@ export type Enums<
 export const Constants = {
   public: {
     Enums: {
+      financial_kind: ["receivable", "payable"],
+      financial_status: ["open", "partial", "settled", "cancelled"],
       item_kind: ["product", "kit", "custom"],
       kit_item_type: ["required", "optional"],
       order_status: ["confirmed", "picking", "invoiced", "delivered", "cancelled"],

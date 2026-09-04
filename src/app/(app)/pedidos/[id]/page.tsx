@@ -18,6 +18,7 @@ import { getOrderWithItems } from "@/modules/orders/service";
 import { STATUS_TRANSITIONS } from "@/modules/orders/types";
 import { changeStatusAction, renegotiateAction } from "@/modules/orders/actions";
 import { SerialsCard } from "./serials-card";
+import { ReceivablesCard } from "./receivables-card";
 
 export const metadata: Metadata = { title: "Pedido" };
 
@@ -259,6 +260,10 @@ export default async function OrderPage({
               )}
             </CardBody>
           </Card>
+
+          {can(user.profile.role, "financial.manage") && (
+            <ReceivablesCard orderId={order.id} />
+          )}
 
           <SerialsCard
             orderId={order.id}

@@ -1,4 +1,6 @@
 import type {
+  FinancialKind,
+  FinancialStatus,
   ItemKind,
   OrderStatus,
   PersonType,
@@ -109,5 +111,28 @@ export const PURCHASE_STATUS_LABELS: Record<PurchaseStatus, string> = {
 export const PURCHASE_STATUS_TONE: Record<PurchaseStatus, "neutral" | "info" | "success" | "danger" | "warning"> = {
   draft: "warning",
   received: "success",
+  cancelled: "neutral",
+};
+
+/**
+ * Financeiro. "Em aberto" e não "Pendente": o que a empresa fala é
+ * "esse título está em aberto", e o rótulo tem que ser o da conversa.
+ */
+export const FINANCIAL_KIND_LABELS: Record<FinancialKind, string> = {
+  receivable: "A receber",
+  payable: "A pagar",
+};
+
+export const FINANCIAL_STATUS_LABELS: Record<FinancialStatus, string> = {
+  open: "Em aberto",
+  partial: "Parcial",
+  settled: "Quitado",
+  cancelled: "Cancelado",
+};
+
+export const FINANCIAL_STATUS_TONE: Record<FinancialStatus, "neutral" | "info" | "success" | "danger" | "warning"> = {
+  open: "info",
+  partial: "warning",
+  settled: "success",
   cancelled: "neutral",
 };

@@ -55,6 +55,12 @@ export const PERMISSIONS = {
    */
   "purchases.manage": ["admin"],
 
+  /**
+   * Financeiro. Também sem par `read`: o vendedor enxerga o pedido dele,
+   * não o caixa da empresa nem quanto o colega vendeu.
+   */
+  "financial.manage": ["admin"],
+
   "quotes.readOwn": ["admin", "salesperson"],
   "quotes.readAll": ["admin"],
   "quotes.write": ["admin", "salesperson"],
