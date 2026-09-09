@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Download, Lock } from "lucide-react";
 
-import { formatCents } from "@/lib/format/money";
+import { formatCents, percentOfCents } from "@/lib/format/money";
 import { formatQuantity } from "@/lib/format/quantity";
 import { formatDate } from "@/lib/format";
 import { getSharedDocument } from "@/modules/quotes/share/service";
@@ -101,7 +101,7 @@ export default async function PublicQuotePage({ params }: { params: Promise<{ to
   const { company, customer } = document;
   const descontoPercentual =
     document.discount_percent > 0
-      ? Math.round((document.subtotal_cents * document.discount_percent) / 100)
+      ? percentOfCents(document.subtotal_cents, document.discount_percent)
       : 0;
 
   return (

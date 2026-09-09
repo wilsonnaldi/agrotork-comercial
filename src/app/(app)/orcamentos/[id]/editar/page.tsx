@@ -9,7 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/search-input";
 import { requirePermission } from "@/lib/auth/session";
-import { formatCents } from "@/lib/format/money";
+import { formatCents, percentOfCents } from "@/lib/format/money";
 import { QUOTE_STATUS_LABELS, QUOTE_STATUS_TONE } from "@/config/labels";
 import { catalogSearchSchema } from "@/modules/quotes/schema";
 import {
@@ -380,7 +380,7 @@ export default async function EditQuotePage({
                 <div className="flex justify-between text-graphite-500">
                   <span>Desconto {String(quote.discount_percent).replace(".", ",")}%</span>
                   <span className="tnum">
-                    −{formatCents(Math.round((quote.subtotal_cents * quote.discount_percent) / 100))}
+                    −{formatCents(percentOfCents(quote.subtotal_cents, quote.discount_percent))}
                   </span>
                 </div>
               )}

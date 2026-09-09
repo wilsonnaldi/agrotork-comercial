@@ -72,6 +72,23 @@ export function dbValueToCents(value: string | number | null | undefined): numbe
   return parseMoneyToCents(typeof value === "number" ? value.toFixed(2) : value);
 }
 
+/**
+ * Percentual de um valor em centavos, com a MESMA conta do banco:
+ * `round(valor * pct / 100, 2)` em `numeric`, que arredonda o meio para
+ * cima. Em ponto flutuante `1500 * 2.3 / 100` dá 34,4999… e o desconto
+ * impresso sai um centavo menor do que o total já descontado pelo banco.
+ * O percentual é tratado com 4 casas, como a coluna `numeric(7,4)`.
+ */
+export function percentOfCents(cents: number, percent: number): number {
+  const pct = BigInt(Math.round(percent * 10_000));
+  const numerator = BigInt(Math.round(cents)) * pct;
+  const denominator = 1_000_000n;
+  const quotient = numerator / denominator;
+  const remainder = numerator % denominator;
+  const roundedUp = remainder * 2n >= denominator ? quotient + 1n : quotient;
+  return Number(roundedUp);
+}
+
 /** Centavos -> "R$ 1.234,56". */
 export function formatCents(cents: number | null | undefined): string {
   if (cents === null || cents === undefined) return "—";

@@ -2,7 +2,7 @@ import "server-only";
 
 import PDFDocument from "pdfkit";
 
-import { formatCents } from "@/lib/format/money";
+import { formatCents, percentOfCents } from "@/lib/format/money";
 import { formatQuantity } from "@/lib/format/quantity";
 import { formatDate } from "@/lib/format";
 import { QUOTE_STATUS_LABELS } from "@/config/labels";
@@ -274,7 +274,7 @@ function totals(doc: Doc, document: QuoteDocument, y: number) {
   const linhas: [string, string][] = [["Subtotal", money(document.subtotal_cents)]];
 
   if (document.discount_percent > 0) {
-    const valor = Math.round((document.subtotal_cents * document.discount_percent) / 100);
+    const valor = percentOfCents(document.subtotal_cents, document.discount_percent);
     linhas.push([`Desconto ${percent(document.discount_percent)}`, `- ${money(valor)}`]);
   }
   if (document.discount_amount_cents > 0) {

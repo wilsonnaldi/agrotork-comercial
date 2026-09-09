@@ -11,9 +11,9 @@ import { ConfirmButton } from "@/components/ui/confirm-button";
 import { requirePermission } from "@/lib/auth/session";
 import { can } from "@/config/permissions";
 import { ORDER_STATUS_LABELS, ORDER_STATUS_TONE } from "@/config/labels";
-import { formatCents } from "@/lib/format/money";
+import { formatCents, percentOfCents } from "@/lib/format/money";
 import { formatQuantity } from "@/lib/format/quantity";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 import { getOrderWithItems } from "@/modules/orders/service";
 import { STATUS_TRANSITIONS } from "@/modules/orders/types";
 import { changeStatusAction, renegotiateAction } from "@/modules/orders/actions";
@@ -160,8 +160,8 @@ export default async function OrderPage({
                 </div>
                 {order.discount_percent > 0 && (
                   <div className="flex justify-between gap-6">
-                    <dt className="text-graphite-500">Desconto</dt>
-                    <dd className="tnum">{order.discount_percent}%</dd>
+                    <dt className="text-graphite-500">Desconto {formatNumber(order.discount_percent, 1)}%</dt>
+                    <dd className="tnum">− {formatCents(percentOfCents(order.subtotal_cents, order.discount_percent))}</dd>
                   </div>
                 )}
                 {order.discount_amount_cents > 0 && (

@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { ConfirmButton } from "@/components/ui/confirm-button";
 import { requirePermission } from "@/lib/auth/session";
 import { QUOTE_STATUS_LABELS, QUOTE_STATUS_TONE } from "@/config/labels";
-import { formatCents } from "@/lib/format/money";
+import { formatCents, percentOfCents } from "@/lib/format/money";
 import { formatQuantity } from "@/lib/format/quantity";
 import { formatDate, formatDocument } from "@/lib/format";
 import { getQuoteWithItems, quoteIsEditable } from "@/modules/quotes/service";
@@ -290,7 +290,7 @@ export default async function QuotePage({
                 <div className="flex justify-between text-graphite-500">
                   <span>Desconto {String(quote.discount_percent).replace(".", ",")}%</span>
                   <span className="tnum">
-                    −{formatCents(Math.round((quote.subtotal_cents * quote.discount_percent) / 100))}
+                    −{formatCents(percentOfCents(quote.subtotal_cents, quote.discount_percent))}
                   </span>
                 </div>
               )}
