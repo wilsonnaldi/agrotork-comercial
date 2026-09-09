@@ -86,3 +86,88 @@ do $$ begin
   raise notice 'U) OK: admin edita orcamento aprovado';
 exception when others then raise notice 'U) FALHA: admin bloqueado (%)', sqlerrm; end $$;
 reset role;
+
+-- ════════════════════════════════════════════════════════════
+-- V–X) Guardas da migration 20260909100000 (achados A2 e A6)
+-- ════════════════════════════════════════════════════════════
+
+-- V) o dono NÃO reescreve número, sequência, carimbos e autoria do
+--    próprio rascunho; o estado fica como estava.
+set role authenticated;
+set request.jwt.claim.sub='44444444-4444-4444-4444-444444444444';
+set request.jwt.claim.role='authenticated';
+do $$
+declare v_q uuid; v_num text; v_seq int; v_created timestamptz; v_ok boolean := true;
+begin
+  select id, number, sequence_number, created_at into v_q, v_num, v_seq, v_created
+    from public.quotes where owner_id='44444444-4444-4444-4444-444444444444' and status='draft' limit 1;
+
+  begin
+    update public.quotes set number='ORC-2019-0001', sequence_year=2019, sequence_number=1 where id=v_q;
+    v_ok := false;
+  exception when check_violation then null; end;
+  begin
+    update public.quotes set approved_at='2019-01-03', sent_at='2019-01-02' where id=v_q;
+    v_ok := false;
+  exception when check_violation then null; end;
+  begin
+    update public.quotes set created_at='2019-01-01', created_by=null where id=v_q;
+    v_ok := false;
+  exception when check_violation then null; end;
+  begin
+    update public.quotes set revision=99, supersedes_quote_id=v_q where id=v_q;
+    v_ok := false;
+  exception when check_violation then null; end;
+
+  if v_ok and (select number from public.quotes where id=v_q) = v_num
+     and (select sequence_number from public.quotes where id=v_q) = v_seq
+     and (select created_at from public.quotes where id=v_q) = v_created
+     and (select approved_at from public.quotes where id=v_q) is null
+    then raise notice 'V) OK: numero, carimbos e autoria do orcamento nao sao do vendedor';
+    else raise notice 'V) FALHA: alguma coluna de controle foi aceita (numero agora %)',
+      (select number from public.quotes where id=v_q); end if;
+end $$;
+
+-- W) `issue_date` continua sendo formulário: o dono muda.
+do $$
+declare v_q uuid;
+begin
+  select id into v_q from public.quotes
+   where owner_id='44444444-4444-4444-4444-444444444444' and status='draft' limit 1;
+  update public.quotes set issue_date = current_date - 3 where id=v_q;
+  if (select issue_date from public.quotes where id=v_q) = current_date - 3
+    then raise notice 'W) OK: issue_date e do formulario e continua livre';
+    else raise notice 'W) FALHA: issue_date nao mudou'; end if;
+exception when others then raise notice 'W) FALHA: issue_date barrada (%)', sqlerrm;
+end $$;
+reset role;
+
+-- X) usuário DESATIVADO não insere item no próprio rascunho (a 0903080000
+--    tinha perdido o is_active_user() de quote_is_editable).
+update public.profiles set is_active=false where id='44444444-4444-4444-4444-444444444444';
+set role authenticated;
+set request.jwt.claim.sub='44444444-4444-4444-4444-444444444444';
+set request.jwt.claim.role='authenticated';
+do $$
+declare v_q uuid; v_antes int; v_depois int; v_editavel boolean;
+begin
+  reset role;
+  select id into v_q from public.quotes
+   where owner_id='44444444-4444-4444-4444-444444444444' and status='draft' limit 1;
+  select count(*) into v_antes from public.quote_items where quote_id=v_q;
+  set role authenticated;
+
+  select public.quote_is_editable(v_q) into v_editavel;
+  begin
+    insert into public.quote_items (quote_id, kind, name_snapshot, quantity, unit_price)
+    values (v_q, 'custom', 'Item do desativado', 1, 10);
+  exception when others then null; end;
+
+  reset role;
+  select count(*) into v_depois from public.quote_items where quote_id=v_q;
+  if not v_editavel and v_depois = v_antes
+    then raise notice 'X) OK: usuario desativado nao edita item (quote_is_editable=false, % item(ns) antes e depois)', v_antes;
+    else raise notice 'X) FALHA: editavel=% ; itens antes % / depois %', v_editavel, v_antes, v_depois; end if;
+end $$;
+reset role;
+update public.profiles set is_active=true where id='44444444-4444-4444-4444-444444444444';

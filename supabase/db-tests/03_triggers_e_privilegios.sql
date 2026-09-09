@@ -111,3 +111,92 @@ begin
   end if;
   grant execute on function public.is_admin() to authenticated;
 end $$;
+
+-- ════════════════════════════════════════════════════════════════════
+-- SA5–SA9) Privilégios estruturais (migrations 20260909100000/110000:
+--      achados A7, A10, A11, A15, A16). Estruturais: valem para TODAS
+--      as tabelas e funções de `public`, inclusive as que vierem depois.
+-- ════════════════════════════════════════════════════════════════════
+reset role;
+
+-- SA5) toda tabela de public tem RLS ligado (purchase_sequences nasceu sem).
+do $$
+declare v_sem text;
+begin
+  select string_agg(relname, ', ') into v_sem
+    from pg_class where relnamespace='public'::regnamespace and relkind='r' and not relrowsecurity;
+  if v_sem is null then raise notice 'SA5) OK: todas as tabelas de public tem RLS ligado';
+  else raise notice 'SA5) FALHA: sem RLS: %', v_sem; end if;
+end $$;
+
+-- SA6) contador e recálculo do pedido não são RPC do vendedor — testado
+--      executando, como o vendedor, e conferindo que o contador não andou.
+set role authenticated;
+set request.jwt.claim.sub = '22222222-2222-2222-2222-222222222222';
+set request.jwt.claim.role = 'authenticated';
+do $$
+declare v_antes int; v_depois int; v_negadas int := 0;
+begin
+  reset role;
+  select coalesce(max(last_number), 0) into v_antes from public.order_sequences;
+  set role authenticated;
+  begin perform public.next_order_number(2026);
+  exception when insufficient_privilege then v_negadas := v_negadas + 1; end;
+  begin perform public.recalculate_order_totals(gen_random_uuid());
+  exception when insufficient_privilege then v_negadas := v_negadas + 1; end;
+  begin perform public.next_purchase_number(2026);
+  exception when insufficient_privilege then v_negadas := v_negadas + 1; end;
+  begin perform public.refresh_financial_status(gen_random_uuid());
+  exception when insufficient_privilege then v_negadas := v_negadas + 1; end;
+  reset role;
+  select coalesce(max(last_number), 0) into v_depois from public.order_sequences;
+  if v_negadas = 4 and v_antes = v_depois
+    then raise notice 'SA6) OK: 4 funcoes internas negadas ao vendedor; contador de pedido parado em %', v_depois;
+    else raise notice 'SA6) FALHA: % negada(s) de 4; contador % -> %', v_negadas, v_antes, v_depois; end if;
+end $$;
+reset role;
+
+-- SA7) TRUNCATE fora do alcance de authenticated/anon, em tudo — e o
+--      default para tabela futura também.
+do $$
+declare v_com text; v_default text;
+begin
+  select string_agg(relname, ', ') into v_com
+    from pg_class c where relnamespace='public'::regnamespace and relkind in ('r','v')
+     and (has_table_privilege('authenticated', c.oid, 'truncate') or has_table_privilege('anon', c.oid, 'truncate'));
+  select string_agg(defaclacl::text, ' ') into v_default
+    from pg_default_acl where defaclnamespace='public'::regnamespace and defaclobjtype='r'
+     and (defaclacl::text ~ 'authenticated=[a-zA-Z]*D' or defaclacl::text ~ 'anon=');
+  if v_com is null and v_default is null
+    then raise notice 'SA7) OK: nenhuma tabela com TRUNCATE para a API; default privileges limpos';
+    else raise notice 'SA7) FALHA: truncate em [%]; default [%]', coalesce(v_com,'-'), coalesce(v_default,'-'); end if;
+end $$;
+
+-- SA8) toda security definer de public declara search_path = ''.
+do $$
+declare v_ruins text;
+begin
+  select string_agg(proname, ', ') into v_ruins
+    from pg_proc where pronamespace='public'::regnamespace and prosecdef
+     and coalesce(array_to_string(proconfig, ','), '') <> 'search_path=""';
+  if v_ruins is null then raise notice 'SA8) OK: todas as security definer com search_path vazio';
+  else raise notice 'SA8) FALHA: search_path fora do padrao em: %', v_ruins; end if;
+end $$;
+
+-- SA9) anon não tem privilégio algum em tabela ou view de public, e as
+--      funções de margem só respondem a quem está logado.
+do $$
+declare v_tab text; v_fn text;
+begin
+  select string_agg(relname, ', ') into v_tab
+    from pg_class c where relnamespace='public'::regnamespace and relkind in ('r','v')
+     and (has_table_privilege('anon', c.oid, 'select') or has_table_privilege('anon', c.oid, 'insert'));
+  select string_agg(p.oid::regprocedure::text, ', ') into v_fn
+    from pg_proc p where pronamespace='public'::regnamespace
+     and proname in ('suggested_sale_price','apply_margin_rules','round_commercial','next_order_number','next_purchase_number')
+     and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('public', p.oid, 'execute'));
+  if v_tab is null and v_fn is null
+    then raise notice 'SA9) OK: anon sem privilegio em tabela/view; funcoes de margem e contadores sem EXECUTE para anon/public';
+    else raise notice 'SA9) FALHA: tabelas [%]; funcoes [%]', coalesce(v_tab,'-'), coalesce(v_fn,'-'); end if;
+end $$;
+reset role;

@@ -613,3 +613,34 @@ begin
   if v_ruins = 0 then raise notice 'JAH) OK: nenhuma linha do log com ator ou entidade em branco';
   else raise notice 'JAH) FALHA: % linha(s) incompleta(s)', v_ruins; end if;
 end $$;
+
+-- ── JAI) as tabelas de pedido, compra e financeiro estão na trilha ──
+-- (migrations 20260909100000/110000, achado A14). Estrutural aqui; o
+-- comportamento (sem evento fantasma de totais) é conferido em
+-- 18_pedidos PV31) e 22_compras CP23).
+do $$
+declare v_faltam text;
+begin
+  select string_agg(t, ', ') into v_faltam
+    from unnest(array['orders','order_items','price_conditions','suppliers','stock_movements','product_serials',
+                      'purchases','purchase_items','financial_entries','financial_payments','supplier_products']) as t
+   where not exists (
+     select 1 from pg_trigger tg join pg_class c on c.oid = tg.tgrelid
+      where c.relnamespace = 'public'::regnamespace and c.relname = t and tg.tgname like 'trg_audit%');
+  if v_faltam is null then raise notice 'JAI) OK: 11 tabelas novas com gatilho de auditoria';
+  else raise notice 'JAI) FALHA: sem auditoria: %', v_faltam; end if;
+end $$;
+
+-- ── JAJ) mudar uma condição de preço vira evento, com o código como rótulo ──
+do $$
+declare v_id uuid; v_n int;
+begin
+  select id into v_id from public.price_conditions order by sort_order limit 1;
+  update public.price_conditions set description = coalesce(description, '') || ' (auditada)' where id = v_id;
+  select count(*) into v_n from public.audit_log
+   where entity_type = 'price_condition' and entity_id = v_id::text
+     and action = 'price_condition.updated' and 'description' = any (changed_fields)
+     and entity_label is not null;
+  if v_n = 1 then raise notice 'JAJ) OK: price_condition.updated registrado com rotulo';
+  else raise notice 'JAJ) FALHA: % evento(s)', v_n; end if;
+end $$;

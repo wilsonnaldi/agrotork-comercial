@@ -331,3 +331,144 @@ begin
 end $$;
 
 reset role;
+
+-- ════════════════════════════════════════════════════════════
+-- CP17–CP23) Guardas da migration 20260909110000 (A5, A7, A8, A9, A14, A17)
+-- ════════════════════════════════════════════════════════════
+reset role;
+insert into public.products (code, name, unit_id, sale_price)
+select 'CMP-TERCEIRO', 'Terceira peca', u.id, 0 from public.units u where u.code = 'UN';
+
+set role authenticated;
+set request.jwt.claim.role = 'authenticated';
+select set_config('request.jwt.claim.sub', '22222222-0000-4000-8000-00000000c001', false);
+
+-- Nota nova do administrador, com três linhas iguais e frete 100: o
+-- rateio linha a linha daria 33,33 × 3 = 99,99.
+do $$
+begin
+  insert into public.purchases (id, supplier_id, condition_id, invoice_number, freight_amount)
+  select '22222222-0000-4000-8000-00000000cc17', s.id, c.id, '55517', 100
+    from public.suppliers s, public.price_conditions c
+   where s.name = 'Distribuidora de Teste' and c.is_default;
+  insert into public.purchase_items (purchase_id, product_id, quantity, unit_cost)
+  select '22222222-0000-4000-8000-00000000cc17', p.id, 1, 10
+    from public.products p where p.code in ('CMP-CARO', 'CMP-BARATO', 'CMP-TERCEIRO');
+end $$;
+
+-- CP17) item de nota não muda de nota.
+do $$
+declare v_outra uuid; v_item uuid; v_antes int; v_depois int;
+begin
+  select id into v_outra from public.purchases where id <> '22222222-0000-4000-8000-00000000cc17' and status = 'draft' limit 1;
+  if v_outra is null then
+    insert into public.purchases (supplier_id, condition_id)
+    select s.id, c.id from public.suppliers s, public.price_conditions c
+     where s.name = 'Distribuidora de Teste' and c.is_default returning id into v_outra;
+  end if;
+  select id into v_item from public.purchase_items where purchase_id = '22222222-0000-4000-8000-00000000cc17' limit 1;
+  select count(*) into v_antes from public.purchase_items where purchase_id = '22222222-0000-4000-8000-00000000cc17';
+  begin
+    update public.purchase_items set purchase_id = v_outra where id = v_item;
+    raise notice 'CP17) FALHA: item mudou de nota';
+  exception when check_violation then
+    select count(*) into v_depois from public.purchase_items where purchase_id = '22222222-0000-4000-8000-00000000cc17';
+    if v_antes = v_depois then raise notice 'CP17) OK: item nao muda de nota (% linha(s) continuam na origem)', v_depois;
+    else raise notice 'CP17) FALHA: origem perdeu linha'; end if;
+  end;
+end $$;
+
+-- CP18) o contador de notas é interno: nem o administrador logado lê/escreve.
+do $$
+declare v_falhas text := ''; v_rls boolean;
+begin
+  select relrowsecurity into v_rls from pg_class where oid = 'public.purchase_sequences'::regclass;
+  begin perform 1 from public.purchase_sequences; v_falhas := v_falhas || ' leu';
+        exception when insufficient_privilege then null; end;
+  begin update public.purchase_sequences set last_number = 0; v_falhas := v_falhas || ' escreveu';
+        exception when insufficient_privilege then null; end;
+  if v_rls and v_falhas = '' then raise notice 'CP18) OK: purchase_sequences com RLS e sem privilegio para a API';
+  else raise notice 'CP18) FALHA: rls=% ->%', v_rls, v_falhas; end if;
+end $$;
+
+-- CP19) o total escrito direto vira recálculo.
+do $$
+declare v_total numeric; v_itens numeric;
+begin
+  update public.purchases set total = 1, items_total = 1 where id = '22222222-0000-4000-8000-00000000cc17';
+  select total, items_total into v_total, v_itens from public.purchases where id = '22222222-0000-4000-8000-00000000cc17';
+  if v_itens = 30 and v_total = 130
+    then raise notice 'CP19) OK: total direto foi recalculado (itens % + frete 100 = %)', v_itens, v_total;
+    else raise notice 'CP19) FALHA: itens % / total %', v_itens, v_total; end if;
+end $$;
+
+-- CP20) rascunho NÃO vira `received` por UPDATE direto — e não nasce conta a pagar.
+do $$
+declare v_status public.purchase_status; v_titulos int;
+begin
+  begin
+    update public.purchases set status = 'received' where id = '22222222-0000-4000-8000-00000000cc17';
+  exception when restrict_violation then null; end;
+  select status into v_status from public.purchases where id = '22222222-0000-4000-8000-00000000cc17';
+  select count(*) into v_titulos from public.financial_entries where purchase_id = '22222222-0000-4000-8000-00000000cc17';
+  if v_status = 'draft' and v_titulos = 0
+    then raise notice 'CP20) OK: status so anda por receive_purchase(); nenhum titulo criado';
+    else raise notice 'CP20) FALHA: status % / % titulo(s)', v_status, v_titulos; end if;
+end $$;
+
+-- CP21) rateio fecha o centavo: 3 linhas iguais, frete 100 → 33,34 + 33,33 + 33,33.
+do $$
+declare v_soma numeric; v_itens int;
+begin
+  v_itens := public.receive_purchase('22222222-0000-4000-8000-00000000cc17');
+  select sum(freight_share) into v_soma from public.purchase_items where purchase_id = '22222222-0000-4000-8000-00000000cc17';
+  if v_itens = 3 and v_soma = 100
+    then raise notice 'CP21) OK: rateio de 3 linhas soma exatamente o frete (%)', v_soma;
+    else raise notice 'CP21) FALHA: % itens, rateio somou %', v_itens, v_soma; end if;
+end $$;
+
+-- CP22) nota recebida NÃO volta a rascunho — logo não é recebida de novo.
+do $$
+declare v_status public.purchase_status; v_mov int;
+begin
+  begin
+    update public.purchases set status = 'draft' where id = '22222222-0000-4000-8000-00000000cc17';
+  exception when restrict_violation then null; end;
+  begin
+    update public.purchases set invoice_key = repeat('9', 44) where id = '22222222-0000-4000-8000-00000000cc17';
+  exception when restrict_violation then null; end;
+  select status into v_status from public.purchases where id = '22222222-0000-4000-8000-00000000cc17';
+  reset role;
+  select count(*) into v_mov from public.stock_movements where notes = 'Entrada ' || (select number from public.purchases where id = '22222222-0000-4000-8000-00000000cc17');
+  set role authenticated;
+  if v_status = 'received' and v_mov = 3
+     and (select invoice_key from public.purchases where id = '22222222-0000-4000-8000-00000000cc17') is null
+    then raise notice 'CP22) OK: nota recebida continua recebida, chave congelada, % lancamento(s) no livro', v_mov;
+    else raise notice 'CP22) FALHA: status % / % lancamento(s)', v_status, v_mov; end if;
+end $$;
+
+-- CP23) trilha da nota: purchase.created, purchase.received, itens
+--       adicionados — e NENHUM evento de totais nem de rateio.
+do $$
+declare v_created int; v_received int; v_items int; v_fantasma int; v_admin_insere boolean := false;
+begin
+  reset role;
+  select count(*) into v_created  from public.audit_log where entity_type='purchase' and entity_id='22222222-0000-4000-8000-00000000cc17' and action='purchase.created';
+  select count(*) into v_received from public.audit_log where entity_type='purchase' and entity_id='22222222-0000-4000-8000-00000000cc17' and action='purchase.received';
+  select count(*) into v_items    from public.audit_log where entity_type='purchase_item' and parent_id='22222222-0000-4000-8000-00000000cc17' and action='purchase.item_added';
+  select count(*) into v_fantasma from public.audit_log
+   where (entity_type='purchase' and entity_id='22222222-0000-4000-8000-00000000cc17' and changed_fields && array['items_total','total'])
+      or (entity_type='purchase_item' and parent_id='22222222-0000-4000-8000-00000000cc17' and action='purchase.item_changed');
+  set role authenticated;
+  -- A17: o administrador não insere no livro por fora da função.
+  begin
+    insert into public.stock_movements (product_id, reason, quantity)
+    select id, 'sale', -1 from public.products where code = 'CMP-CARO';
+    v_admin_insere := true;
+  exception when others then null; end;
+  if v_created = 1 and v_received = 1 and v_items = 3 and v_fantasma = 0 and not v_admin_insere
+    then raise notice 'CP23) OK: trilha da nota sem fantasma (1 created, 1 received, 3 item_added); livro so pela funcao';
+    else raise notice 'CP23) FALHA: created=% received=% items=% fantasma=% admin_insere=%', v_created, v_received, v_items, v_fantasma, v_admin_insere; end if;
+end $$;
+
+reset role;

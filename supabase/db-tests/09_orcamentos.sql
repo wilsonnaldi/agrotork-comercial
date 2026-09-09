@@ -588,3 +588,72 @@ select 'EY) estado final integro' as teste,
             then 'OK: historico preservado do inicio ao fim' else 'FALHA' end as resultado;
 
 reset role;
+
+-- ════════════════════════════════════════════════════════════
+-- FG–FI) Guardas da migration 20260909100000 (achados A1 e A5)
+-- ════════════════════════════════════════════════════════════
+set role authenticated;
+select set_config('request.jwt.claim.sub', '22222222-2222-2222-2222-222222222222', false);
+set request.jwt.claim.role='authenticated';
+
+-- FG) o vendedor INSERE um orçamento "aprovado", numerado por ele, com
+--     total escolhido e sem item: o banco devolve rascunho, numerado pela
+--     sequência, zerado e carimbado por ele.
+do $$
+declare v_id uuid := gen_random_uuid(); r record;
+begin
+  insert into public.quotes (id, number, sequence_year, sequence_number, customer_id, owner_id,
+                             status, subtotal, total, approved_at, sent_at, created_by, created_at, deleted_at)
+  select v_id, 'ORC-2020-9999', 2020, 9999, c.id, '22222222-2222-2222-2222-222222222222',
+         'approved', 99999, 99999, '2020-01-01', '2020-01-01', null, '2020-01-01', null
+    from public.customers c limit 1;
+
+  select * into r from public.quotes where id = v_id;
+  if r.number like 'ORC-' || extract(year from current_date)::int || '-%'
+     and r.sequence_year = extract(year from current_date)::int
+     and r.status = 'draft' and r.subtotal = 0 and r.total = 0
+     and r.approved_at is null and r.sent_at is null
+     and r.created_by = '22222222-2222-2222-2222-222222222222'
+     and r.created_at > now() - interval '1 minute'
+    then raise notice 'FG) OK: orcamento forjado nasceu como % / draft / total 0 / autor correto', r.number;
+    else raise notice 'FG) FALHA: number=% status=% total=% approved_at=% created_by=%',
+      r.number, r.status, r.total, r.approved_at, r.created_by; end if;
+end $$;
+
+-- FH) número forçado pelo vendedor não colide com o próximo legítimo.
+do $$
+declare v_a uuid := gen_random_uuid(); v_b uuid := gen_random_uuid(); v_na text; v_nb text;
+begin
+  insert into public.quotes (id, number, customer_id, owner_id)
+  select v_a, 'ORC-' || extract(year from current_date)::int || '-0001', c.id,
+         '22222222-2222-2222-2222-222222222222' from public.customers c limit 1;
+  insert into public.quotes (id, customer_id, owner_id)
+  select v_b, c.id, '22222222-2222-2222-2222-222222222222' from public.customers c limit 1;
+  select number into v_na from public.quotes where id = v_a;
+  select number into v_nb from public.quotes where id = v_b;
+  if v_na <> v_nb and v_na <> 'ORC-' || extract(year from current_date)::int || '-0001'
+    then raise notice 'FH) OK: numero forcado foi ignorado (% e % vieram da sequencia)', v_na, v_nb;
+    else raise notice 'FH) FALHA: % / %', v_na, v_nb; end if;
+exception when unique_violation then raise notice 'FH) FALHA: numero forcado colidiu com a sequencia';
+end $$;
+
+-- FI) item que muda de orçamento recalcula os DOIS: a origem zera.
+do $$
+declare v_a uuid := gen_random_uuid(); v_b uuid := gen_random_uuid(); v_item uuid; v_ta numeric; v_tb numeric;
+begin
+  insert into public.quotes (id, customer_id, owner_id)
+  select v_a, c.id, '22222222-2222-2222-2222-222222222222' from public.customers c limit 1;
+  insert into public.quotes (id, customer_id, owner_id)
+  select v_b, c.id, '22222222-2222-2222-2222-222222222222' from public.customers c limit 1;
+  insert into public.quote_items (quote_id, kind, name_snapshot, quantity, unit_price)
+  values (v_a, 'custom', 'Item que muda de orcamento', 3, 1000) returning id into v_item;
+
+  update public.quote_items set quote_id = v_b where id = v_item;
+
+  select total into v_ta from public.quotes where id = v_a;
+  select total into v_tb from public.quotes where id = v_b;
+  if v_ta = 0 and v_tb = 3000
+    then raise notice 'FI) OK: origem ficou em % e destino em %', v_ta, v_tb;
+    else raise notice 'FI) FALHA: origem % / destino %', v_ta, v_tb; end if;
+end $$;
+reset role;

@@ -44,7 +44,7 @@ const IMAGEM = "postgres:16";
 const SUITES = [
   ["regras de negócio", "01_regras_de_negocio.sql", /^ [0-9]+[a-z]?\)/],
   ["row level security", "02_rls.sql", /^ [A-K]\)|NOTICE/],
-  ["travas de orçamento e perfil", "04_travas_de_orcamento.sql", /^ [P-U]\)|NOTICE|BRECHA|OK:/],
+  ["travas de orçamento e perfil", "04_travas_de_orcamento.sql", /^ [P-X]\)|NOTICE|BRECHA|OK:/],
   ["isolamento do custo do produto", "05_custo_produto.sql", /^ [V-Z]\)|^ A[A-C]\)|NOTICE/],
   ["origem do produto", "06_origem_produto.sql", /^ A[D-N]\)|NOTICE/],
   ["cadastros de apoio", "07_cadastros.sql", /^ B[A-Z]\)|NOTICE/],

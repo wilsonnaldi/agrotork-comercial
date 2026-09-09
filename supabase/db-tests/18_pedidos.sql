@@ -466,3 +466,141 @@ begin
 end $$;
 
 reset role;
+
+-- ════════════════════════════════════════════════════════════
+-- PV26–PV31) Guardas da migration 20260909100000 (A3, A4, A14)
+-- ════════════════════════════════════════════════════════════
+set role authenticated;
+set request.jwt.claim.role = 'authenticated';
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b002', false);
+
+-- Par novo do VENDEDOR: orçamento aprovado (pelo admin) e pedido.
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b001', false);
+do $$
+declare v_q uuid;
+begin
+  insert into public.quotes (id, customer_id, owner_id, status)
+  select 'bbbbbbbb-0000-4000-8000-00000000bb26', c.id, 'bbbbbbbb-0000-4000-8000-00000000b002', 'draft'
+    from public.customers c where c.name = 'Cliente do Pedido';
+  insert into public.quote_items (quote_id, product_id, name_snapshot, quantity, unit_price)
+  select 'bbbbbbbb-0000-4000-8000-00000000bb26', p.id, p.name, 1, 700 from public.products p where p.code = 'PED-001';
+  update public.quotes set status = 'sent'     where id = 'bbbbbbbb-0000-4000-8000-00000000bb26';
+  update public.quotes set status = 'approved' where id = 'bbbbbbbb-0000-4000-8000-00000000bb26';
+end $$;
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b002', false);
+
+-- PV26) um pedido vivo por orçamento é garantido pelo ÍNDICE: a segunda
+--       linha (simulando a transação concorrente que passou pelo `exists`)
+--       é recusada pelo banco, não pela função.
+do $$
+declare v_o uuid; v_n int;
+begin
+  v_o := public.create_order_from_quote('bbbbbbbb-0000-4000-8000-00000000bb26');
+  reset role;
+  begin
+    insert into public.orders (number, sequence_year, sequence_number, customer_id, owner_id, quote_id)
+    select 'PED-9999-0001', 9999, 1, o.customer_id, o.owner_id, o.quote_id
+      from public.orders o where o.id = v_o;
+    raise notice 'PV26) FALHA: segundo pedido vivo aceito para o mesmo orcamento';
+  exception when unique_violation then
+    select count(*) into v_n from public.orders
+     where quote_id = 'bbbbbbbb-0000-4000-8000-00000000bb26' and status <> 'cancelled';
+    if v_n = 1 then raise notice 'PV26) OK: indice unico segurou o segundo pedido vivo (% vivo)', v_n;
+    else raise notice 'PV26) FALHA: % pedidos vivos', v_n; end if;
+  end;
+  set role authenticated;
+end $$;
+
+-- PV27) cancelado o pedido, o mesmo orçamento aceita pedido novo.
+do $$
+declare v_o uuid; v_novo uuid;
+begin
+  select id into v_o from public.orders
+   where quote_id = 'bbbbbbbb-0000-4000-8000-00000000bb26' and status <> 'cancelled';
+  update public.orders set status = 'cancelled' where id = v_o;
+  v_novo := public.create_order_from_quote('bbbbbbbb-0000-4000-8000-00000000bb26');
+  if v_novo is not null and v_novo <> v_o
+    then raise notice 'PV27) OK: apos cancelar, o orcamento gerou pedido novo';
+    else raise notice 'PV27) FALHA'; end if;
+exception when others then raise notice 'PV27) FALHA: %', sqlerrm;
+end $$;
+
+-- PV28) o dono NÃO reescreve carimbos, dono, autoria nem criação do pedido.
+do $$
+declare v_o uuid; v_ok boolean := true; v_conf timestamptz; v_created timestamptz;
+begin
+  select id, confirmed_at, created_at into v_o, v_conf, v_created from public.orders
+   where quote_id = 'bbbbbbbb-0000-4000-8000-00000000bb26' and status <> 'cancelled';
+
+  begin update public.orders set invoiced_at = '2001-01-02', picking_at = '2001-01-01' where id = v_o; v_ok := false;
+  exception when check_violation then null; end;
+  begin update public.orders set confirmed_at = '2001-01-05' where id = v_o; v_ok := false;
+  exception when check_violation then null; end;
+  begin update public.orders set created_at = '2001-01-06', created_by = null where id = v_o; v_ok := false;
+  exception when check_violation then null; end;
+  begin update public.orders set supersedes_order_id = v_o where id = v_o; v_ok := false;
+  exception when check_violation then null; end;
+
+  if v_ok and (select invoiced_at from public.orders where id = v_o) is null
+     and (select confirmed_at from public.orders where id = v_o) = v_conf
+     and (select created_at   from public.orders where id = v_o) = v_created
+    then raise notice 'PV28) OK: carimbos, criacao e origem do pedido nao sao do vendedor';
+    else raise notice 'PV28) FALHA: alguma coluna de controle do pedido foi aceita'; end if;
+end $$;
+
+-- PV29) o carimbo do faturamento é a hora da transição — mesmo que o
+--       administrador tenha deixado uma data antiga na coluna antes.
+do $$
+declare v_o uuid; v_ts timestamptz;
+begin
+  select id into v_o from public.orders
+   where quote_id = 'bbbbbbbb-0000-4000-8000-00000000bb26' and status <> 'cancelled';
+
+  perform set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b001', false);
+  update public.orders set invoiced_at = '2001-01-02' where id = v_o;   -- admin pode
+  perform set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b002', false);
+
+  update public.orders set status = 'invoiced' where id = v_o;         -- vendedor fatura
+  select invoiced_at into v_ts from public.orders where id = v_o;
+  if v_ts > now() - interval '1 minute'
+    then raise notice 'PV29) OK: invoiced_at = hora do faturamento, nao a data pre-existente';
+    else raise notice 'PV29) FALHA: invoiced_at ficou em %', v_ts; end if;
+end $$;
+
+-- PV30) o administrador ainda transfere o pedido (decisão em aberto: fica
+--       permitido) e ainda corrige um carimbo.
+select set_config('request.jwt.claim.sub', 'bbbbbbbb-0000-4000-8000-00000000b001', false);
+do $$
+declare v_o uuid;
+begin
+  select id into v_o from public.orders
+   where quote_id = 'bbbbbbbb-0000-4000-8000-00000000bb26' and status <> 'cancelled';
+  update public.orders set owner_id = 'bbbbbbbb-0000-4000-8000-00000000b003' where id = v_o;
+  update public.orders set owner_id = 'bbbbbbbb-0000-4000-8000-00000000b002' where id = v_o;
+  update public.orders set delivered_at = null where id = v_o;
+  raise notice 'PV30) OK: administrador transfere pedido e corrige carimbo';
+exception when others then raise notice 'PV30) FALHA: administrador barrado (%)', sqlerrm;
+end $$;
+
+-- PV31) auditoria do pedido: `order.created` sem `order.updated` fantasma
+--       do recálculo, e o faturamento vira `order.invoiced`.
+do $$
+declare v_o uuid; v_created int; v_updated int; v_invoiced int; v_items int;
+begin
+  select id into v_o from public.orders
+   where quote_id = 'bbbbbbbb-0000-4000-8000-00000000bb26' and status <> 'cancelled';
+  reset role;
+  select count(*) into v_created  from public.audit_log where entity_type='order' and entity_id=v_o::text and action='order.created';
+  -- `order.updated` legítimos existem (PV29/PV30 mexeram em carimbo e
+  -- dono); o que NÃO pode existir é evento com subtotal/total mudando.
+  select count(*) into v_updated  from public.audit_log where entity_type='order' and entity_id=v_o::text
+     and changed_fields && array['subtotal','total'];
+  select count(*) into v_invoiced from public.audit_log where entity_type='order' and entity_id=v_o::text and action='order.invoiced';
+  select count(*) into v_items    from public.audit_log where entity_type='order_item' and parent_id=v_o::text and action='order.item_added';
+  set role authenticated;
+  if v_created = 1 and v_updated = 0 and v_invoiced = 1 and v_items = 1
+    then raise notice 'PV31) OK: trilha do pedido: 1 created, 0 evento de totais, 1 invoiced, 1 item_added';
+    else raise notice 'PV31) FALHA: created=% updated=% invoiced=% items=%', v_created, v_updated, v_invoiced, v_items; end if;
+end $$;
+
+reset role;

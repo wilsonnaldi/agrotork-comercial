@@ -355,3 +355,93 @@ begin
 end $$;
 
 reset role;
+
+-- ════════════════════════════════════════════════════════════
+-- FI16–FI19) Guardas da migration 20260909110000 (A9, A14)
+-- ════════════════════════════════════════════════════════════
+set role authenticated;
+set request.jwt.claim.role = 'authenticated';
+select set_config('request.jwt.claim.sub', '23232323-0000-4000-8000-00000000f001', false);
+
+-- Título de 2000 com baixa parcial de 1500.
+do $$
+begin
+  insert into public.financial_entries (id, kind, customer_id, description, due_date, amount)
+  select '23232323-0000-4000-8000-00000000ff16', 'receivable', c.id, 'Titulo guardado', current_date + 10, 2000
+    from public.customers c where c.name = 'Cliente do Financeiro';
+  perform public.register_financial_payment('23232323-0000-4000-8000-00000000ff16', 1500, current_date, 'PIX', null);
+end $$;
+
+-- FI16) status e cancelamento não se escrevem direto; o estado fica.
+do $$
+declare v_status public.financial_status; v_canc timestamptz; v_ok boolean := true;
+begin
+  begin update public.financial_entries set status = 'settled' where id = '23232323-0000-4000-8000-00000000ff16'; v_ok := false;
+  exception when check_violation then null; end;
+  begin update public.financial_entries set cancelled_at = now() where id = '23232323-0000-4000-8000-00000000ff16'; v_ok := false;
+  exception when check_violation then null; end;
+  select status, cancelled_at into v_status, v_canc from public.financial_entries where id = '23232323-0000-4000-8000-00000000ff16';
+  if v_ok and v_status = 'partial' and v_canc is null
+    then raise notice 'FI16) OK: status continua derivado (partial) e cancelamento so pela funcao';
+    else raise notice 'FI16) FALHA: ok=% status=% cancelled_at=%', v_ok, v_status, v_canc; end if;
+end $$;
+
+-- FI17) título com baixa não muda de valor — o saldo nunca fica negativo.
+do $$
+declare v_amount numeric; v_aberto numeric; v_ok boolean := true;
+begin
+  begin update public.financial_entries set amount = 1000 where id = '23232323-0000-4000-8000-00000000ff16'; v_ok := false;
+  exception when check_violation then null; end;
+  select amount into v_amount from public.financial_entries where id = '23232323-0000-4000-8000-00000000ff16';
+  select open_amount into v_aberto from public.financial_position where id = '23232323-0000-4000-8000-00000000ff16';
+  if v_ok and v_amount = 2000 and v_aberto = 500
+    then raise notice 'FI17) OK: valor congelado em % com % em aberto', v_amount, v_aberto;
+    else raise notice 'FI17) FALHA: ok=% amount=% aberto=%', v_ok, v_amount, v_aberto; end if;
+end $$;
+
+-- FI18) sem baixa, o valor muda e o status é reavaliado pelo gatilho:
+--       título quitado por baixa de 300 sobe para 400 e volta a `partial`.
+do $$
+declare v_id uuid; v_status public.financial_status;
+begin
+  insert into public.financial_entries (kind, customer_id, description, due_date, amount)
+  select 'receivable', c.id, 'Titulo que cresce', current_date + 10, 300
+    from public.customers c where c.name = 'Cliente do Financeiro'
+  returning id into v_id;
+  -- Sem baixa: pode mudar.
+  update public.financial_entries set amount = 350 where id = v_id;
+  perform public.register_financial_payment(v_id, 350, current_date, 'PIX', null);
+  select status into v_status from public.financial_entries where id = v_id;
+  if v_status <> 'settled' then
+    raise notice 'FI18) FALHA: apos baixa integral o status e %', v_status; return;
+  end if;
+  -- Com baixa: não pode.
+  begin
+    update public.financial_entries set amount = 400 where id = v_id;
+    raise notice 'FI18) FALHA: valor mudou com baixa';
+  exception when check_violation then
+    raise notice 'FI18) OK: valor mudou sem baixa (300 -> 350, settled apos quitar) e congelou com baixa';
+  end;
+end $$;
+
+-- FI19) cancelar pela função ainda funciona, e vira `financial.cancelled`
+--       na trilha; a baixa entrou como `financial.payment_registered`.
+do $$
+declare v_id uuid; v_status public.financial_status; v_ev int; v_pag int;
+begin
+  insert into public.financial_entries (kind, customer_id, description, due_date, amount)
+  select 'receivable', c.id, 'Titulo cancelavel', current_date + 10, 80
+    from public.customers c where c.name = 'Cliente do Financeiro'
+  returning id into v_id;
+  perform public.cancel_financial_entry(v_id, 'teste');
+  select status into v_status from public.financial_entries where id = v_id;
+  reset role;
+  select count(*) into v_ev from public.audit_log where entity_type = 'financial_entry' and entity_id = v_id::text and action = 'financial.cancelled';
+  select count(*) into v_pag from public.audit_log where entity_type = 'financial_payment' and parent_id = '23232323-0000-4000-8000-00000000ff16' and action = 'financial.payment_registered';
+  set role authenticated;
+  if v_status = 'cancelled' and v_ev = 1 and v_pag = 1
+    then raise notice 'FI19) OK: cancel_financial_entry() passa pela guarda; trilha com financial.cancelled e payment_registered';
+    else raise notice 'FI19) FALHA: status % / cancelled=% / payments=%', v_status, v_ev, v_pag; end if;
+end $$;
+
+reset role;

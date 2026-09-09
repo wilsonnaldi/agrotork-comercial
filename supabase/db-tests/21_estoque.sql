@@ -544,3 +544,37 @@ begin
 end $$;
 
 reset role;
+
+-- ════════════════════════════════════════════════════════════
+-- ES17) Guarda da migration 20260909110000 (A17): o livro só recebe
+--       lançamento pela função — nem o administrador insere direto.
+-- ════════════════════════════════════════════════════════════
+set role authenticated;
+set request.jwt.claim.role = 'authenticated';
+select set_config('request.jwt.claim.sub', '21212121-0000-4000-8000-00000000e001', false);
+do $$
+declare v_prod uuid; v_antes int; v_depois int; v_direto boolean := false; v_id uuid; v_custo numeric;
+begin
+  select product_id into v_prod from public.stock_movements limit 1;
+  reset role;
+  select count(*) into v_antes from public.stock_movements where product_id = v_prod;
+  set role authenticated;
+
+  begin
+    insert into public.stock_movements (product_id, reason, quantity) values (v_prod, 'sale', -1);
+    v_direto := true;
+  exception when others then null; end;
+
+  -- A função continua sendo o caminho, e grava o custo irmão.
+  v_id := public.register_stock_movement(v_prod, 'adjustment', 1, 'guarda A17');
+  select unit_cost into v_custo from public.stock_movement_costs where movement_id = v_id;
+
+  reset role;
+  select count(*) into v_depois from public.stock_movements where product_id = v_prod;
+  set role authenticated;
+
+  if not v_direto and v_depois = v_antes + 1 and v_custo is not null
+    then raise notice 'ES17) OK: INSERT direto negado; register_stock_movement() lancou 1 linha com custo (%)', v_custo;
+    else raise notice 'ES17) FALHA: direto=% antes=% depois=% custo=%', v_direto, v_antes, v_depois, v_custo; end if;
+end $$;
+reset role;

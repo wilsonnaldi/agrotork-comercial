@@ -212,3 +212,53 @@ begin
 end $$;
 
 reset role;
+
+-- ════════════════════════════════════════════════════════════
+-- NF10–NF11) Guardas da migration 20260909110000 (A13)
+-- ════════════════════════════════════════════════════════════
+set role authenticated;
+set request.jwt.claim.role = 'authenticated';
+select set_config('request.jwt.claim.sub', '24242424-0000-4000-8000-0000000024a1', false);
+
+-- NF10) a mesma chave de 44 dígitos não entra duas vezes, ainda que o
+--       número da nota venha grafado diferente ("777" vs "000777") e a
+--       chave venha com espaço: o banco normaliza e compara.
+do $$
+declare v_sup uuid; v_cond uuid; v_chave text := repeat('4', 44); v_notas int; v_gravada text;
+begin
+  select id into v_sup from public.suppliers where name = 'Fornecedor Alfa';
+  select id into v_cond from public.price_conditions where is_default;
+
+  insert into public.purchases (supplier_id, condition_id, invoice_number, invoice_key)
+  values (v_sup, v_cond, '777', substr(v_chave, 1, 22) || ' ' || substr(v_chave, 23));
+  select invoice_key into v_gravada from public.purchases where supplier_id = v_sup and invoice_number = '777';
+
+  begin
+    insert into public.purchases (supplier_id, condition_id, invoice_number, invoice_key)
+    values (v_sup, v_cond, '000777', v_chave);
+    raise notice 'NF10) FALHA: a mesma chave de NF-e entrou duas vezes';
+  exception when unique_violation then
+    select count(*) into v_notas from public.purchases where invoice_key = v_chave and deleted_at is null;
+    if v_notas = 1 and v_gravada = v_chave
+      then raise notice 'NF10) OK: chave normalizada (sem espaco) e unica — 1 nota para a chave';
+      else raise notice 'NF10) FALHA: % nota(s); gravada como %', v_notas, v_gravada; end if;
+  end;
+end $$;
+
+-- NF11) chave com 43 dígitos é digitação errada, e o banco recusa.
+do $$
+declare v_sup uuid; v_cond uuid; v_antes int; v_depois int;
+begin
+  select id into v_sup from public.suppliers where name = 'Fornecedor Alfa';
+  select id into v_cond from public.price_conditions where is_default;
+  select count(*) into v_antes from public.purchases where supplier_id = v_sup;
+  begin
+    insert into public.purchases (supplier_id, condition_id, invoice_number, invoice_key)
+    values (v_sup, v_cond, '778', repeat('5', 43));
+  exception when check_violation then null; end;
+  select count(*) into v_depois from public.purchases where supplier_id = v_sup;
+  if v_antes = v_depois
+    then raise notice 'NF11) OK: chave de 43 digitos recusada (% nota(s) antes e depois)', v_antes;
+    else raise notice 'NF11) FALHA: nota com chave de 43 digitos entrou'; end if;
+end $$;
+reset role;
