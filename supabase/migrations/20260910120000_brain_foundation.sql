@@ -471,6 +471,10 @@ comment on table brain.events is
 create or replace function brain.protect_event()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
+  if tg_op = 'TRUNCATE' then
+    raise exception 'O barramento nao se esvazia. Evento e fato: no maximo marca-se como ignorado.'
+      using errcode = 'restrict_violation';
+  end if;
   if tg_op = 'DELETE' then
     raise exception 'Evento nao se apaga. E fato: no maximo marca-se como ignorado (processing = skipped).'
       using errcode = 'restrict_violation';
@@ -496,6 +500,8 @@ revoke execute on function brain.protect_event() from public, anon, authenticate
 
 create trigger trg_events_immutable before update or delete on brain.events
   for each row execute function brain.protect_event();
+create trigger trg_events_no_truncate before truncate on brain.events
+  for each statement execute function brain.protect_event();
 
 alter table brain.interactions
   add constraint interactions_event_id_fkey
@@ -527,7 +533,8 @@ create index idx_lead_merges_target on brain.lead_merges (target_lead_id);
 -- ser reavaliada em recursão. Nenhuma linha sai daqui — só true/false.
 create or replace function brain.can_see_lead(p_lead_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select exists (
+  select ((select auth.uid()) is null or (select public.is_active_user()))
+     and exists (
     select 1 from brain.leads l
      where l.id = p_lead_id
        and ((select public.is_admin())
@@ -538,7 +545,8 @@ $$;
 
 create or replace function brain.can_see_opportunity(p_opportunity_id uuid)
 returns boolean language sql stable security definer set search_path = '' as $$
-  select exists (
+  select ((select auth.uid()) is null or (select public.is_active_user()))
+     and exists (
     select 1 from brain.opportunities o
      where o.id = p_opportunity_id
        and ((select public.is_admin())
@@ -546,6 +554,50 @@ returns boolean language sql stable security definer set search_path = '' as $$
             or (o.lead_id is not null and brain.can_see_lead(o.lead_id)))
   );
 $$;
+
+-- Quem está chamando? Três casos, e só três:
+--   · chamada interna (gatilho da ponte ERP, com a marca `brain.internal`
+--     aberta na transação) — confiável por construção;
+--   · sessão sem JWT que não é papel de API (migration, pg_cron, SQL
+--     Editor, service_role) — o próprio banco;
+--   · usuário da aplicação — precisa estar ATIVO. `anon` nunca.
+-- Ausência de `auth.uid()` sozinha não autoriza: `anon` também não tem uid.
+create or replace function brain.is_internal()
+returns boolean language sql stable security invoker set search_path = '' as $$
+  select coalesce(pg_catalog.current_setting('brain.internal', true), 'off') = 'on';
+$$;
+
+create or replace function brain.assert_caller()
+returns void language plpgsql stable security definer set search_path = '' as $$
+declare
+  v_role text := coalesce(nullif(pg_catalog.current_setting('role', true), 'none'), session_user::text);
+begin
+  if brain.is_internal() then return; end if;
+  if v_role = 'anon' then
+    raise exception 'Acesso anonimo ao BRAIN nao e permitido' using errcode = 'insufficient_privilege';
+  end if;
+  if (select auth.uid()) is not null and not (select public.is_active_user()) then
+    raise exception 'Usuario inativo' using errcode = 'insufficient_privilege';
+  end if;
+end;
+$$;
+
+-- Administrador, ou o banco falando consigo mesmo.
+create or replace function brain.is_privileged()
+returns boolean language sql stable security definer set search_path = '' as $$
+  select brain.is_internal()
+      or (select public.is_admin())
+      or ((select auth.uid()) is null
+          and coalesce(nullif(pg_catalog.current_setting('role', true), 'none'), session_user::text)
+              not in ('anon', 'authenticated'));
+$$;
+
+revoke execute on function brain.is_internal()    from public, anon;
+revoke execute on function brain.assert_caller()  from public, anon;
+revoke execute on function brain.is_privileged()  from public, anon;
+grant  execute on function brain.is_internal()    to authenticated, service_role;
+grant  execute on function brain.assert_caller()  to authenticated, service_role;
+grant  execute on function brain.is_privileged()  to authenticated, service_role;
 
 revoke execute on function brain.can_see_lead(uuid)        from public, anon;
 revoke execute on function brain.can_see_opportunity(uuid) from public, anon;
@@ -686,6 +738,8 @@ grant select, insert, update, delete        on brain.tasks         to authentica
 grant select                                on brain.events        to authenticated;
 grant select, insert                        on brain.lead_merges   to authenticated;
 grant all on all tables    in schema brain to service_role;
+revoke truncate on all tables in schema brain from service_role, authenticated, public;
+alter default privileges in schema brain revoke truncate on tables from service_role, authenticated;
 grant all on all sequences in schema brain to service_role;
 grant usage, select on all sequences in schema brain to authenticated;
 
@@ -755,10 +809,10 @@ $$;
 
 revoke execute on function brain.normalize_phone(text) from public, anon;
 revoke execute on function brain.normalize_identity(brain.identity_kind, text) from public, anon;
-revoke execute on function brain.resolve_identity(brain.identity_kind, text) from public, anon;
+revoke execute on function brain.resolve_identity(brain.identity_kind, text) from public, anon, authenticated;
 grant  execute on function brain.normalize_phone(text) to authenticated, service_role;
 grant  execute on function brain.normalize_identity(brain.identity_kind, text) to authenticated, service_role;
-grant  execute on function brain.resolve_identity(brain.identity_kind, text) to authenticated, service_role;
+grant  execute on function brain.resolve_identity(brain.identity_kind, text) to service_role;  -- interna: quem responde ao usuario e find_or_create_lead
 
 -- Normaliza o contato principal na escrita (BEFORE) e, com o `id` já
 -- gravado (AFTER), mantém as identidades em dia: cada telefone/WhatsApp/
@@ -845,24 +899,39 @@ declare
   v_attr      uuid;
   v_kind      brain.identity_kind;
   v_value     text;
+  v_norm      text;
 begin
-  if not (select public.is_active_user()) and v_uid is not null then
-    raise exception 'Usuario inativo' using errcode = 'insufficient_privilege';
-  end if;
+  perform brain.assert_caller();
   if coalesce(btrim(p_name), '') = '' then
     raise exception 'Informe o nome do contato' using errcode = 'check_violation';
   end if;
-  if p_owner_id is not null and p_owner_id <> v_uid and not (select public.is_admin()) then
+  if p_owner_id is not null and p_owner_id <> v_uid and not brain.is_privileged() then
     raise exception 'Somente administrador atribui lead a outro vendedor' using errcode = 'insufficient_privilege';
   end if;
 
-  -- 1. Já conhecemos alguma dessas identidades? Ordem: WhatsApp/telefone,
-  --    e-mail, Instagram. A primeira que bater decide.
+  -- Serializa por identidade: duas chamadas simultâneas com o mesmo
+  -- telefone/e-mail entram uma de cada vez, e a segunda encontra o lead
+  -- que a primeira criou. Sem isto nasciam dois leads para uma pessoa.
   for v_kind, v_value in
     select * from (values
-      ('whatsapp'::brain.identity_kind, p_phone),
-      ('phone'::brain.identity_kind,    p_phone),
-      ('email'::brain.identity_kind,    p_email),
+      ('whatsapp'::brain.identity_kind,  p_phone),
+      ('phone'::brain.identity_kind,     p_phone),
+      ('email'::brain.identity_kind,     p_email),
+      ('instagram'::brain.identity_kind, p_instagram)
+    ) as v(kind, value) where value is not null
+  loop
+    v_norm := brain.normalize_identity(v_kind, v_value);
+    if v_norm is not null then
+      perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtext('brain.identity:' || v_kind::text || ':' || v_norm));
+    end if;
+  end loop;
+
+  -- 1. Já conhecemos alguma dessas identidades? A primeira que bater decide.
+  for v_kind, v_value in
+    select * from (values
+      ('whatsapp'::brain.identity_kind,  p_phone),
+      ('phone'::brain.identity_kind,     p_phone),
+      ('email'::brain.identity_kind,     p_email),
       ('instagram'::brain.identity_kind, p_instagram)
     ) as v(kind, value) where value is not null
   loop
@@ -873,11 +942,40 @@ begin
     end if;
   end loop;
 
-  -- Lead já existe: segue o sobrevivente se ele foi unificado, carimba o toque.
+  -- Lead já existe.
   if v_lead is not null then
-    select coalesce(l.merged_into_lead_id, l.id), l.customer_id
-      into v_lead, v_customer
-      from brain.leads l where l.id = v_lead;
+    select coalesce(l.merged_into_lead_id, l.id) into v_lead from brain.leads l where l.id = v_lead;
+
+    -- De outro vendedor: não se cria duplicata e não se revela nada.
+    -- O chamador recebe "existe, mas não é seu" e o administrador decide.
+    if not brain.is_privileged() and not brain.can_see_lead(v_lead) then
+      return query select null::uuid, false, null::uuid, 'exists_elsewhere'::text;
+      return;
+    end if;
+
+    select l.customer_id into v_customer from brain.leads l where l.id = v_lead;
+
+    -- Enriquecimento: a identidade nova que veio junto (o e-mail de quem
+    -- só tínhamos o Instagram) passa a pertencer a este lead. Se já
+    -- pertence a OUTRO lead, não é roubada — fica para o merge humano.
+    for v_kind, v_value in
+      select * from (values
+        ('whatsapp'::brain.identity_kind,  p_phone),
+        ('phone'::brain.identity_kind,     p_phone),
+        ('email'::brain.identity_kind,     p_email),
+        ('instagram'::brain.identity_kind, p_instagram)
+      ) as v(kind, value) where value is not null
+    loop
+      v_norm := brain.normalize_identity(v_kind, v_value);
+      if v_norm is not null then
+        insert into brain.identities (kind, value, value_raw, lead_id, customer_id, channel_key)
+        values (v_kind, v_norm, v_value, v_lead, v_customer, p_channel_key)
+        on conflict (kind, value) do update
+          set last_seen_at = now()
+          where brain.identities.lead_id = excluded.lead_id;
+      end if;
+    end loop;
+
     update brain.leads set last_touch_at = now() where id = v_lead;
     return query select v_lead, false, v_customer, v_matched;
     return;
@@ -944,33 +1042,54 @@ declare
   v_uid  uuid := (select auth.uid());
   v_id   uuid;
   v_cust uuid;
+  v_ev   record;
 begin
-  if v_uid is not null and not brain.can_see_lead(p_lead_id) then
+  perform brain.assert_caller();
+  if not brain.is_privileged() and not brain.can_see_lead(p_lead_id) then
     raise exception 'Lead fora do seu alcance' using errcode = 'insufficient_privilege';
+  end if;
+  if p_opportunity_id is not null and not brain.is_privileged() and not brain.can_see_opportunity(p_opportunity_id) then
+    raise exception 'Oportunidade fora do seu alcance' using errcode = 'insufficient_privilege';
   end if;
   select customer_id into v_cust from brain.leads where id = p_lead_id;
   if not found then
     raise exception 'Lead nao encontrado' using errcode = 'no_data_found';
   end if;
 
-  if p_external_id is not null then
-    select id into v_id from brain.interactions where source = p_source and external_id = p_external_id;
-    if found then
-      return query select v_id, true;
-      return;
+  -- O evento só se liga à interação quando é O MESMO fato (mesma origem,
+  -- mesmo id externo) ou quando quem liga é privilegiado. Conhecer o
+  -- número de um evento não dá acesso a ele.
+  if p_event_id is not null then
+    select id, source, external_id, lead_id into v_ev from brain.events where id = p_event_id;
+    if not found then
+      raise exception 'Evento nao encontrado' using errcode = 'no_data_found';
+    end if;
+    if not brain.is_privileged()
+       and not (v_ev.source = p_source and v_ev.external_id is not distinct from p_external_id and p_external_id is not null) then
+      raise exception 'Evento nao corresponde a esta interacao' using errcode = 'insufficient_privilege';
+    end if;
+    if v_ev.lead_id is not null and v_ev.lead_id <> p_lead_id then
+      raise exception 'Evento ja pertence a outro lead' using errcode = 'check_violation';
     end if;
   end if;
 
+  -- Idempotente de verdade: o INSERT decide, e a corrida cai no `on
+  -- conflict` em vez de estourar unicidade.
   insert into brain.interactions
     (lead_id, customer_id, opportunity_id, channel_key, interaction_type, direction,
      summary, occurred_at, actor_id, source, external_id, event_id, metadata)
   values
     (p_lead_id, v_cust, p_opportunity_id, p_channel_key, p_interaction_type, p_direction,
      p_summary, coalesce(p_occurred_at, now()), v_uid, p_source, p_external_id, p_event_id, coalesce(p_metadata, '{}'::jsonb))
+  on conflict (source, external_id) where external_id is not null do nothing
   returning id into v_id;
 
-  -- O evento cru que originou a interação ganha o vínculo com o lead —
-  -- é o que faz a jornada começar na origem, não no primeiro contato.
+  if v_id is null then
+    select id into v_id from brain.interactions where source = p_source and external_id = p_external_id;
+    return query select v_id, true;
+    return;
+  end if;
+
   if p_event_id is not null then
     update brain.events
        set lead_id = coalesce(lead_id, p_lead_id),
@@ -1029,18 +1148,23 @@ create or replace function brain.ingest_event(
 returns table (event_id bigint, duplicate boolean)
 language plpgsql security definer set search_path = '' as $$
 declare
-  v_uid uuid := (select auth.uid());
-  v_id  bigint;
+  v_uid   uuid := (select auth.uid());
+  v_id    bigint;
+  v_lead  uuid;
 begin
-  if v_uid is not null and not (select public.is_active_user()) then
-    raise exception 'Usuario inativo' using errcode = 'insufficient_privilege';
-  end if;
+  perform brain.assert_caller();
 
-  if p_external_id is not null then
-    select id into v_id from brain.events where source = p_source and external_id = p_external_id;
-    if found then
-      return query select v_id, true;
-      return;
+  -- O caminho humano (vendedor pela aplicação) não fala em nome do ERP
+  -- nem publica fato de orçamento/pedido: esses nascem dos gatilhos.
+  if not brain.is_privileged() then
+    if p_source in ('erp', 'brain') or p_event_name ~ '^(quote|order|erp|brain)\.' then
+      raise exception 'Origem e evento reservados ao sistema' using errcode = 'insufficient_privilege';
+    end if;
+    if p_lead_id is not null and not brain.can_see_lead(p_lead_id) then
+      raise exception 'Lead fora do seu alcance' using errcode = 'insufficient_privilege';
+    end if;
+    if p_opportunity_id is not null and not brain.can_see_opportunity(p_opportunity_id) then
+      raise exception 'Oportunidade fora do seu alcance' using errcode = 'insufficient_privilege';
     end if;
   end if;
 
@@ -1055,14 +1179,18 @@ begin
   on conflict (source, external_id) where external_id is not null do nothing
   returning id into v_id;
 
-  -- Corrida: outra transação gravou o mesmo external_id entre o SELECT e o INSERT.
-  if v_id is null then
-    select id into v_id from brain.events where source = p_source and external_id = p_external_id;
-    return query select v_id, true;
+  if v_id is not null then
+    return query select v_id, false;
     return;
   end if;
 
-  return query select v_id, false;
+  -- Duplicado: devolve o id só a quem pode ver o evento que já existe.
+  select id, lead_id into v_id, v_lead from brain.events where source = p_source and external_id = p_external_id;
+  if brain.is_privileged() or (v_lead is not null and brain.can_see_lead(v_lead)) then
+    return query select v_id, true;
+  else
+    return query select null::bigint, true;
+  end if;
 end;
 $$;
 
@@ -1095,29 +1223,41 @@ begin
     return null;
   end if;
 
-  select id, lead_id into v_opp, v_lead from brain.opportunities
-   where quote_id = new.id order by created_at limit 1;
-  if v_lead is null then
-    select id into v_lead from brain.leads
-     where customer_id = new.customer_id and merged_into_lead_id is null
-     order by created_at limit 1;
-  end if;
+  -- A ponte é interna e NUNCA derruba a operação do ERP: se o BRAIN
+  -- falhar, o orçamento continua sendo salvo e o erro vai para o log.
+  begin
+    perform pg_catalog.set_config('brain.internal', 'on', true);
 
-  perform brain.ingest_event(
-    v_event, 'erp',
-    jsonb_build_object('quote_id', new.id, 'number', new.number, 'status', new.status,
-                       'total', new.total, 'owner_id', new.owner_id),
-    'quote:' || new.id::text || ':' || v_event,
-    now(), 'salesperson', v_lead, new.customer_id, v_opp, null, null, null, null, 1, '{}'::jsonb);
+    select id, lead_id into v_opp, v_lead from brain.opportunities
+     where quote_id = new.id order by created_at limit 1;
+    if v_lead is null then
+      select id into v_lead from brain.leads
+       where customer_id = new.customer_id and merged_into_lead_id is null
+       order by created_at limit 1;
+    end if;
 
-  -- Orçamento aprovado empurra a oportunidade para negociação.
-  if v_opp is not null and new.status = 'approved' then
-    update brain.opportunities set stage = 'negotiation'
-     where id = v_opp and stage in ('prospecting', 'qualified', 'proposal');
-  elsif v_opp is not null and new.status = 'sent' then
-    update brain.opportunities set stage = 'proposal'
-     where id = v_opp and stage in ('prospecting', 'qualified');
-  end if;
+    -- Chave por transação: cada mudança real vira um evento; a mesma
+    -- transação não publica duas vezes.
+    perform brain.ingest_event(
+      v_event, 'erp',
+      jsonb_build_object('quote_id', new.id, 'number', new.number, 'status', new.status,
+                         'total', new.total, 'owner_id', new.owner_id),
+      'quote:' || new.id::text || ':' || v_event || ':' || pg_catalog.txid_current()::text,
+      now(), 'salesperson', v_lead, new.customer_id, v_opp, null, null, null, null, 1, '{}'::jsonb);
+
+    if v_opp is not null and new.status = 'approved' then
+      update brain.opportunities set stage = 'negotiation'
+       where id = v_opp and stage in ('prospecting', 'qualified', 'proposal');
+    elsif v_opp is not null and new.status = 'sent' then
+      update brain.opportunities set stage = 'proposal'
+       where id = v_opp and stage in ('prospecting', 'qualified');
+    end if;
+
+    perform pg_catalog.set_config('brain.internal', 'off', true);
+  exception when others then
+    perform pg_catalog.set_config('brain.internal', 'off', true);
+    raise warning 'brain: ponte de orcamento falhou (%): %', v_event, sqlerrm;
+  end;
 
   return null;
 end;
@@ -1127,8 +1267,15 @@ create or replace function brain.on_order_change()
 returns trigger language plpgsql security definer set search_path = '' as $$
 declare
   v_event text;
+  v_order public.orders%rowtype;
   r       record;
 begin
+  -- No INSERT este gatilho é DEFERRED: dispara no commit, quando os itens
+  -- já entraram e o total já foi recalculado. Lê a linha de novo para
+  -- publicar o valor FINAL da venda, não o cabeçalho vazio.
+  select * into v_order from public.orders where id = new.id;
+  if not found then return null; end if;
+
   if tg_op = 'INSERT' then
     v_event := 'order.created';
   elsif new.status is distinct from old.status then
@@ -1137,34 +1284,50 @@ begin
     return null;
   end if;
 
-  -- A oportunidade que apontava para o orçamento de origem ganha o pedido.
-  if tg_op = 'INSERT' and new.quote_id is not null then
-    for r in
-      update brain.opportunities
-         set order_id = new.id, stage = 'won', customer_id = coalesce(customer_id, new.customer_id)
-       where quote_id = new.quote_id and stage not in ('won', 'lost')
-       returning id, lead_id
-    loop
-      if r.lead_id is not null then
-        update brain.leads
-           set status = 'converted',
-               converted_at = coalesce(converted_at, now()),
-               customer_id = coalesce(customer_id, new.customer_id)
-         where id = r.lead_id;
-      end if;
-    end loop;
-  end if;
+  begin
+    perform pg_catalog.set_config('brain.internal', 'on', true);
 
-  perform brain.ingest_event(
-    v_event, 'erp',
-    jsonb_build_object('order_id', new.id, 'number', new.number, 'status', new.status,
-                       'total', new.total, 'quote_id', new.quote_id, 'owner_id', new.owner_id),
-    'order:' || new.id::text || ':' || v_event,
-    now(), 'salesperson',
-    (select o.lead_id from brain.opportunities o where o.order_id = new.id order by o.created_at limit 1),
-    new.customer_id,
-    (select o.id from brain.opportunities o where o.order_id = new.id order by o.created_at limit 1),
-    null, null, null, null, 1, '{}'::jsonb);
+    if tg_op = 'INSERT' and v_order.quote_id is not null then
+      -- A oportunidade que apontava para o orçamento de origem ganha o pedido.
+      for r in
+        update brain.opportunities
+           set order_id = v_order.id, stage = 'won',
+               customer_id = coalesce(customer_id, v_order.customer_id)
+         where quote_id = v_order.quote_id and stage not in ('won', 'lost')
+         returning id, lead_id
+      loop
+        if r.lead_id is not null then
+          update brain.leads
+             set status = 'converted',
+                 converted_at = coalesce(converted_at, now()),
+                 customer_id = coalesce(customer_id, v_order.customer_id)
+           where id = r.lead_id;
+        end if;
+      end loop;
+    elsif v_event = 'order.cancelled' then
+      -- Venda desfeita: a oportunidade volta à negociação. O pedido fica
+      -- referenciado (é histórico) e o lead continua convertido — o
+      -- cliente existe; o que não existe mais é esta venda.
+      update brain.opportunities set stage = 'negotiation'
+       where order_id = v_order.id and stage = 'won';
+    end if;
+
+    perform brain.ingest_event(
+      v_event, 'erp',
+      jsonb_build_object('order_id', v_order.id, 'number', v_order.number, 'status', v_order.status,
+                         'total', v_order.total, 'quote_id', v_order.quote_id, 'owner_id', v_order.owner_id),
+      'order:' || v_order.id::text || ':' || v_event || ':' || pg_catalog.txid_current()::text,
+      now(), 'salesperson',
+      (select o.lead_id from brain.opportunities o where o.order_id = v_order.id order by o.created_at limit 1),
+      v_order.customer_id,
+      (select o.id from brain.opportunities o where o.order_id = v_order.id order by o.created_at limit 1),
+      null, null, null, null, 1, '{}'::jsonb);
+
+    perform pg_catalog.set_config('brain.internal', 'off', true);
+  exception when others then
+    perform pg_catalog.set_config('brain.internal', 'off', true);
+    raise warning 'brain: ponte de pedido falhou (%): %', v_event, sqlerrm;
+  end;
 
   return null;
 end;
@@ -1175,8 +1338,86 @@ revoke execute on function brain.on_order_change() from public, anon, authentica
 
 create trigger trg_brain_quotes after insert or update of status on public.quotes
   for each row execute function brain.on_quote_change();
-create trigger trg_brain_orders after insert or update of status on public.orders
+
+-- INSERT adiado para o commit (ver o comentário da função): o pedido nasce
+-- vazio e é preenchido na mesma transação por create_order_from_quote.
+create constraint trigger trg_brain_orders_created
+  after insert on public.orders
+  deferrable initially deferred
   for each row execute function brain.on_order_change();
+create trigger trg_brain_orders after update of status on public.orders
+  for each row execute function brain.on_order_change();
+
+-- ════════════════════════════════════════════════════════════
+-- Vínculos: uma FK prova que existe, não que é seu
+-- ════════════════════════════════════════════════════════════
+-- `security invoker` de propósito: o `exists` em quotes/orders passa
+-- pelo RLS do ERP, então "não enxergo" vira "não posso vincular". Para o
+-- lead e a oportunidade vale a visibilidade do BRAIN. Autoria não é
+-- campo de formulário: `created_by`/`actor_id` são quem está logado.
+create or replace function brain.check_links()
+returns trigger language plpgsql security invoker set search_path = '' as $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_row jsonb := to_jsonb(new);
+  v_lead uuid := (v_row ->> 'lead_id')::uuid;
+  v_opp  uuid := (v_row ->> 'opportunity_id')::uuid;
+  v_cust uuid := (v_row ->> 'customer_id')::uuid;
+  v_quote uuid := (v_row ->> 'quote_id')::uuid;
+  v_order uuid := (v_row ->> 'order_id')::uuid;
+begin
+  if tg_op = 'INSERT' then
+    if tg_table_name in ('opportunities', 'tasks') and v_uid is not null then
+      new.created_by := v_uid;
+      new.updated_by := v_uid;
+    elsif tg_table_name = 'interactions' and v_uid is not null then
+      new.actor_id := v_uid;
+    end if;
+  elsif tg_table_name in ('opportunities', 'tasks') then
+    new.created_by := old.created_by;
+    new.created_at := old.created_at;
+    if v_uid is not null then new.updated_by := v_uid; end if;
+  elsif tg_table_name = 'interactions' then
+    new.actor_id := old.actor_id;
+  end if;
+
+  if brain.is_privileged() then
+    return new;
+  end if;
+
+  if v_lead is not null and not brain.can_see_lead(v_lead) then
+    raise exception 'Lead fora do seu alcance' using errcode = 'insufficient_privilege';
+  end if;
+  if tg_table_name <> 'opportunities' and v_opp is not null and not brain.can_see_opportunity(v_opp) then
+    raise exception 'Oportunidade fora do seu alcance' using errcode = 'insufficient_privilege';
+  end if;
+  if v_cust is not null and not exists (select 1 from public.customers c where c.id = v_cust) then
+    raise exception 'Cliente fora do seu alcance' using errcode = 'insufficient_privilege';
+  end if;
+  if v_quote is not null and not exists (select 1 from public.quotes q where q.id = v_quote) then
+    raise exception 'Orcamento fora do seu alcance' using errcode = 'insufficient_privilege';
+  end if;
+  if v_order is not null and not exists (select 1 from public.orders o where o.id = v_order) then
+    raise exception 'Pedido fora do seu alcance' using errcode = 'insufficient_privilege';
+  end if;
+  -- Lead e oportunidade têm de falar da mesma pessoa.
+  if tg_table_name in ('tasks', 'interactions') and v_lead is not null and v_opp is not null
+     and not exists (select 1 from brain.opportunities o where o.id = v_opp and o.lead_id = v_lead) then
+    raise exception 'Oportunidade nao pertence a este lead' using errcode = 'check_violation';
+  end if;
+
+  return new;
+end;
+$$;
+
+revoke execute on function brain.check_links() from public, anon, authenticated;
+
+create trigger trg_opportunities_a_links before insert or update on brain.opportunities
+  for each row execute function brain.check_links();
+create trigger trg_tasks_a_links before insert or update on brain.tasks
+  for each row execute function brain.check_links();
+create trigger trg_interactions_a_links before insert or update on brain.interactions
+  for each row execute function brain.check_links();
 
 -- ════════════════════════════════════════════════════════════
 -- A jornada — uma linha do tempo por lead/cliente
@@ -1232,7 +1473,10 @@ create trigger trg_audit_lead_merges after insert on brain.lead_merges
 create trigger trg_audit_channels after insert or update or delete on brain.channels
   for each row execute function public.audit_capture('channel', 'key', 'name', '', '');
 
--- `interactions` e `events` NÃO são auditados: eles SÃO o registro.
+-- `events` não é auditado: é imutável e É o registro. `interactions`
+-- audita só correção e exclusão — o INSERT já é o fato.
+create trigger trg_audit_interactions after update or delete on brain.interactions
+  for each row execute function public.audit_capture('interaction', 'id', 'summary', 'lead', 'lead_id');
 
 -- Texto integral de `audit_capture` (20260909100000) mais: colunas de
 -- toque do lead ignoradas (senão toda interação geraria um `lead.updated`
@@ -1311,9 +1555,10 @@ begin
     -- o evento que importa é o `purchase.received`, não N `item_changed`.
     v_ignore := v_ignore || array['line_total', 'freight_share', 'landed_cost', 'previous_cost'];
   elsif tg_table_name = 'leads' then
-    -- Carimbos de toque e score sobem a cada interação/evento: são
-    -- consequência, não decisão. A interação em si já é o registro.
-    v_ignore := v_ignore || array['first_touch_at', 'last_touch_at', 'score'];
+    -- Carimbos de toque sobem a cada interação: são consequência, não
+    -- decisão — a interação em si já é o registro. `score` é editável e
+    -- fica auditado.
+    v_ignore := v_ignore || array['first_touch_at', 'last_touch_at'];
   elsif tg_table_name = 'identities' then
     v_ignore := v_ignore || array['last_seen_at'];
   elsif tg_table_name = 'financial_entries' then
