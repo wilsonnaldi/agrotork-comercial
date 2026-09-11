@@ -37,6 +37,12 @@ begin
   if not exists (select 1 from pg_namespace where nspname = 'brain') then
     raise exception 'O schema brain nao existe — nada a remover. PARADO.';
   end if;
+  -- A Fase 2 mora no mesmo schema. Se o Lote A (memoria corporativa) estiver
+  -- aplicado, derrubar o schema levaria as sete tabelas dele junto, e este
+  -- roteiro so confere as nove da Fase 1. Primeiro 06-remover-memoria-sem-dados.sql.
+  if to_regclass('brain.document_chunks') is not null then
+    raise exception 'A memoria corporativa (Fase 2, Lote A) esta aplicada neste schema. Rode 06-remover-memoria-sem-dados.sql antes. PARADO.';
+  end if;
 
   select count(*) into v_leads   from brain.leads;
   select count(*) into v_inter   from brain.interactions;
