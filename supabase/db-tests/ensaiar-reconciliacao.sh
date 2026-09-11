@@ -56,7 +56,7 @@ echo "▶ R1: estado real de produção"
 montar
 ANTES=$(impressao)
 SAIDA=$(rodar)
-if echo "$SAIDA" | grep -q "9 acertada(s) agora, 0 ja estava" && echo "$SAIDA" | grep -q "Git e producao coincidem"; then
+if grep -q "9 acertada(s) agora, 0 ja estava" <<< "$SAIDA" && grep -q "Git e producao coincidem" <<< "$SAIDA"; then
   ERRADAS=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '2026090914%'")
   TAB_COPIA=$(q -c "select tablename from pg_tables where schemaname='supabase_migrations' and tablename like 'schema_migrations\\_antes\\_%' order by tablename limit 1")
   COPIA=$(q -c "select count(*) from supabase_migrations.\"$TAB_COPIA\"")
@@ -74,7 +74,7 @@ echo "▶ R2: segunda execução na mesma base"
 DEPOIS_R1=$(impressao)
 sleep 1   # o nome da cópia leva carimbo de hora com segundo
 SAIDA=$(rodar)
-if echo "$SAIDA" | grep -q "0 acertada(s) agora, 9 ja estava"; then
+if grep -q "0 acertada(s) agora, 9 ja estava" <<< "$SAIDA"; then
   conferir_intacto "R2" "$DEPOIS_R1"
 else
   echo "  ✗ R2 não relatou 'já acertadas':"; echo "$SAIDA" | tail -5; FALHAS=$((FALHAS+1))
@@ -96,7 +96,7 @@ montar
 q -q -c "update supabase_migrations.schema_migrations set name = 'outra_coisa' where version = '20260909143930'" >/dev/null
 ANTES=$(impressao)
 SAIDA=$(rodar)
-echo "$SAIDA" | grep -q "o nome nao e" && echo "  ✓ R3: abortou com a mensagem certa" || { echo "  ✗ R3: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
+grep -q "o nome nao e" <<< "$SAIDA" && echo "  ✓ R3: abortou com a mensagem certa" || { echo "  ✗ R3: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
 conferir_intacto "R3" "$ANTES"
 
 echo "▶ R4: versão ausente"
@@ -104,7 +104,7 @@ montar
 q -q -c "delete from supabase_migrations.schema_migrations where version = '20260909144028'" >/dev/null
 ANTES=$(impressao)
 SAIDA=$(rodar)
-echo "$SAIDA" | grep -q "nao existe nem a versao errada" && echo "  ✓ R4: abortou com a mensagem certa" || { echo "  ✗ R4: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
+grep -q "nao existe nem a versao errada" <<< "$SAIDA" && echo "  ✓ R4: abortou com a mensagem certa" || { echo "  ✗ R4: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
 conferir_intacto "R4" "$ANTES"
 
 echo "▶ R5: conflito — a versão de destino já ocupada"
@@ -112,7 +112,7 @@ montar
 q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260903140000','compras')" >/dev/null
 ANTES=$(impressao)
 SAIDA=$(rodar)
-echo "$SAIDA" | grep -q "existem AS DUAS versoes" && echo "  ✓ R5: abortou com a mensagem certa" || { echo "  ✗ R5: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
+grep -q "existem AS DUAS versoes" <<< "$SAIDA" && echo "  ✓ R5: abortou com a mensagem certa" || { echo "  ✗ R5: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
 conferir_intacto "R5" "$ANTES"
 
 echo "▶ R7: conteúdo errado numa linha POR ACERTAR"
@@ -120,7 +120,7 @@ montar
 q -q -c "update supabase_migrations.schema_migrations set statements = array['-- outra coisa qualquer'] where version = '20260909143930'" >/dev/null
 ANTES=$(impressao)
 SAIDA=$(rodar)
-echo "$SAIDA" | grep -q "o conteudo nao menciona" && echo "  ✓ R7: abortou — a linha tinha o corpo de outra migration" || { echo "  ✗ R7: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
+grep -q "o conteudo nao menciona" <<< "$SAIDA" && echo "  ✓ R7: abortou — a linha tinha o corpo de outra migration" || { echo "  ✗ R7: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
 conferir_intacto "R7" "$ANTES"
 
 echo "▶ R8: conteúdo errado numa linha JÁ ACERTADA"
@@ -129,7 +129,7 @@ q -q -f "$ROOT/supabase/operacao/01-reconciliar-registro.sql" >/dev/null 2>&1   
 q -q -c "update supabase_migrations.schema_migrations set statements = array['-- outra coisa qualquer'] where version = '20260903140000'" >/dev/null
 ANTES=$(impressao)
 SAIDA=$(rodar)
-echo "$SAIDA" | grep -q "o conteudo nao menciona" && echo "  ✓ R8: abortou mesmo com a versão já certa — rodar de novo confere de novo" || { echo "  ✗ R8: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
+grep -q "o conteudo nao menciona" <<< "$SAIDA" && echo "  ✓ R8: abortou mesmo com a versão já certa — rodar de novo confere de novo" || { echo "  ✗ R8: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
 conferir_intacto "R8" "$ANTES"
 
 echo "▶ R9: statements vazio"
@@ -137,7 +137,7 @@ montar
 q -q -c "update supabase_migrations.schema_migrations set statements = null where version = '20260909144028'" >/dev/null
 ANTES=$(impressao)
 SAIDA=$(rodar)
-echo "$SAIDA" | grep -q "SEM conteudo" && echo "  ✓ R9: abortou — não dá para afirmar que é aquela migration" || { echo "  ✗ R9: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
+grep -q "SEM conteudo" <<< "$SAIDA" && echo "  ✓ R9: abortou — não dá para afirmar que é aquela migration" || { echo "  ✗ R9: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
 conferir_intacto "R9" "$ANTES"
 
 echo "▶ R6: registro remoto sem arquivo no Git"
@@ -145,7 +145,7 @@ montar
 q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260910999999','migration_fantasma')" >/dev/null
 ANTES=$(impressao)
 SAIDA=$(rodar)
-echo "$SAIDA" | grep -q "Registro no banco sem arquivo no Git" && echo "  ✓ R6: abortou com a mensagem certa" || { echo "  ✗ R6: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
+grep -q "Registro no banco sem arquivo no Git" <<< "$SAIDA" && echo "  ✓ R6: abortou com a mensagem certa" || { echo "  ✗ R6: mensagem inesperada"; echo "$SAIDA" | tail -3; FALHAS=$((FALHAS+1)); }
 conferir_intacto "R6" "$ANTES"
 
 adm -c "drop database if exists $DB" >/dev/null

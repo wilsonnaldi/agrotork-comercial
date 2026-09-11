@@ -34,7 +34,7 @@ jobs:
       PGUSER: postgres
       PGPASSWORD: ci-local-only
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Conferir arquivos gerados
         run: bash supabase/db-tests/conferir-operacao.sh
       - name: Ensaiar deploy, reversao e ERP previamente povoado

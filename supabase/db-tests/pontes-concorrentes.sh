@@ -76,7 +76,7 @@ sleep 1
 SAIDA=$(q -c "set lock_timeout = '300ms'; update public.quotes set status = 'sent' where id = '$QUOTE' returning status" 2>&1)
 wait $TRAVA
 STATUS=$(q -c "select status from public.quotes where id = '$QUOTE'")
-if echo "$SAIDA" | grep -qi "lock timeout" && [ "$STATUS" = "sent" ]; then
+if grep -qi "lock timeout" <<< "$SAIDA" && [ "$STATUS" = "sent" ]; then
   echo " PT5) OK: lock_timeout levanta lock_not_available (55P03), OTHERS capturou — a venda passou e o evento se perdeu"
 else
   echo " PT5) FALHOU: status='$STATUS'"; echo "--- saida ---"; echo "$SAIDA"; exit 1
@@ -108,7 +108,7 @@ q >/dev/null <<'SQL'
 drop trigger if exists trg_teste_lento on brain.opportunities;
 drop function if exists brain.teste_lento();
 SQL
-if echo "$SAIDA" | grep -qi "statement timeout" && [ "$STATUS" = "draft" ]; then
+if grep -qi "statement timeout" <<< "$SAIDA" && [ "$STATUS" = "draft" ]; then
   echo " PT5b) OK (e este e o LIMITE RESIDUAL): statement_timeout estourou dentro da ponte e a venda CAIU — o orcamento ficou em '$STATUS'"
 else
   echo " PT5b) FALHOU: status='$STATUS'"; echo "--- saida ---"; echo "$SAIDA"; exit 1
