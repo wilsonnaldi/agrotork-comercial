@@ -1,5 +1,5 @@
 -- ============================================================
--- AGROTORK BRAIN — Fase 1 (migration 20260910120000).
+-- AGROTORK BRAIN — Fase 1 (migration 20260911130000).
 --
 -- Os seis cenários de aceitação, mais segurança e imutabilidade:
 --   BR1  novo interessado do Instagram: evento → lead → interação →

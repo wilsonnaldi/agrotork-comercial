@@ -16,9 +16,9 @@
 reset role;
 
 insert into auth.users (id, email, raw_user_meta_data) values
- ('27272727-0000-4000-8000-000000000001','excl.admin@teste.local','{"full_name":"Admin Exclusoes","role":"admin"}'),
- ('27272727-0000-4000-8000-000000000002','excl.vend@teste.local' ,'{"full_name":"Vendedor Exclusoes","role":"salesperson"}'),
- ('27272727-0000-4000-8000-000000000003','excl.vend2@teste.local','{"full_name":"Outro Vendedor","role":"salesperson"}');
+ ('27272727-0000-4000-8000-000000000001','ex27.admin@teste.local','{"full_name":"Admin Exclusoes","role":"admin"}'),
+ ('27272727-0000-4000-8000-000000000002','ex27.vend@teste.local' ,'{"full_name":"Vendedor Exclusoes","role":"salesperson"}'),
+ ('27272727-0000-4000-8000-000000000003','ex27.vend2@teste.local','{"full_name":"Outro Vendedor","role":"salesperson"}');
 update public.profiles set role = 'admin' where id = '27272727-0000-4000-8000-000000000001';
 
 -- ── EX1: cliente com identidade sem lead ────────────────────
@@ -381,13 +381,25 @@ $$;
 
 reset role;
 
--- Limpeza: esta suíte conta linhas nas seguintes.
+-- Limpeza: só o que ESTA suíte criou. Apagar por `name like 'Cliente %'`
+-- alcançaria massa das suítes anteriores — e aí a exclusão do orçamento
+-- esbarraria em `freeze_order_commercials`, que é guarda do ERP e não
+-- tem nada a ver com o BRAIN.
 delete from brain.lead_merges;
 delete from brain.tasks;
 delete from brain.interactions;
 delete from brain.opportunities;
 delete from brain.identities;
 delete from brain.leads;
-delete from public.quotes where customer_id in (select id from public.customers where name like '%EX1%' or name like 'Cliente %');
-delete from public.customers where name like 'Cliente %' or name like '%EX9%';
-delete from auth.users where email like 'ex%@teste.local' or email like 'excl.%@teste.local';
+delete from public.quotes
+ where customer_id in (select id from public.customers where name = 'Cliente Com Orcamento');
+delete from public.customers
+ where name in ('Cliente da Identidade', 'Cliente da Interacao', 'Cliente da Oportunidade',
+                'Cliente EX9', 'Cliente Com Orcamento');
+-- Por id, não por `like`: `ex%` alcançaria usuários de outras suítes, e
+-- aí a exclusão esbarraria em `quotes_owner_id_fkey` — outra guarda do
+-- ERP, que impede apagar um perfil que ainda é dono de orçamento.
+delete from auth.users where id in (
+  '27272727-0000-4000-8000-000000000001',
+  '27272727-0000-4000-8000-000000000002',
+  '27272727-0000-4000-8000-000000000003');

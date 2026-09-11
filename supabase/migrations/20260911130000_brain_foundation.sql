@@ -1,5 +1,12 @@
 -- ============================================================
--- 0910120000 · AGROTORK BRAIN — Fase 1: fundação (CRM + eventos)
+-- Renumerada em 11/09/2026 de 20260910120000 para 20260911130000. Motivo:
+-- as duas migrations do `instagram_curator` (20260910151115 e
+-- 20260910151534) já estão aplicadas em produção, e uma migration local
+-- com versão ANTERIOR a uma já aplicada entra fora de ordem no
+-- `supabase db push`. O BRAIN nunca foi aplicado, então renumerar o
+-- arquivo não reescreve história nenhuma — só a põe na ordem certa.
+-- ============================================================
+-- AGROTORK BRAIN — Fase 1: fundação (CRM + eventos)
 --
 -- O BRAIN é a camada que responde "de onde veio, por onde passou e
 -- virou o quê" para cada contato comercial. Ele NÃO é um segundo ERP:

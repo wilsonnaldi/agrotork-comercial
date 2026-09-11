@@ -1,0 +1,146 @@
+ACL :: S events_id_seq :: 8b9aadb7aaa75ea24a8ff9e66580cb51
+ACL :: r artifacts :: f999171f8e57c0cc8dacda0ee730abb9
+ACL :: r editorial_rules :: f999171f8e57c0cc8dacda0ee730abb9
+ACL :: r events :: f999171f8e57c0cc8dacda0ee730abb9
+ACL :: r locks :: f999171f8e57c0cc8dacda0ee730abb9
+ACL :: r references :: f999171f8e57c0cc8dacda0ee730abb9
+ACL :: r runs :: f999171f8e57c0cc8dacda0ee730abb9
+ACL FUNCAO :: acquire_lock :: a6b711256c0b7d5a62a4ea6693baf739
+ACL FUNCAO :: heartbeat_lock :: a6b711256c0b7d5a62a4ea6693baf739
+ACL FUNCAO :: release_lock :: a6b711256c0b7d5a62a4ea6693baf739
+ACL FUNCAO :: touch_updated_at :: a6b711256c0b7d5a62a4ea6693baf739
+ACL SCHEMA :: instagram_curator :: b8ee3db254b0d7b4c656fdf18e074cd6
+COLUNA :: artifacts.checksum :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: artifacts.created_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: artifacts.id :: 8d60563d1027ffa51e47bd67a2b25ea8
+COLUNA :: artifacts.kind :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: artifacts.metadata :: 524562e210abf2dd084641b15ad9cf48
+COLUNA :: artifacts.persistent_uri :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: artifacts.reference_id :: bd686a7f901de987746840a2d4c0c5de
+COLUNA :: artifacts.status :: 577a7fa459122c84f442c0d7a08b547b
+COLUNA :: artifacts.updated_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: editorial_rules.config :: e6cf58703f01a05138c6e990a89270ea
+COLUNA :: editorial_rules.effective_from :: 78a4814f9534f1fcc5c04078c5611170
+COLUNA :: editorial_rules.rationale :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: editorial_rules.rule_key :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: editorial_rules.source :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: editorial_rules.state :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: editorial_rules.updated_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: events.details :: 524562e210abf2dd084641b15ad9cf48
+COLUNA :: events.event_type :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: events.id :: 18bbe6ac7d74956713f80aa7f46bbe71
+COLUNA :: events.occurred_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: events.reference_id :: ef7c876f00f3acddd00fa671f52d0b1f
+COLUNA :: events.run_id :: bd686a7f901de987746840a2d4c0c5de
+COLUNA :: locks.acquired_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: locks.expires_at :: 72b78efd24873dbf92743c749d0ffe98
+COLUNA :: locks.heartbeat_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: locks.lock_name :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: locks.owner_token :: bd686a7f901de987746840a2d4c0c5de
+COLUNA :: locks.run_id :: ef7c876f00f3acddd00fa671f52d0b1f
+COLUNA :: references.angle :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.canonical_url :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.caption :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.completed_at :: 78a4814f9534f1fcc5c04078c5611170
+COLUNA :: references.created_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: references.deferred_until :: 78a4814f9534f1fcc5c04078c5611170
+COLUNA :: references.discovered_at :: 78a4814f9534f1fcc5c04078c5611170
+COLUNA :: references.first_seen_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: references.id :: 8d60563d1027ffa51e47bd67a2b25ea8
+COLUNA :: references.last_error_sanitized :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.last_seen_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: references.legacy_folder_label :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.legacy_key :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.legacy_state_unverified :: 525761e694983b0071e20afc26eeeebe
+COLUNA :: references.like_position :: 157db7df530023575515d366c9b672e8
+COLUNA :: references.metadata :: 524562e210abf2dd084641b15ad9cf48
+COLUNA :: references.observed_route :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.origin :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: references.processing_started_at :: 78a4814f9534f1fcc5c04078c5611170
+COLUNA :: references.provenance :: 524562e210abf2dd084641b15ad9cf48
+COLUNA :: references.published_at :: 78a4814f9534f1fcc5c04078c5611170
+COLUNA :: references.shortcode :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.source_account :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.status :: 34949e5a004e9a4745cd5fa9d579d8fb
+COLUNA :: references.topic :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: references.updated_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: runs.audit_mode :: 525761e694983b0071e20afc26eeeebe
+COLUNA :: runs.baseline_mode :: 82a22347dc22754fdb7ae1fd1650bd9f
+COLUNA :: runs.checkpoints :: 390664fa34802b1261bfae13999e3975
+COLUNA :: runs.counters :: 524562e210abf2dd084641b15ad9cf48
+COLUNA :: runs.declared_complete_scan :: 525761e694983b0071e20afc26eeeebe
+COLUNA :: runs.error_sanitized :: 1cb251ec0d568de6a929b520c4aed8d1
+COLUNA :: runs.executor :: afc378b6b51ab4828a439c0ef8bb982f
+COLUNA :: runs.finished_at :: 78a4814f9534f1fcc5c04078c5611170
+COLUNA :: runs.id :: 8d60563d1027ffa51e47bd67a2b25ea8
+COLUNA :: runs.metadata :: 524562e210abf2dd084641b15ad9cf48
+COLUNA :: runs.navigation_attempts :: cc92fd1ec55723f1a26cbec6d119f46b
+COLUNA :: runs.started_at :: 3e84ef3563cb15e80b006a60840035e8
+COLUNA :: runs.status :: 4f63ce5377128c7408776545d4478644
+COLUNA :: runs.stop_reason :: 1cb251ec0d568de6a929b520c4aed8d1
+COMENTARIO COLUNA :: references.legacy_state_unverified :: 0aed38ccf05744a8687380f4a0be264b
+COMENTARIO COLUNA :: runs.declared_complete_scan :: d3876aa4e29dfc68ce663e2341d75046
+COMENTARIO SCHEMA :: instagram_curator :: b3e3ef55732a0ea9a7d337831d6d0834
+ENUM :: reference_status :: 6b875ce0e677a3d495b854ae4547a506
+ENUM :: run_status :: 8faa16fdea957a4d0b3eec1654d61c62
+FUNCAO :: acquire_lock(p_lock_name text, p_owner_token uuid, p_ttl_seconds integer, p_run_id uuid) :: 5a1c14789ba2f6285e52aa4f0cb59437
+FUNCAO :: heartbeat_lock(p_lock_name text, p_owner_token uuid, p_ttl_seconds integer) :: f61ea7d5f364f4abdcbc99c6927a423f
+FUNCAO :: release_lock(p_lock_name text, p_owner_token uuid) :: a15cc82364d1fb0c120f5a0442ba05d8
+FUNCAO :: touch_updated_at() :: 11fecbe150faab35ba1b21afa21951d7
+GATILHO :: instagram_curator."references" references_touch_updated_at :: d983ed27ffebde065c968c5548e8dbbf
+GATILHO :: instagram_curator.artifacts artifacts_touch_updated_at :: 0272447f492cbf6fa5025d4ad008961b
+INDICE :: artifacts artifacts_pkey :: e1680a2676379faafa07d58873a10706
+INDICE :: artifacts artifacts_reference_id_kind_key :: d7da6b6dd4e4bba92d20e8a616380daf
+INDICE :: editorial_rules editorial_rules_pkey :: 27cdcd8a4c63f1f9334199d4f6b963fd
+INDICE :: events events_pkey :: 7892b60176b18986c3d502c457ca8d9d
+INDICE :: events events_reference_time_idx :: 53a0ddc18614b5bacaf92e09edae5981
+INDICE :: events events_run_time_idx :: 935a9de14924a3fcf4995688c87e4555
+INDICE :: locks locks_expiry_idx :: e5d8122ecc804dee947d4c9b33cf847f
+INDICE :: locks locks_pkey :: 07a451663a29e60121182849ac48810f
+INDICE :: locks locks_run_id_idx :: 1b524a650ad6b07d2752ce288cf95f59
+INDICE :: references references_canonical_url_uq :: 415dcf671b5886965a6a498b9c30617d
+INDICE :: references references_legacy_key_uq :: 16341ac55c1ac05496d1a30311851dc8
+INDICE :: references references_pkey :: 2e676f351202fabee5e1525852a78774
+INDICE :: references references_queue_idx :: 2829e51ca334dd823c693ba01b2b01f4
+INDICE :: references references_shortcode_uq :: 000e1ba1e4d5f63d756b08714e766cf3
+INDICE :: references references_source_topic_idx :: 2bd13412fbbbbc261f930c9ed8f92735
+INDICE :: runs runs_pkey :: a3d45221182ae3b0ae03473f7772efba
+INDICE :: runs runs_started_idx :: 4d9c17112c98919acae863168915d150
+POLICY :: artifacts service_role_full_access :: 8bff67e228c9c60011e9ddc8b73ee1d8
+POLICY :: editorial_rules service_role_full_access :: 8bff67e228c9c60011e9ddc8b73ee1d8
+POLICY :: events service_role_full_access :: 8bff67e228c9c60011e9ddc8b73ee1d8
+POLICY :: locks service_role_full_access :: 8bff67e228c9c60011e9ddc8b73ee1d8
+POLICY :: references service_role_full_access :: 8bff67e228c9c60011e9ddc8b73ee1d8
+POLICY :: runs service_role_full_access :: 8bff67e228c9c60011e9ddc8b73ee1d8
+PRIV PADRAO :: S :: aed33a6a5430119b19a943bf0e58bd7b
+PRIV PADRAO :: f :: b73c8d9d3656308c379c3bd4f7aeca9c
+PRIV PADRAO :: r :: b8a81b6a3b3fe0df5f254e0d70491beb
+RESTRICAO :: instagram_curator."references" references_identity_pair :: 50a5e7e5491253c33e1dafd90fc6af70
+RESTRICAO :: instagram_curator."references" references_pkey :: 4c6419b3704337bbfe50f018842a9ad3
+RESTRICAO :: instagram_curator."references" references_route :: 3c3a9a1e47b1292f68196d8875432ff2
+RESTRICAO :: instagram_curator."references" references_shortcode_format :: 9403ecf4d4c9fa48bad06f428c8566f0
+RESTRICAO :: instagram_curator."references" references_terminal_timestamp :: e35e84321000e23ecbfd7e638d40bf55
+RESTRICAO :: instagram_curator."references" references_url_canonical :: 9c82bfdd79bfdaeb407c9fe299abe3a5
+RESTRICAO :: instagram_curator."references" references_url_matches_shortcode :: aa2fb3519b6caae9aa82c11029a3e6fc
+RESTRICAO :: instagram_curator.artifacts artifacts_kind_check :: 796e2fe517a2da5925a49081dae2e7e2
+RESTRICAO :: instagram_curator.artifacts artifacts_pkey :: 4c6419b3704337bbfe50f018842a9ad3
+RESTRICAO :: instagram_curator.artifacts artifacts_reference_id_fkey :: 0d3d240e520c8ade96725e30b0ecaf12
+RESTRICAO :: instagram_curator.artifacts artifacts_reference_id_kind_key :: 44d97d91fb8b8199899225fa06024b21
+RESTRICAO :: instagram_curator.artifacts artifacts_status_check :: e90ed033cd04d3530b95e1d1fe1f7b72
+RESTRICAO :: instagram_curator.editorial_rules editorial_rules_pkey :: 2f3692af0a2ce9dc8c41e144590efed7
+RESTRICAO :: instagram_curator.editorial_rules editorial_rules_state_check :: 0f2306bb489dd35b1abaaf0a7ffe0c9b
+RESTRICAO :: instagram_curator.events events_pkey :: 4c6419b3704337bbfe50f018842a9ad3
+RESTRICAO :: instagram_curator.events events_reference_id_fkey :: 02908fc94c3a8bc4deeb3625aee74bf6
+RESTRICAO :: instagram_curator.events events_run_id_fkey :: c9cb4cecfde818800823ff998930d59a
+RESTRICAO :: instagram_curator.locks locks_expiry_order :: dc86dbf10829afd2c27f134d562542b8
+RESTRICAO :: instagram_curator.locks locks_pkey :: f446e4761f44ddfa6c6910670dcd8924
+RESTRICAO :: instagram_curator.locks locks_run_id_fkey :: 1aca41022f714f619a772a044e6c5f95
+RESTRICAO :: instagram_curator.runs runs_complete_scan_guard :: 45505d63e0d240e431a547a6a920d689
+RESTRICAO :: instagram_curator.runs runs_finished_state :: 836985550e5a9d5ae48bb0f72b08b686
+RESTRICAO :: instagram_curator.runs runs_pkey :: 4c6419b3704337bbfe50f018842a9ad3
+RLS :: artifacts :: 1a1489e1e070de2af1bdc4212f201719
+RLS :: editorial_rules :: 1a1489e1e070de2af1bdc4212f201719
+RLS :: events :: 1a1489e1e070de2af1bdc4212f201719
+RLS :: locks :: 1a1489e1e070de2af1bdc4212f201719
+RLS :: references :: 1a1489e1e070de2af1bdc4212f201719
+RLS :: runs :: 1a1489e1e070de2af1bdc4212f201719

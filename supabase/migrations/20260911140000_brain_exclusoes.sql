@@ -282,7 +282,7 @@ create trigger trg_tasks_b_labels         before insert or update on brain.tasks
   for each row execute function brain.stamp_labels();
 
 -- ── 7. `check_links()`: a única mudança é a autoria ─────────
--- Texto integral da versão de 20260910120000, trocando as três
+-- Texto integral da versão de 20260911130000, trocando as três
 -- atribuições cruas de autoria por `keep_authorship()`.
 
 create or replace function brain.check_links()
