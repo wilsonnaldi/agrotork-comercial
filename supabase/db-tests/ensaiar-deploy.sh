@@ -54,8 +54,8 @@ TAB=$(q -c "select count(*) from pg_class c join pg_namespace n on n.oid=c.relna
 REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
 SUJEIRA=$(q -c "select (select count(*) from brain.leads) + (select count(*) from brain.events) + (select count(*) from public.quotes) + (select count(*) from public.orders) + (select count(*) from public.products where code = 'FUMACA-DEPLOY')")
 if [ "$TAB" = "9" ] && [ "$REG" = "9" ] && [ "$SUJEIRA" = "0" ]; then
-  ok "D1: 9 tabelas, 8 versões registradas, 0 resíduo de fumaça"
-  echo "$SAIDA" | grep -q "SEM nenhum evento no BRAIN" && ok "D1: a venda passou sem tocar no BRAIN (pontes desligadas)" || nok "D1: a fumaça não provou o desacoplamento"
+  ok "D1: 9 tabelas, 9 versões registradas, 0 resíduo de fumaça"
+  echo "$SAIDA" | grep -q "SEM nenhum evento novo no BRAIN" && ok "D1: a venda passou sem tocar no BRAIN (pontes desligadas)" || nok "D1: a fumaça não provou o desacoplamento"
   echo "$SAIDA" | grep -q "venda ganha, lead convertido, pedido ligado" && ok "D1: a reconciliação reproduziu o fato" || nok "D1: a reconciliação não reproduziu o fato"
   echo "$SAIDA" | grep -q "divergencias_erp() vazio" && ok "D1: relatório de divergências vazio" || nok "D1: sobrou divergência"
   echo "$SAIDA" | grep -q "Dado comercial intacto" && ok "D1: as 9 tabelas de negócio com o mesmo retrato de antes" || nok "D1: dado comercial alterado"
@@ -309,5 +309,38 @@ else
   nok "D16: existe=$EXISTE md5=$MD5 registro=$REG"; echo "$SAIDA" | grep ERROR | head -3
 fi
 
+
+echo "▶ D17: ERP ja povoado — eventos reais nao sao residuos da fumaca"
+for EOL in LF CRLF; do
+  montar_pre_brain
+  if ! q -q -v ON_ERROR_STOP=1 -f supabase/db-tests/fixture-erp-antes-brain.sql; then
+    nok "D17 $EOL: fixture falhou"; continue
+  fi
+  ARQUIVO=supabase/operacao/02-aplicar-brain.sql
+  if [ "$EOL" = CRLF ]; then
+    ARQUIVO=/tmp/ensaio-02-povoado-crlf.sql
+    python3 -c "from pathlib import Path; p=Path('supabase/operacao/02-aplicar-brain.sql'); Path('$ARQUIVO').write_bytes(p.read_bytes().replace(b'\r\n',b'\n').replace(b'\n',b'\r\n'))"
+  fi
+  if ! SAIDA=$(q -v ON_ERROR_STOP=1 -f "$ARQUIVO" 2>&1); then
+    nok "D17 $EOL: deploy recusou ERP povoado"; echo "$SAIDA" | tail -8; continue
+  fi
+  RESULTADO=$(q -q -v ON_ERROR_STOP=1 <<'SQL'
+select (select count(*) from public.quotes),
+       (select count(*) from public.orders),
+       (select count(*) from brain.events),
+       (select count(*) from brain.divergencias_erp()),
+       (select count(*) from pg_trigger where tgname like 'trg_brain%' and tgenabled <> 'D'),
+       (select count(*) from public.products where code='FUMACA-DEPLOY'),
+       (select count(*) from brain.leads) + (select count(*) from brain.opportunities),
+       (select sum(corrigidas) from brain.reconciliar_erp());
+SQL
+)
+  if [ "$RESULTADO" = '1|2|3|0|0|0|0|0' ]; then
+    ok "D17 $EOL: 3 eventos reais preservados; zero residuo, zero divergencia, idempotente"
+  else
+    nok "D17 $EOL: resultado=$RESULTADO"
+  fi
+done
+
 adm -c "drop database if exists $DB" >/dev/null
-[ "$FALHAS" = "0" ] && echo "✔ deploy e reversão ensaiados nos 16 cenários" || { echo "✗ $FALHAS falha(s)"; exit 1; }
+[ "$FALHAS" = "0" ] && echo "✔ deploy e reversão ensaiados nos 17 cenários" || { echo "✗ $FALHAS falha(s)"; exit 1; }

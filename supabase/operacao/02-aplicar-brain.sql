@@ -3991,24 +3991,42 @@ union all select 'stock_movements',   md5(coalesce(string_agg(t::text, '|' order
 union all select 'financial_entries', md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.financial_entries t
 union all select 'purchases',         md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.purchases t;
 
+-- Reconciliar o ERP real antes da fumaca e preservar seu retrato integral.
+-- O teste deve deixar zero residuo, sem apagar fatos comerciais reais.
+select * from brain.reconciliar_erp();
+do $$
+begin
+  if exists (select 1 from brain.divergencias_erp()) then
+    raise exception 'Reconciliação inicial deixou divergencias — PARADO.';
+  end if;
+  if exists (select 1 from brain.reconciliar_erp() where corrigidas <> 0) then
+    raise exception 'Reconciliação inicial nao foi idempotente — PARADO.';
+  end if;
+end
+$$;
+create temporary table deploy_eventos_reais_antes on commit drop as
+select coalesce(jsonb_agg(to_jsonb(e) order by e.id), '[]'::jsonb) as retrato,
+       count(*) as quantidade
+from brain.events e;
+
 -- ── Fumaça do fluxo DESACOPLADO, e sem resíduo ──────────────
 -- Exercita o caminho que produção vai usar de verdade:
 --
 --   1. o ERP faz a venda inteira — orçamento, itens, enviado, aprovado,
---      pedido — e o BRAIN NÃO é tocado: zero eventos, oportunidade
+--      pedido — e o BRAIN NÃO é tocado: zero eventos novos, oportunidade
 --      parada, lead não convertido. É isso que "desacoplado" significa;
 --   2. `divergencias_erp()` enxerga o que ficou para trás;
 --   3. `reconciliar_erp()` reproduz o fato: evento, vínculo, venda
 --      ganha, lead convertido;
 --   4. `divergencias_erp()` volta VAZIO;
---   5. desfaz tudo, evento incluído, e prova que sobrou zero.
+--   5. remove os dados do teste e prova que os eventos reais ficaram intactos.
 --
 -- Num bloco só, sem `savepoint`: `rollback to savepoint` RESGATA uma
 -- transação abortada, e uma fumaça que falhasse deixaria de impedir o
 -- COMMIT. Aqui, qualquer assertiva que falhe aborta e o COMMIT lá
 -- embaixo é executado como ROLLBACK.
 --
--- O que sobra em produção depois desta fumaça: as linhas de
+-- Permanecem os eventos do ERP real reconciliados antes do teste e as linhas de
 -- `public.audit_log` que ela gerou. É append-only por projeto — e é
 -- correto que o log registre que a fumaça aconteceu.
 do $$
@@ -4055,9 +4073,9 @@ begin
   execute 'set constraints public.trg_brain_orders_created immediate';
 
   select total into v_total from public.orders where id = v_order;
-  if (select count(*) from brain.events) <> 0 then
+  if (select count(*) from brain.events) <> (select quantidade from deploy_eventos_reais_antes) then
     raise exception 'MODO DESACOPLADO violado: a ponte publicou % evento(s) dentro da transacao comercial — PARADO.',
-      (select count(*) from brain.events);
+      (select count(*) from brain.events) - (select quantidade from deploy_eventos_reais_antes);
   end if;
   if (select stage from brain.opportunities where id = v_opp) <> 'prospecting' then
     raise exception 'MODO DESACOPLADO violado: a oportunidade mudou de estagio dentro da transacao comercial — PARADO.';
@@ -4066,7 +4084,7 @@ begin
     raise exception 'MODO DESACOPLADO violado: o lead foi convertido dentro da transacao comercial — PARADO.';
   end if;
 
-  raise notice 'Fumaca 1/4: venda concluida (pedido %, total %) SEM nenhum evento no BRAIN — as pontes estao mesmo desligadas.',
+  raise notice 'Fumaca 1/4: venda concluida (pedido %, total %) SEM nenhum evento novo no BRAIN — as pontes estao mesmo desligadas.',
     (select number from public.orders where id = v_order), v_total;
 
   -- ── 2. O relatório enxerga o que ficou para trás ───────────
@@ -4131,10 +4149,14 @@ begin
        + (select count(*) from brain.interactions)
        + (select count(*) from brain.opportunities)
        + (select count(*) from brain.tasks)
-       + (select count(*) from brain.events)
+       + (select count(*) from brain.events where payload ->> 'quote_id' = v_quote::text or payload ->> 'order_id' = v_order::text)
        + (select count(*) from brain.lead_merges)
        + (select count(*) from brain.attributions)
     into v_sobrou;
+  if (select coalesce(jsonb_agg(to_jsonb(e) order by e.id), '[]'::jsonb) from brain.events e)
+     is distinct from (select retrato from deploy_eventos_reais_antes) then
+    raise exception 'A fumaca alterou os eventos reais ou deixou eventos adicionais — PARADO.';
+  end if;
   if v_sobrou <> 0 then
     raise exception 'A fumaca deixou % linha(s) no BRAIN — PARADO.', v_sobrou;
   end if;
@@ -4147,7 +4169,7 @@ begin
     raise exception 'A fumaca mexeu na semente de canais — PARADO.';
   end if;
 
-  raise notice 'Fumaca desfeita: 0 linha no BRAIN, nenhum orcamento, pedido ou produto de teste, 12 canais intactos.';
+  raise notice 'Fumaca desfeita: zero residuo de teste, eventos reais preservados integralmente, 12 canais intactos.';
 end
 $$;
 
