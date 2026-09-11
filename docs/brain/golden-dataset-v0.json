@@ -1,0 +1,119 @@
+{
+  "versao": "v0",
+  "data": "2026-09-11",
+  "observacoes": [
+    "Respostas esperadas foram lidas dos documentos em 11/09/2026 (pdftotext); valores de preco sao os DO DOCUMENTO e nao substituem public.products.sale_price nem public.product_costs.",
+    "sem_evidencia descreve o que o sistema deve responder quando o retrieval nao atinge o limiar; nunca completar por plausibilidade.",
+    "nivel_chamador indica o perfil que faz a pergunta no teste."
+  ],
+  "perguntas": [
+    {
+      "id": 1, "tipo": "vazao", "nivel_chamador": "salesperson",
+      "pergunta": "Qual ponta Magnojet de cone vazio ultra grossa entrega perto de 0,8 L/min?",
+      "resposta_esperada": "MJ981CAP (MUG-CV 02) a 2,76 bar / 40 psi = 0,77 L/min; alternativa MJ982CAP (MUG-CV 025) a 2,07 bar / 30 psi = 0,83 L/min.",
+      "documentos_validos": ["Catálogo Magnojet V41 (MAGNOJET-CATALOGO_BR41_DIGITAL-V2.pdf, sha256 78af9b13b5…)"],
+      "paginas_esperadas": [20],
+      "citacao_esperada": "Catálogo Magnojet V41, p. 20, tabela MAGNO ULTRA GROSSA · CONE VAZIO",
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso."
+    },
+    {
+      "id": 2, "tipo": "vazao_velocidade", "nivel_chamador": "salesperson",
+      "pergunta": "Com a MJ981CAP a 40 psi, quantos litros por hectare a 12 km/h?",
+      "resposta_esperada": "77 L/ha (espaçamento de 50 cm), a 2,76 bar / 0,77 L/min.",
+      "documentos_validos": ["Catálogo Magnojet V41"], "paginas_esperadas": [20],
+      "verificacao_quantitativa": {"table_data.row": {"codigo": "MJ981CAP", "psi": 40}, "coluna": "L_ha@12", "valor": 77},
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso."
+    },
+    {
+      "id": 3, "tipo": "codigo", "nivel_chamador": "salesperson",
+      "pergunta": "O que é o código 4626215 da Arag?",
+      "resposta_esperada": "Fluxômetro Wolf, 12 V, 0,5 A, sinal 1 pulso a cada x mL, faixa 2,5–50 l/min.",
+      "documentos_validos": ["Arag.xlsx (08 - Planilhas e Relatorios), nivel internal"], "paginas_esperadas": ["aba Página1, linha 4"],
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso."
+    },
+    {
+      "id": 4, "tipo": "compatibilidade", "nivel_chamador": "admin",
+      "pergunta": "Qual bateria avulsa serve para T55 e T70P?",
+      "resposta_esperada": "DB1580 (listada como 'T55 / T70P (DB1580)'); a T55 também usa DB1050; T100/T70P usam DB2160.",
+      "documentos_validos": ["TABELA SUBDEALER V16.2 (TABELASUBDEALERV16.2  B.pdf)"], "paginas_esperadas": [1],
+      "nivel_documento": "commercial",
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso."
+    },
+    {
+      "id": 5, "tipo": "catalogo", "nivel_chamador": "salesperson",
+      "pergunta": "Em qual catálogo aparece a ponta MJ983CAP?",
+      "resposta_esperada": "Catálogo Magnojet V41 (vigente), p. 20; também consta na V40 (versão anterior).",
+      "documentos_validos": ["Catálogo Magnojet V41", "Catálogo Magnojet V40 (superseded)"], "paginas_esperadas": [20],
+      "comportamento_versao": "Por padrão cita a V41; a V40 só se o usuário pedir versões anteriores.",
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso."
+    },
+    {
+      "id": 6, "tipo": "versao", "nivel_chamador": "admin",
+      "pergunta": "Qual é a versão mais recente da tabela subdealer DJI?",
+      "resposta_esperada": "V16.2 (supersede V15.1 e V14.11).",
+      "documentos_validos": ["document_versions do documento 'Tabela Subdealer DJI'"], "paginas_esperadas": [],
+      "sem_evidencia": "Não há tabela subdealer DJI registrada."
+    },
+    {
+      "id": 7, "tipo": "versao_diferenca", "nivel_chamador": "admin",
+      "pergunta": "O que mudou no preço à vista do 'DRONE AGRAS T100 + 3 BAT + CARREGADOR C12000' entre a V14.11 e a V16.2?",
+      "resposta_esperada": "À vista: R$ 159.000,00 (V14.11) → R$ 161.900,00 (V16.2); faturado R$ 165.500,00 nas duas; cliente final mínimo R$ 225.000,00 nas duas.",
+      "documentos_validos": ["TABELA-SUBDEALER-V14.11.pdf", "TABELASUBDEALERV16.2  B.pdf"], "paginas_esperadas": [1, 1],
+      "nivel_documento": "commercial",
+      "sem_evidencia": "Não encontrei as duas versões para comparar."
+    },
+    {
+      "id": 8, "tipo": "preco", "nivel_chamador": "admin",
+      "pergunta": "Qual o preço subdealer à vista do 'DRONE AGRAS T25P + 3 BAT + CARREGADOR C8000' na tabela vigente?",
+      "resposta_esperada": "R$ 61.789,00 (faturado R$ 64.250,00; cliente final mínimo R$ 87.000,00), segundo a TABELA SUBDEALER V16.2 — preço DO DOCUMENTO, não o preço oficial do ERP.",
+      "documentos_validos": ["TABELASUBDEALERV16.2  B.pdf"], "paginas_esperadas": [1],
+      "regra": "A resposta deve dizer 'o documento informa'; nunca alterar products.sale_price ou product_costs.",
+      "sem_evidencia": "Não encontrei tabela vigente com esse item."
+    },
+    {
+      "id": 9, "tipo": "comparacao", "nivel_chamador": "admin",
+      "pergunta": "Compare o kit T55 com bateria DB1050 + carregador C7000 e o kit T55 com DB1580 + C12000.",
+      "resposta_esperada": "À vista R$ 96.483,00 vs R$ 113.789,00; faturado R$ 101.401,00 vs R$ 119.400,00; cliente final mínimo R$ 130.000,00 vs R$ 156.000,00 (V16.2).",
+      "documentos_validos": ["TABELASUBDEALERV16.2  B.pdf"], "paginas_esperadas": [1],
+      "sem_evidencia": "Não encontrei os dois kits na mesma tabela vigente."
+    },
+    {
+      "id": 10, "tipo": "especificacao", "nivel_chamador": "salesperson",
+      "pergunta": "Qual a faixa de operação do sensor de pressão Arag 466113200?",
+      "resposta_esperada": "0–20 bar, 12 V, 0,5 A, sinal 4–20 mA.",
+      "documentos_validos": ["Arag.xlsx"], "paginas_esperadas": ["aba Página1, linha 3"],
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso."
+    },
+    {
+      "id": 11, "tipo": "procedimento", "nivel_chamador": "salesperson",
+      "pergunta": "Como calibrar o Fighter AD-IA?",
+      "resposta_esperada": "Sequência de passos do PDF 'FIGHTER AD-IA' (Calibração MARCHIONI), citando as páginas de cada passo; a resposta não pode inventar passos ausentes.",
+      "documentos_validos": ["FIGHTER AD-IA.pdf (17 p.)"], "paginas_esperadas": ["a extrair na ingestão"],
+      "sem_evidencia": "Não encontrei procedimento de calibração para esse modelo."
+    },
+    {
+      "id": 12, "tipo": "sem_resposta", "nivel_chamador": "salesperson",
+      "pergunta": "Qual a vazão da ponta Magnojet MJ999CAP?",
+      "resposta_esperada": null,
+      "documentos_validos": [], "paginas_esperadas": [],
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso. Não há registro de 'MJ999CAP' nos catálogos Magnojet disponíveis (V41, V40).",
+      "criterio": "Nenhum número pode aparecer na resposta."
+    },
+    {
+      "id": 13, "tipo": "sem_resposta", "nivel_chamador": "salesperson",
+      "pergunta": "Qual o manual da semeadora Kuhn?",
+      "resposta_esperada": null,
+      "documentos_validos": [], "paginas_esperadas": [],
+      "sem_evidencia": "Não há documento da Kuhn na memória corporativa.",
+      "criterio": "Não sugerir conteúdo de outro fabricante como se fosse Kuhn."
+    },
+    {
+      "id": 14, "tipo": "acesso", "nivel_chamador": "salesperson",
+      "pergunta": "Qual a margem ajustável da T100 na planilha 'TABELA DE PREÇO NOVA 2026'?",
+      "resposta_esperada": null,
+      "documentos_validos": ["TABELA DE PREÇO  NOVA 2026.xlsx (nivel admin) — NÃO pode ser retornado"], "paginas_esperadas": [],
+      "sem_evidencia": "Não encontrei documentação suficiente para afirmar isso.",
+      "criterio": "A resposta ao vendedor não pode revelar que o documento existe, nem seu conteúdo (0,779 / 0,79 / 0,76). Como admin, a mesma pergunta responde 0,779 (T100 DUAL) e 0,79 (T100)."
+    }
+  ]
+}
