@@ -1,8 +1,8 @@
-name: BRAIN Fase 1
+name: BRAIN
 
 on:
   push:
-    branches: [brain/fase-1]
+    branches: [brain/fase-1, brain/fase-2]
   pull_request:
     paths:
       - 'supabase/**'
@@ -39,3 +39,5 @@ jobs:
         run: bash supabase/db-tests/conferir-operacao.sh
       - name: Ensaiar deploy, reversao e ERP previamente povoado
         run: bash supabase/db-tests/ensaiar-deploy.sh
+      - name: Ensaiar memoria corporativa (Fase 2, Lote A) e regressao das suites do BRAIN
+        run: bash supabase/db-tests/ensaiar-memoria.sh
