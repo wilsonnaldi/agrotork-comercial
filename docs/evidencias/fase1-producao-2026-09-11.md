@@ -173,3 +173,62 @@ desta sessão). O CI de `8571a9f` provou o deploy; o vermelho foi do próprio te
 
 `pgvector` continua desabilitado (`vector 0.8.2` disponível, não instalado);
 `pg_trgm 1.6` e `unaccent 1.1` já instalados.
+
+---
+
+## Fechamento definitivo — 11/09/2026, 20:00–20:05 UTC
+
+Medido em produção nesta rodada.
+
+**Pré-check.** HEAD remoto `brain/fase-1` = `00ef6f1` = local, árvore limpa; CI `BRAIN Fase 1`
+em `00ef6f1`: **success** (1m17s). Schema `brain` presente; três pontes `D`; cron ativo,
+último run `succeeded`; `divergencias_erp()` = 0; `20260911220000` não registrada;
+`brain.channels` com `channels_admin_write[ALL]` + `channels_select[SELECT]` (o WARN ainda
+apontado).
+
+**Auditoria da migration `20260911220000_brain_channels_policy.sql`** (md5
+`19761f54923089a68fa2f43c895999f2`, commit `ec2e3ea`): apenas `drop policy` de
+`channels_admin_write` e `create policy` ×3 em `brain.channels` (insert/update/delete, só
+admin) mais uma guarda de leitura em `pg_policies`. Não toca dado, leads, eventos,
+oportunidades, orçamentos, pedidos, pontes, cron, `anon` nem Data API.
+
+**Aplicação.** Uma transação: o texto executado foi conferido por md5 contra o versionado
+antes do `execute`; registrada em `supabase_migrations.schema_migrations`
+(`20260911220000`, `brain_channels_policy`, `statements` com o texto). Pós-condições dentro
+da mesma transação: 4 policies, uma só cobrindo SELECT, pontes desligadas.
+
+**Pós-check** (numa transação com `rollback`, sem persistir nada): admin autenticado lê 12
+canais e insere/atualiza/apaga (1/1); `anon` recebe `insufficient_privilege`; RLS
+habilitada; migration registrada com `statements=1`; tabela continua com 12 canais.
+
+**Advisors.** Segurança: **idênticos** ao baseline (3 INFO sequências; WARN
+`get_shared_quote` público — intencional; 23 WARN RPCs `security definer` — intencionais;
+WARN leaked password protection — Auth). Desempenho: **`multiple_permissive_policies`
+desapareceu**; restam só INFO — `unindexed_foreign_keys` 55 (33 do ERP + 22 do BRAIN,
+mesmo padrão `created_by/updated_by`) e `unused_index` 56 (baixou de 59: a reconciliação
+já usa três índices do `brain`). **Zero WARN de desempenho.**
+
+**Gate operacional.** Pontes 3/0 ligadas; cron ativo, **25 execuções, 0 não-`succeeded`**;
+divergências 0; segunda reconciliação `0,0,0,0,0,0`; eventos reais 3
+(`ORC-2026-0001, PED-2026-0001, PED-2026-0002`), nenhum apagado; ERP 1/2/112; migrations
+do BRAIN registradas: **10**; `audit_capture` `ee2f5cd5…e2d9e`; `vector` não instalado.
+
+**Regressão executada nesta rodada** (PostgreSQL 17.6 local, todas as migrations
+incluindo `220000`): suítes 25 (19), 27 (16), 28 (8), 29 (3), 30 (8), 31 (7), **32 (4)**,
+02 (4), 18 (31), 14 (34) — 134 asserções, 0 erros; 09 e 10 passam na ordem do `run.sh`
+(20 e 5) e falham fora dela por dependerem do contexto das suítes anteriores, não do
+BRAIN; `ensaiar-deploy.sh` 17 cenários; `conferir-operacao.sh` verde. Login e telas
+autenticadas: não executados (exige credencial).
+
+**Sequências de numeração**: não recuadas, por decisão do Wilson. `ORC-2026-0002/0003/0004`
+e `PED-2026-0003` ficam como lacunas históricas de teste.
+
+**Riscos residuais conhecidos.** (1) Modo desacoplado: entre o COMMIT do ERP e a próxima
+execução do cron há até ~60 s em que o BRAIN não conhece o fato — por desenho.
+(2) O wrapper devolve `-1` sem marcar o job como `failed`; o sinal é o `warning`
+`[brain-reconciliacao] falhou` no log do Postgres e o relatório `divergencias_erp()` não
+esvaziar — vale um alerta na Fase 2. (3) INFO de FKs sem índice no `brain`: mesmo padrão
+aceito no ERP; revisitar quando houver volume. (4) Telas autenticadas sem regressão de UI
+nesta rodada.
+
+**Veredito final:** FASE 1 100% CONCLUÍDA — PRODUÇÃO ESTÁVEL EM MODO DESACOPLADO.
