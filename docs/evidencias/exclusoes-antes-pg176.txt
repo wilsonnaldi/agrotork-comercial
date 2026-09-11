@@ -1,0 +1,12 @@
+psql:/tmp/v3/supabase/migrations/20260911090000_instagram_curator_baseline.sql:343: NOTICE:  policy "service_role_full_access" for relation "instagram_curator.locks" does not exist, skipping
+psql:/tmp/v3/supabase/migrations/20260911090000_instagram_curator_baseline.sql:343: NOTICE:  policy "service_role_full_access" for relation "instagram_curator.editorial_rules" does not exist, skipping
+D1  BLOQUEADO  new row for relation "identities" violates check constraint "chk_identity_has_owner"
+D2  BLOQUEADO  new row for relation "interactions" violates check constraint "chk_interaction_has_subject
+D3  BLOQUEADO  new row for relation "opportunities" violates check constraint "chk_opportunity_has_subjec
+D4  BLOQUEADO  Evento e imutavel; so o processamento e os vinculos (lead, cliente, oportunidade) podem se
+D5  BLOQUEADO  check_links() restaurou created_by — a FK vai falhar
+D6  BLOQUEADO  check_links() restaurou created_by — a FK vai falhar
+D7  BLOQUEADO  check_links() restaurou actor_id — a FK vai falhar
+D8  BLOQUEADO  new row for relation "opportunities" violates check constraint "chk_opportunity_has_subjec
+D9  BLOQUEADO  Evento e imutavel; so o processamento e os vinculos (lead, cliente, oportunidade) podem se
+RESUMO  passou=0  bloqueado=9

@@ -9,6 +9,11 @@
 -- Contexto herdado: admin 1111…, vendedor 2222… (criados em 01 e 02).
 -- ============================================================
 \set ON_ERROR_STOP on
+-- Nota de versão: até o PostgreSQL 17, violar `on delete restrict`
+-- levantava 23503 (`foreign_key_violation`). O PostgreSQL 18 passou a
+-- levantar 23001 (`restrict_violation`), que é o código do padrão. Os
+-- tratadores abaixo aceitam os dois, para a suíte valer nas duas versões
+-- — o comportamento do banco é o mesmo: a exclusão é recusada.
 reset role;
 
 set role authenticated;
@@ -218,13 +223,13 @@ end $$;
 do $$ begin
   delete from public.kits where code = 'ORC-KIT';
   raise notice 'DU) FALHA: apagou kit citado em orcamento';
-exception when foreign_key_violation then raise notice 'DU) OK: exclusao de kit com orcamento recusada';
+exception when foreign_key_violation or restrict_violation then raise notice 'DU) OK: exclusao de kit com orcamento recusada';
 end $$;
 
 do $$ begin
   delete from public.customers where name = 'Cliente do Orçamento';
   raise notice 'DV) FALHA: apagou cliente com orcamento';
-exception when foreign_key_violation then raise notice 'DV) OK: exclusao de cliente com orcamento recusada';
+exception when foreign_key_violation or restrict_violation then raise notice 'DV) OK: exclusao de cliente com orcamento recusada';
 end $$;
 
 -- ── STATUS ──────────────────────────────────────────────────

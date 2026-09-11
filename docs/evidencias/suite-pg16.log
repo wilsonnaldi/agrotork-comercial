@@ -1,0 +1,661 @@
+▶ psql do host (/tmp:5434)
+▶ criando banco descartável agrotork_check_mtwfolb5
+▶ aplicando migrations
+  ok 20260829000100_extensions.sql
+  ok 20260829000200_enums_helpers.sql
+  ok 20260829000300_profiles.sql
+  ok 20260829000400_catalog.sql
+  ok 20260829000500_kits.sql
+  ok 20260829000600_quotes.sql
+  ok 20260829000700_sharing_settings.sql
+  ok 20260829000800_rls.sql
+  ok 20260829000900_seed.sql
+  ok 20260829001000_grants.sql
+  ok 20260829001100_rls_hardening.sql
+  ok 20260829001200_product_costs.sql
+  ok 20260829001300_product_origin.sql
+  ok 20260829001400_quote_item_reference.sql
+  ok 20260829001500_catalog_registers.sql
+  ok 20260829001600_kit_item_type.sql
+  ok 20260829001700_quotes_workflow.sql
+  ok 20260829001800_discard_draft.sql
+  ok 20260829001900_quote_sharing.sql
+  ok 20260829002000_storage.sql
+  ok 20260831002100_signup_role_hardening.sql
+  ok 20260901052518_revoke_trigger_function_execute.sql
+  ok 20260901052525_expire_quotes_schedule.sql
+  ok 20260901055000_reconciliar_comentarios_expiracao.sql
+  ok 20260901060000_audit_log.sql
+  ok 20260901190230_harden_function_search_path_and_rls_policies.sql
+  ok 20260901190334_harden_remaining_function_search_paths.sql
+  ok 20260901191225_harden_quote_sequence_access.sql
+  ok 20260901193812_revoke_anon_public_table_access.sql
+  ok 20260901193926_harden_remaining_security_definer_search_path.sql
+  ok 20260901194546_move_extensions_out_of_public.sql
+  ok 20260901195103_revoke_anon_trigger_function_execute.sql
+  ok 20260901201459_enforce_quote_status_and_active_rls.sql
+  ok 20260901211122_protect_quote_totals_from_direct_updates.sql
+  ok 20260901211340_enforce_active_user_on_quote_items.sql
+  ok 20260901214750_consolidate_permissive_rls_policies.sql
+  ok 20260902120000_price_conditions.sql
+  ok 20260902120100_sale_price_defined.sql
+  ok 20260903020000_margin_rules.sql
+  ok 20260903040000_fix_round_commercial_ninety.sql
+  ok 20260903060000_orders.sql
+  ok 20260903080000_lock_quote_with_live_order.sql
+  ok 20260903100000_suppliers.sql
+  ok 20260903110000_excluir_cliente.sql
+  ok 20260903120000_estoque.sql
+  ok 20260903130000_numeros_de_serie.sql
+  ok 20260903140000_compras.sql
+  ok 20260903150000_financeiro.sql
+  ok 20260903160000_importacao_nfe.sql
+  ok 20260909100000_guards_orcamentos_pedidos.sql
+  ok 20260909110000_guards_onda2.sql
+  ok 20260910151115_create_private_instagram_curator.sql
+  ok 20260910151534_harden_private_instagram_curator.sql
+  ok 20260911130000_brain_foundation.sql
+  ok 20260911140000_brain_exclusoes.sql
+  ok 20260911150000_brain_pontes.sql
+▶ regras de negócio
+ 1) profile criado por trigger | Admin Teste | admin
+ 2) margem calculada | P-001 |     100.00 |     150.00 |        50.0000
+ 2) margem calculada | P-002 |      20.00 |      32.00 |        60.0000
+ 3) preço do kit derivado | K-001 |           2 |        920.00000 |          828.00
+ 4) documento/CEP normalizados | 12345678000195 | 86010000 | PR
+ 5) numeração automática | ORC-2026-0001 |          2026 |               1
+ 6) totais recalculados por trigger |  2328.00 |           5.0000 | 2211.60
+ 7) preço congelado apos alteracao |  2328.00 | 2211.60
+ 7b) snapshot do item | Bico de pulverização |     150.00 |    1500.00
+ 7b) snapshot do item | KIT PULVERIZAÇÃO     |     828.00 |     828.00
+ 8) desconto por item |  2178.00 | 2069.10
+ 9) carimbo de status | sent   | t
+ 10) expire_quotes() |         1
+ 10b) status apos expirar | expired
+ 11) sequencia incrementa | ORC-2026-0001
+ 11) sequencia incrementa | ORC-2026-0002
+ 12) tabelas sem RLS | nenhuma
+▶ row level security
+ A) vendedor enxerga orçamentos |        1
+ B) vendedor lê catálogo |        2
+ C) vendedor lê clientes |        1
+ E) vendedor em app_settings | company
+ F) vendedor criou cliente |     1
+ H) admin enxerga orçamentos |        3
+ I) admin em app_settings |      2
+ D) OK: vendedor bloqueado ao criar produto (new row violates row-level security policy for table "products")
+ G) OK: vendedor bloqueado ao criar orçamento de outro dono
+ J) OK: anonimo sem GRANT em customers (barrado antes da RLS)
+ K) OK: anonimo sem GRANT em products (barrado antes da RLS)
+▶ travas de orçamento e perfil
+ T) usuario desativado | OK: continua desativado
+ P) OK: aprovado permanece em 1000.00
+ Q) OK: item do aprovado preservado
+ R) OK: rascunho editavel, total 600.00
+ S) OK: promocao bloqueada
+ U) OK: admin edita orcamento aprovado
+ V) OK: numero, carimbos e autoria do orcamento nao sao do vendedor
+ W) OK: issue_date e do formulario e continua livre
+ X) OK: usuario desativado nao edita item (quote_is_editable=false, 1 item(ns) antes e depois)
+▶ isolamento do custo do produto
+ V) admin vê custo e margem | C-001 |     120.00 |        66.6667
+ W) vendedor vê o produto | C-001 |     200.00
+ X) custo e margem ocultos para o vendedor | OK: nulos
+ Y) vendedor lendo product_costs direto | OK: nenhuma linha
+ AC) custo preservado | OK: 120,00
+ Z) OK: alteração de custo ignorada
+ AA) OK: inserção de custo bloqueada
+ AB) OK: alteração de preço ignorada
+▶ origem do produto
+ AD) origem padrão é manual | OK
+ AF) mesmo codigo em marcas diferentes | OK: dois produtos
+ AH) dados tecnicos e procedencia na view | AGRIS 2026     | 2026.04        | 12V    | OK: sem preco
+ AI) massa de teste identificavel |        2
+ AJ) purge_test_products() |         2
+ AK) apos a limpeza | OK: nenhum produto de teste
+ AL) produto legitimo preservado | OK
+ AM) historico do orcamento intacto | Massa de teste 1 | OK: referencia limpa
+ AE) OK: codigo de fabricante exige marca
+ AG) OK: codigo repetido no mesmo fabricante bloqueado
+ AN) OK: purge_test_products() negada
+▶ cadastros de apoio
+ BA) marca criada com slug automatico | OK: jacto-fase1
+ BB) categoria criada com slug automatico | OK: colheita-fase1
+ BC) unidade criada | OK
+ BD) edicao renomeia e reflete no slug | OK: jacto-maquinas
+ BE) edicao de unidade | OK
+ BI) LT e L coexistem como unidades distintas | OK: dois registros
+ BJ) produto vinculado | OK
+ BM) desativar preserva o produto e o vinculo | OK: produto intacto
+ BN) produto com cadastro inativo continua editavel | OK
+ BO) cadastro inativo sai das opcoes ativas | OK: fora da selecao
+ BP) reativacao | OK
+ BQ) admin administra (criar, editar, apagar sem vinculo) | OK
+ BR) vendedor consulta marcas | OK: 9 marcas
+ BS) vendedor consulta categorias e unidades |          8 |       11
+ BT) vendedor le cadastro desativado (ficha do produto) | OK
+ BZ) estado final integro | OK: cadastros preservados
+ BF) OK: marca duplicada bloqueada
+ BG) OK: categoria duplicada bloqueada
+ BH) OK: codigo de unidade duplicado bloqueado
+ BK) OK: exclusao de marca com produto recusada
+ BL) OK: exclusao de unidade com produto recusada
+ BU) OK: vendedor bloqueado ao criar marca
+ BV) OK: alteracao de marca pelo vendedor ignorada
+ BW) OK: desativacao/ativacao pelo vendedor ignorada
+ BX) OK: alteracao de unidade pelo vendedor ignorada
+ BY) OK: exclusao pelo vendedor ignorada
+▶ kits: obrigatórios e opcionais
+ CA) kit criado | OK
+ CB) kit vazio existe e conta zero | OK: vazio
+ CC) item obrigatorio adicionado | OK
+ CD) item opcional adicionado | OK
+ CE) item_type padrao e required | OK
+ CF) preco-base soma so os obrigatorios |       2018.00000 |      250.00000 | OK
+ CK) vinculo com produto inativo permanece valido | OK
+ CL) obrigatorio vira opcional |              2 |              3 | OK
+ CM) edicao do kit | OK
+ CO) desativacao preserva a composicao | f         |           5 | OK: composição intacta
+ CP) reativacao | OK
+ CR) alterar o kit nao altera o orcamento |    2018.00 | KIT-CTRL       | OK: congelado
+ CS) admin administra (criar, editar, apagar sem historico) | OK
+ CT) vendedor consulta kits | OK: 3 kit(s)
+ CU) vendedor consulta a composicao | OK
+ DB) vendedor nao alcanca custo pelo kit | OK: nenhuma linha de custo
+ DC) estado final integro | OK: kit preservado
+ CG) OK: produto duplicado no mesmo kit bloqueado
+ CH) OK: quantidade zero bloqueada
+ CI) OK: quantidade negativa bloqueada
+ CJ) OK: produto inexistente bloqueado
+ CN) OK: codigo de kit duplicado bloqueado
+ CQ) OK: exclusao de kit com historico recusada
+ CV) OK: vendedor bloqueado ao criar kit
+ CW) OK: alteracao de kit pelo vendedor ignorada
+ CX) OK: desativacao pelo vendedor ignorada
+ CY) OK: vendedor bloqueado ao adicionar componente
+ CZ) OK: alteracao de kit_items pelo vendedor ignorada
+ DA) OK: exclusao de kit_items pelo vendedor ignorada
+▶ orçamentos
+ DD) orcamento criado com numero automatico | OK: ORC-2026-0008
+ DE) prazo de entrega gravado | OK
+ DF) rascunho e o status inicial | OK
+ DG) line_total calculado pelo banco |    2.000 |     300.00 |     600.00 | OK
+ DH) subtotal e total por trigger |   600.00 | 600.00 | OK
+ DI) kit guarda TODOS os componentes |           4 | OK: 4 (inclusive o recusado)
+ DJ) opcional recusado fica registrado | OK: ORC-SUP marcado como não escolhido
+ DK) preco do kit soma obrigatorios + escolhidos |    2250.00 |    2.000 |    4500.00 | OK
+ DL) total do orcamento com produto e kit |  5100.00 | 5100.00 | OK
+ DM) desconto percentual aplicado no banco |  5100.00 | 4590.00 | OK
+ DN) desconto em valor e frete | 4600.00 | OK
+ DQ) total nunca fica negativo |  5100.00 |  0.00 | OK: piso em zero
+ DW) carimbo de envio | OK
+ DX) status cancelado existe | OK
+ EA) preco do item nao mudou | OK: nenhum item alterado
+ EB) nome congelado no item | Produto avulso ORC | OK
+ EC) codigo e unidade congelados | OK
+ ED) composicao do kit congelada |           4 | OK: idêntica
+ EE) componente removido do kit continua no orcamento | OK: ORC-ANT preservado
+ EF) componente novo do kit NAO entrou no orcamento | OK: fora
+ EG) opcional que virou obrigatorio continua opcional no historico | OK
+ EH) preco do componente congelado | OK: 100000 centavos
+ EI) nome do kit congelado | Kit do orçamento | OK
+ EJ) totais do orcamento intactos |  5100.00 | 5100.00 | OK
+ EK) produto excluido: referencia nula, snapshot inteiro | Produto avulso ORC |     300.00 | OK
+ EL) vendedor nao enxerga orcamento de outro | OK
+ EM) vendedor nao enxerga itens de outro | OK
+ EP) vendedor monta o proprio orcamento | OK
+ ET) admin reabriu o aprovado | OK
+ EV) dono reabre o proprio cancelado | OK
+ EW) admin enxerga orcamento de todos | OK: 2
+ EX) admin corrige orcamento aprovado | OK
+ FD) descartado some da listagem | OK
+ EY) estado final integro | OK: historico preservado do inicio ao fim
+ DO) OK: desconto negativo bloqueado
+ DP) OK: desconto acima de 100% bloqueado
+ DR) OK: quantidade zero bloqueada
+ DS) OK: preco negativo bloqueado
+ DT) OK: referencia cruzada bloqueada
+ DU) OK: exclusao de kit com orcamento recusada
+ DV) OK: exclusao de cliente com orcamento recusada
+ EN) OK: vendedor nao altera orcamento alheio
+ EO) OK: vendedor bloqueado ao criar para outro dono
+ EQ) OK: item de orcamento aprovado nao muda
+ ER) OK: item de aprovado nao e apagado
+ ES) OK: vendedor nao reabre orcamento aprovado
+ EU) OK: item de cancelado nao muda
+ EZ) OK: update direto de deleted_at e recusado pelo RLS
+ FA) OK: discard_quote_draft tirou o rascunho de circulacao
+ FB) OK: so rascunho e descartado
+ FC) OK: vendedor nao alcanca rascunho alheio
+ FG) OK: orcamento forjado nasceu como ORC-2026-0011 / draft / total 0 / autor correto
+ FH) OK: numero forcado foi ignorado (ORC-2026-0012 e ORC-2026-0013 vieram da sequencia)
+ FI) OK: origem ficou em 0.00 e destino em 3000.00
+▶ compartilhamento
+ FE) token gerado pelo banco |      48 | OK: 48 hex aleatórios
+ FF) tokens sao imprevisiveis entre si | OK: dois valores distintos
+ FJ) token valido abre o orcamento | ORC-2026-0016 | OK
+ FK) payload traz itens e totais |     1 | 800.00 | OK
+ FL) payload publico nao vaza custo nem dado interno | OK: nada sensível no payload
+ FM) payload traz o que a proposta precisa | OK
+ FN) token inexistente nao abre nada | OK: nulo
+ FO) token curto e recusado antes da consulta | OK
+ FP) token nulo e recusado | OK
+ FQ) acesso publico conta visualizacao |          7 | OK: contou
+ FR) acesso publico nao altera o orcamento | OK: intacto
+ FS) rascunho nao circula pelo link | OK
+ FT) cancelado nao circula pelo link | OK
+ FU) token expirado nao abre | OK
+ FV) token dentro do prazo volta a abrir | OK
+ FW) revogar nao apaga o token nem o orcamento | OK
+ FX) token revogado nao abre | OK
+ FY) token novo funciona depois da revogacao | OK
+ FZ) vendedor nao enxerga token de orcamento alheio | OK
+ GC) cada token abre somente o seu orcamento | ORC-2026-0016 | ORC-2026-0017 | OK: números diferentes
+ GD) link de orcamento descartado nao abre | OK
+ GE) token acompanha a exclusao fisica do orcamento | OK: on delete cascade
+ FG) OK: token e unico
+ FH) OK: anonimo sem GRANT em quotes (barrado antes da RLS)
+ FI) OK: anonimo sem GRANT em quote_items (barrado antes da RLS)
+ GA) OK: vendedor nao revoga token alheio
+ GB) OK: vendedor nem enxerga orcamento alheio para criar link
+▶ storage
+ GF) buckets criados | private-docs (privado), public-assets (público) | OK
+ GG) limite de tamanho e tipos permitidos | OK: 5 MB, só imagem
+ GH) admin grava no bucket publico | OK
+ GI) admin atualiza o proprio arquivo | OK
+ GJ) vendedor le o bucket publico | OK
+ GN) vendedor nao le o bucket privado | OK: nenhuma linha
+ GO) anonimo le o bucket publico | OK: o logotipo abre sem login
+ GP) anonimo NAO le o bucket privado | OK: nenhuma linha
+ GK) OK: vendedor bloqueado ao gravar no bucket publico
+ GL) OK: vendedor nao altera arquivo do catalogo
+ GM) OK: vendedor nao apaga arquivo do catalogo
+ GQ) OK: anonimo bloqueado ao gravar
+▶ cadastro: papel não vem do metadata
+ HA) metadata role=admin nao promove | OK
+ HB) role=admin + is_admin=true nao promove | OK
+ HC) is_admin/admin soltos no metadata nao promovem | OK
+ HD) cadastro normal continua funcionando | OK: perfil criado, ativo, vendedor
+ HE) metadata vazio nao quebra o cadastro | OK
+ HF) nenhuma grafia de role criou administrador | OK: 6 usuarios, todos vendedores
+ HG) admin existente nao foi rebaixado | OK
+ HK) vendedor novo nao le custo | OK: nenhuma linha
+ HL) vendedor novo nao ve custo na view | OK: custo nulo em products_list
+ HM) usuario desativado nao enxerga produto | OK: nenhuma linha
+ HN) is_active_user() reprova o desativado | OK
+ HH) OK: administrador promove outro usuario
+ HI) OK: vendedor nao se promove (recusado: new row violates row-level security policy for table "profiles")
+ HJ) OK: vendedor nao promove terceiro
+▶ expiração automática de orçamentos
+ IA) OK: expire_quotes() devolveu 2, exatamente os dois vencidos e enviados
+ IF) OK: EXP-APROVADO continua/virou approved
+ IH) OK: EXP-CANCELADO continua/virou cancelled
+ IK) OK: EXP-DESCARTADO continua/virou sent
+ IE) OK: EXP-JA-EXPIRADO continua/virou expired
+ ID) OK: EXP-LIMITE continua/virou sent
+ II) OK: EXP-RASCUNHO continua/virou draft
+ IG) OK: EXP-REJEITADO continua/virou rejected
+ IJ) OK: EXP-SEM-VALIDADE continua/virou sent
+ IB) OK: EXP-VALIDO continua/virou sent
+ IC) OK: EXP-VENCIDO continua/virou expired
+ IL) OK: EXP-VENDEDOR-B continua/virou expired
+ IM) OK: carimbos, totais e descarte intactos
+ IN) OK: apenas as 2 linhas expiradas tiveram updated_at renovado
+ IO) OK: segunda execucao devolveu 0
+ IP) OK: execucoes repetidas nao produzem nenhum efeito adicional
+ IQ) OK: relatorio ve 10 orcamentos, 3 expirados, R$ 1000.00 em valor
+ IR) OK: vencidos dos dois vendedores expiraram, cada um no proprio orcamento
+ IS) OK: expire_quotes() fora do alcance de anon, authenticated e PUBLIC
+ IT) OK: security definer com search_path fixo (dono: postgres)
+ IU) OK: indice parcial idx_quotes_expiration existe
+ IV) OK: expire_quotes() negada ao vendedor
+ IW) OK: vendedor A nao altera o status do orcamento do vendedor B
+ IX) OK: vendedor A nem enxerga o orcamento do vendedor B
+ IY) OK: sem pg_cron, a migration aplicou como no-op (agendamento pendente de habilitar a extensao)
+▶ trilha de auditoria
+ JA) OK: cadastro de usuario auditado como user.created, ator sistema
+ JB) OK: user.role_changed registrou salesperson -> admin
+ JC) OK: customer.created com ator, rotulo e linha inteira; sem old_data
+ JD) OK: diff traz so a coluna alterada, sem updated_at e sem colunas intactas
+ JE) OK: update sem mudanca real nao gerou evento
+ JF) OK: quote.created atribuido ao vendedor, rotulo ORC-2026-0029
+ JG) OK: 1 evento de item, 0 quote.updated fantasma, item ligado ao orcamento
+ JH) OK: quote.status_changed draft -> sent, com o carimbo sent_at junto
+ JI) OK: quote.approved (sent -> approved) pelo administrador, com approved_at
+ JK) OK: quote.rejected e quote.cancelled com verbos proprios
+ JL) OK: quote.expired com ator sistema, sem usuario, sent -> expired
+ JM) OK: product.cost_changed registrou 300.00 -> 250.00
+ JN) OK: product.price_changed com verbo proprio
+ JO) OK: quote.link_created com token redigido; token real ausente do log inteiro
+ JP) OK: duas visitas ao link publico nao geraram evento (view_count e ruido)
+ JQ) OK: quote.link_revoked registrado
+ JR) OK: vendedor le ZERO linhas, inclusive dos proprios orcamentos
+ JS) OK: vendedor bloqueado ao inserir no log (permission denied for table audit_log)
+ JT) OK: administrador le a trilha (250 linhas)
+ JU) OK: administrador bloqueado ao alterar o log (permission denied for table audit_log)
+ JV) OK: administrador bloqueado ao apagar do log (permission denied for table audit_log)
+ JW) OK: anonimo sem privilegio sequer para consultar o log
+ JX) OK: dono da tabela bloqueado ao alterar (public.audit_log é somente-anexação: UPDATE recusado)
+ JY) OK: dono da tabela bloqueado ao apagar (public.audit_log é somente-anexação: DELETE recusado)
+ JZ) OK: TRUNCATE recusado (public.audit_log é somente-anexação: TRUNCATE recusado)
+ JAA) OK: apagar o orcamento nao apagou o rastro (12 -> 13 linhas, com o proprio delete)
+ JAB) OK: desativacao de usuario auditada e rastro preservado
+ JAC) OK: privilegios corretos — authenticated so SELECT, anon nada
+ JAD) OK: audit_capture() security definer, search_path fixo, sem EXECUTE para authenticated (dono postgres)
+ JAE) OK: RLS ligado, exatamente 1 policy e de SELECT
+ JAF) OK: eventos de transacoes diferentes tem txid distinto (2)
+ JAH) OK: nenhuma linha do log com ator ou entidade em branco
+ JAI) OK: 11 tabelas novas com gatilho de auditoria
+ JAJ) OK: price_condition.updated registrado com rotulo
+▶ empresa e usuários
+ EU1) admin grava os dados da empresa | OK
+ EU2) vendedor LÊ os dados da empresa | OK: precisa disso para gerar o PDF
+ EU4) o cabeçalho continua intacto | OK
+ EU5) vendedor só enxerga a chave company | OK
+ EU10) quantos administradores ativos existem | 5 (a trava de "último admin" é da aplicação, não do RLS)
+ EU3) OK: vendedor nao altera os dados da empresa
+ EU6) OK: vendedor nao se promove (recusado pelo RLS)
+ EU7) OK: vendedor nao desativa o administrador
+ EU8) OK: administrador promove vendedor
+ EU9) OK: administrador rebaixa de volta
+▶ triggers e privilégios
+ L) numero gerado pelo trigger (como vendedor) 
+ ORC-2026-0030
+ M) total recalculado (como vendedor) | ORC-2026-0030 |   500.00 | 500.00
+ N) OK: expire_quotes() negada ao vendedor
+ O) OK: next_quote_number() negada ao vendedor
+ SA1) OK: authenticated mantem EXECUTE em is_admin() — exigido pelo trigger de status
+ SA2) OK: validate_quote_status_transition() e SECURITY INVOKER — por isso depende do EXECUTE do chamador
+ SA3) OK: sem EXECUTE, a RLS de products continua avaliando (viu 18 linha(s)) — policy roda com o privilegio do dono
+ SA4) OK: sem EXECUTE em is_admin(), a troca de status e negada. E por isso que o EXECUTE NAO pode ser revogado.
+ SA5) OK: todas as tabelas de public tem RLS ligado
+ SA6) OK: 4 funcoes internas negadas ao vendedor; contador de pedido parado em 0
+ SA7) OK: nenhuma tabela com TRUNCATE para a API; default privileges limpos
+ SA8) OK: todas as security definer com search_path vazio
+ SA9) OK: anon sem privilegio em tabela/view; funcoes de margem e contadores sem EXECUTE para anon/public
+▶ carga de catálogo (script gerado)
+ ──────────── RELATORIO DA CARGA ────────────
+ produtos inseridos.............. 112
+ produtos atualizados............ 0
+ linhas de custo AVISTA.......... 112
+ linhas de custo FATURADO........ 74
+ produtos sem nenhum custo....... 0
+ produtos ATIVOS apos a carga.... 0  (esperado 0 numa base limpa)
+ produtos COM preco definido..... 0  (esperado 0 numa base limpa)
+▶ regras da importação de catálogo
+  PC4) OK: DJI-070 tem as duas condicoes na mesma vigencia
+  PC6) OK: nenhum produto JR com custo AVISTA duplicado
+  PC7) OK: DJI-070 AVISTA 750 e FATURADO 790
+  PC8) OK: JR-033 e JR-034 entraram sem chave ncm
+  PC8b) OK: 36 produtos com NCM de 8 digitos
+  PC9) OK: 112 produtos de tabela de preco, com 112 codigos distintos
+  PC10) OK: 112/112 produtos com source_reference apontando o registro de origem
+  PC11) OK: 112/112 com is_active = false
+  PC12) OK: nenhum produto da carga tem sale_price diferente de zero
+  PC12b) OK: nenhum sale_price igual a algum custo do proprio produto
+  PC13) OK: products_list devolve 112 linhas para 112 produtos, mesmo com 186 linhas de custo
+  PC14) OK: products_list mostra o custo AVISTA (condicao padrao) de DJI-070
+  PC16) OK: vendedor le ZERO linhas de product_costs depois da carga
+  PC16b) OK: custo e margem nulos na listagem para o vendedor
+  PC16c) OK: vendedor pode LER as condicoes de preco (2) — e rotulo, nao custo
+ PC1) OK: manufacturer_code sem brand_id recusado (chk_products_manufacturer_brand)
+ PC2) OK: nenhum produto da carga esta ativo — o app recusa produto inativo em orcamento novo
+ PC3) OK: 112 produtos com sale_price_set_at NULO — preco nunca definido, e nao R$ 0,00
+ PC3b) OK: definir o preco carimbou sale_price_set_at
+ PC3c) OK: zero deliberado continua sendo preco definido
+ PC5) OK: segundo custo AVISTA vigente recusado (idx_product_costs_vigente)
+ PC5b) OK: mesma vigencia recusada (idx_product_costs_historico)
+ PC15) OK: set_product_cost atualizou a condicao certa sem criar linha nova
+ PC15b) OK: condicao inexistente recusada (Condicao de preco CONDICAO-QUE-NAO-EXIST)
+ PC16d) OK: set_product_cost negado ao vendedor (new row violates row-level security policy fo)
+▶ classificação em setores (script gerado)
+ Antes: 67 dos 112 produtos da carga sem setor
+ Depois: 112/112 produtos da carga com setor definido
+▶ margem por setor
+ MG1) OK: regra padrao nasce inativa — ninguem precifica sem decidir
+ MG2) OK: sem regra ativa o preco sugerido e NULO
+ MG3) OK: markup 30% sobre o custo maior (110) = 143
+ MG4) OK: margem 30% sobre a venda = 157,14 — diferente do markup, como tem de ser
+ MG5) OK: base a vista (100) da 130; base maior (110) dava 143
+ MG6) OK: arredondamento dezena=130, centena=200, noventa=190 — nenhum abaixo do calculado
+ MG7) OK: produto sem custo nao recebe preco sugerido
+ MG8) OK: ensaio listou 1 mudanca(s) e nao escreveu nada
+ MG9) OK: aplicou 130,00 e carimbou sale_price_set_at
+ MG10) OK: a auditoria registrou a mudanca de preco (11 evento(s))
+ MG11) OK: vendedor le ZERO regras de margem — a regra revela o custo
+ MG12) OK: preco sugerido e NULO para o vendedor (RLS de product_costs)
+ MG13) OK: aplicacao negada ao vendedor (Somente administrador pode aplicar margem)
+ MG14) OK: margem de 100% sobre a venda recusada pela constraint
+ MG15) OK: segunda regra para o mesmo setor recusada
+ MG16) OK: segunda regra padrao recusada
+ MG17) OK: nenhum dos 6 valores de regressao arredondou para baixo
+ MG18) OK: 5.000 valores x 3 modos, nenhum abaixo da entrada
+ MG19) OK: os 5.000 resultados de ninety terminam em 90
+▶ pedido de venda
+ PV1) OK: rascunho recusado — So orcamento aprovado vira pedido. Situacao atual: draft
+ PV2) OK: pedido criado com numeracao propria — PED-2026-0001
+ PV3) OK: 2 itens copiados com snapshot — PED-001,PED-002
+ PV4) OK: subtotal 2900.00 e total 3000.00 — igual ao orcamento
+ PV5) OK: duplicidade barrada — Este orcamento ja gerou pedido
+ PV6) OK: total intacto (3000.00) — Pedido fechado nao muda de conteudo comercial. Para alterar 
+ PV7) OK: desconto, frete e data de emissao congelados
+ PV8) OK: previsao de entrega e observacao continuam editaveis
+ PV9) OK: confirmado -> separacao -> faturado, com as duas datas carimbadas
+ PV10) OK: faturado nao vira cancelado — o caminho e devolucao
+ PV11) OK: administrador nao altera nem apaga item de pedido
+ PV12) OK: nem o administrador reescreve o total de um pedido
+ PV13) OK: orcamento v2 em rascunho, ligado ao pedido, com os 2 itens
+ PV14) OK: renegociar nao tocou no pedido — total 3000.00, situacao invoiced
+ PV15) OK: catalogo mudou, o pedido continua com preco 1000.00 e nome "Drone de teste"
+ PV16) OK: o outro vendedor nao enxerga pedido nem item alheio
+ PV17) OK: renegociacao alheia barrada — Sem permissao para renegociar este pedido
+ PV18) OK: anonimo sem privilegio em orders
+ PV19) OK: PED em 1 e ORC em 32 — sequencias separadas
+ PV20) OK: quote_is_editable = false com pedido vivo — nem para o administrador
+ PV21) OK: administrador nao altera nem apaga item de orcamento ja fechado
+ PV22) OK: continua aprovado — Este orcamento ja virou pedido e nao muda mais. Para al
+ PV23) OK: desconto e frete do orcamento tambem congelados
+ PV24) OK: observacao interna continua editavel com pedido vivo
+ PV25) OK: com pedido vivo trava; cancelado o pedido, o orcamento volta a ser editavel
+ PV26) OK: indice unico segurou o segundo pedido vivo (1 vivo)
+ PV27) OK: apos cancelar, o orcamento gerou pedido novo
+ PV28) OK: carimbos, criacao e origem do pedido nao sao do vendedor
+ PV29) OK: invoiced_at = hora do faturamento, nao a data pre-existente
+ PV30) OK: administrador transfere pedido e corrige carimbo
+ PV31) OK: trilha do pedido: 1 created, 0 evento de totais, 1 invoiced, 1 item_added
+▶ fornecedores
+ FN1) OK: documento, CEP e UF normalizados pelo banco — 12345678000190 / 86000000 / PR
+ FN2) OK: duplicata barrada, segue 1 cadastro(s) com esse CNPJ
+ FN3) OK: 2 fornecedores sem documento convivem
+ FN4) OK: vendedor enxerga os 3 fornecedores
+ FN5) OK: vendedor nao cadastra, nao altera e nao apaga fornecedor
+ FN6) OK: desativado continua cadastrado e visivel para o admin
+ FN7) OK: excluido sai da listagem pela RLS, sem apagar a linha
+ FN7b) OK: a linha continua no banco, marcada como excluida
+ FN7c) OK: UPDATE direto recusado — new row violates row-level security policy for tab
+ FN7d) OK: vendedor barrado na funcao de exclusao
+ FN8) OK: anonimo sem privilegio em suppliers
+▶ excluir cliente
+ EX1) OK: UPDATE direto recusado — new row violates row-level security policy for table
+ EX2) OK: sumiu da listagem e a linha continua no banco
+ EX3) OK: recusado e cliente intacto — Este cliente tem 1 orçamento(s) e 0 pedido(s) re
+ EX4) OK: o orcamento que barrou EX3 e de outro vendedor
+ EX5) OK: pedido tambem barra a exclusao — Este cliente tem 0 orçamento(s) e 1 pedido(s) re
+ EX6) OK: vendedor cadastra cliente, mas nao exclui
+ EX7) OK: anonimo sem privilegio de execucao
+▶ estoque e numeros de serie
+ ES1) OK: produto sem movimento aparece com saldo zero
+ ES2) OK: 2 de contagem + 3 de compra = saldo 5.000
+ ES3) OK: perda digitada como 1 virou -1.000 — saldo 4.000
+ ES4) OK: ajuste negativo aceito — saldo 3.000
+ ES5) OK: venda a mao recusada — nasce do pedido faturado
+ ES6) OK: lancamento de zero recusado
+ ES7) OK: lancamento nao muda e nao some, nem para o dono do banco
+ ES8) OK: vendedor ve saldo 3.000 e 7 lancamento(s)
+ ES9) OK: vendedor nao lanca estoque, nem pela funcao nem pelo insert
+ ESX) pedido de estoque preparado
+ ES10) OK: drone 2.000, bateria -2.000, helice -8.000 — avulso nao mexeu no estoque
+ ES11) OK: componente opcional nao escolhido nao saiu do estoque
+ ES12) OK: faturou sem saldo e deixou 2 produto(s) negativos, a acertar
+ ES13) OK: custo da saida congelado em 8000.00 apesar do catalogo mudar
+ ES13b) OK: administrador ve 10 custo(s) de lancamento; vendedor ve 0
+ ES14) OK: 3 lancamento(s), nenhuma baixa repetida
+ ES15) OK: 3 estorno(s), saldo do drone de volta a 3.000, livro com 6 linhas
+ ES16) OK: segunda devolucao do mesmo pedido recusada
+ SN1) OK: "  1abc-7742  " virou "1ABC-7742" e a repetida foi barrada
+ SN2) OK: a mesma serie convive em produtos diferentes (2 linhas)
+ SN3) OK: aparelho vendido e a data de saida foi carimbada sozinha
+ SN4) OK: aparelho de outro produto recusado no item
+ SN5) OK: aparelho ja vendido nao se vincula de novo
+ SN6) OK: aparelho de volta ao galpao, sem vinculo e sem data
+ SN7) OK: vendedor ve 2 aparelho(s) e nao cadastra, nao altera, nao apaga
+ SN8) OK: anonimo sem privilegio em estoque e em serie
+ ES17) OK: INSERT direto negado; register_stock_movement() lancou 1 linha com custo (0.00)
+▶ entrada de mercadoria
+ CP1) OK: nota ENT-2026-0001 nasceu em rascunho
+ CP2) OK: itens 1200.00 + frete 200 = total 1400.00
+ CP3) OK: produto repetido na mesma nota recusado
+ CP4) OK: 2 item(ns) recebidos, estoque 1 e 10, nota received
+ CP5) OK: frete 166.67 no caro e 33.33 na peca — custo final 1166.6700 e 23.3330
+ CP6) OK: custo subiu de 100.00 para 1166.67 — e a tela sabe dizer isso
+ CP7) OK: a linha antiga fechou em 2026-09-10, nao foi apagada
+ CP8) OK: o livro guardou 1166.67 — o custo com frete, nao o da nota
+ CP9) OK: nota ja recebida nao entra de novo no estoque
+ CP10) OK: nota recebida nao muda de conteudo
+ CP11) OK: recebida nao se cancela — o caminho e a devolucao
+ CP12) OK: segunda nota do dia atualizou o custo vigente para 1500.00, sem duplicar
+ CP13) OK: nota repetida do mesmo fornecedor recusada
+ CP14) OK: nota sem item nao entra no estoque
+ CP14b) OK: rascunho se cancela
+ CP15) OK: vendedor ve 0 nota e 0 item, mas ve o saldo 3.000
+ CP16) OK: anonimo sem privilegio em compras
+ CP17) OK: item nao muda de nota (3 linha(s) continuam na origem)
+ CP18) OK: purchase_sequences com RLS e sem privilegio para a API
+ CP19) OK: total direto foi recalculado (itens 30.00 + frete 100 = 130.00)
+ CP20) OK: status so anda por receive_purchase(); nenhum titulo criado
+ CP21) OK: rateio de 3 linhas soma exatamente o frete (100.00)
+ CP22) OK: nota recebida continua recebida, chave congelada, 3 lancamento(s) no livro
+ CP23) OK: trilha da nota sem fantasma (1 created, 1 received, 3 item_added); livro so pela funcao
+▶ financeiro
+ FI1) OK: "Pedido PED-2026-0007" de 1000.00 vencendo hoje, em aberto
+ FI2) OK: um titulo por pedido, sem repetir
+ FI3) OK: pagou 400.00, falta 600.00, situacao partial
+ FI4) OK: baixa de 700 recusada — faltavam 600
+ FI5) OK: quitado — o status veio da soma das baixas, ninguem digitou
+ FI6) OK: estorno devolveu a partial com 3 linhas no livro
+ FI7) OK: baixa nao muda e nao some, nem para o dono do banco
+ FI8) OK: com baixa nao se cancela — o caminho e o estorno
+ FI9) OK: so titulo aberto e sem baixa se parcela
+ FI10) OK: a pagar 300.10 para Fornecedor do Financeiro em 2026-10-11, vindo de "Entrada ENT-2026-0006 · NF FIN-99"
+ FI11) OK: 3 parcelas somando 300.10 — 100.04 + 100.03 + 100.03, vencendo de 30 em 30
+ FI12) OK: vencido ha 5 dias; quitado, sai da lista de atraso
+ FI13) OK: titulo sem dono, com dois donos ou do lado errado sao recusados
+ FI14) OK: vendedor ve 1 pedido(s) seu(s) e ZERO titulo, baixa ou posicao
+ FI15) OK: anonimo sem privilegio no financeiro
+ FI16) OK: status continua derivado (partial) e cancelamento so pela funcao
+ FI17) OK: valor congelado em 2000.00 com 500.00 em aberto
+ FI18) OK: valor mudou sem baixa (300 -> 350, settled apos quitar) e congelou com baixa
+ FI19) OK: cancel_financial_entry() passa pela guarda; trilha com financial.cancelled e payment_registered
+▶ importação de NF-e
+ NF1) OK: "  bat-6000s  " virou "BAT-6000S" apontando para NFE-A
+ NF2) OK: o codigo BAT-6000S ja resolve para "Bateria importada" sem perguntar
+ NF3) OK: "1001" e NFE-A no Alfa e NFE-B no Beta — nao se misturam
+ NF4) OK: corrigido para NFE-B em UMA linha, com a descricao preservada
+ NF5) OK: codigo vazio ignorado — seguem 2 correspondencias
+ NF6) OK: GTIN repetido barrado — o EAN identifica o produto, nao a nota
+ NF7) OK: 142 produto(s) sem GTIN convivem
+ NF8) OK: vendedor nao le nem escreve o de-para de compra
+ NF9) OK: anonimo sem privilegio no de-para
+ NF10) OK: chave normalizada (sem espaco) e unica — 1 nota para a chave
+ NF11) OK: chave de 43 digitos recusada (1 nota(s) antes e depois)
+▶ AGROTORK BRAIN — fase 1
+ BR1) OK: evento, lead (campanha agras-setembro), 3 identidades, interacao, oportunidade e tarefa — dono = vendedor A
+ BR2) OK: lead ligado ao cliente existente (customer_phone); segundo contato caiu no mesmo lead; clientes continuam 14
+ BR3) OK: evento repetido = 1, interacao repetida = 1, @JOAO_AGRO caiu no mesmo lead
+ BR4) OK: quote.created/sent/approved no barramento com o lead; oportunidade em negotiation
+ BR5) OK: lead → oportunidade (ganha) → orcamento → pedido; lead convertido; order.created com total 250000.00 = pedido
+ BR6) OK: 9 entradas — event → interaction → opportunity → event → event → event → quote → event → order
+ BR7) OK: vendedor B nao ve lead/oportunidade/evento do A (por id); viu e pegou o lead da fila
+ BR11) OK: evento alheio continua invisivel para B (Evento nao corresponde a esta interacao)
+ BR12) OK: contato de outro vendedor devolve exists_elsewhere sem id; origem erp e lead alheio recusados (Origem e evento reservados ao sistema / Lead fora do seu alcance)
+ BR13) OK: desativado nao le, nao registra interacao nem cria lead (Usuario inativo / Usuario inativo)
+ BR14) OK: lead, orcamento e oportunidade alheios recusados; created_by forcado ao usuario logado
+ BR15) OK: e-mail novo enriqueceu o lead reconhecido; chegada so pelo e-mail caiu no mesmo lead
+ BR16) OK: order.cancelled publicado; oportunidade voltou a negotiation
+ truncate cascades to table "interactions"
+ BR17) OK: truncate recusado ate para postgres (O barramento nao se esvazia. Evento e fa); service_role sem TRUNCATE; 120 eventos intactos
+ BR7b) OK: anon sem USAGE no schema brain e sem SELECT em leads
+ BR8) OK: payload e delete recusados (mesmo como postgres); processamento gravado
+ BR9) OK: zero lead.updated de toque; verbos: lead.assigned, lead.converted, lead.created, opportunity.created, opportunity.won, task.created
+ BR10) OK: 9 tabelas com RLS; toda funcao com search_path vazio; anon sem SELECT em nada
+▶ instagram_curator (baseline)
+ IC1) OK: 6 tabelas (todas com RLS), 2 enums, 4 funcoes, 6 policies, 17 indices, 3 comentarios
+ IC2) OK: as 4 funcoes tem search_path fixo
+ IC3) OK: anon e authenticated sem USAGE no schema e sem SELECT em nenhuma tabela
+ IC4) OK: um dono por vez, ttl entre 30s e 3600s, trava vencida e tomada, so o dono solta
+ IC5) OK: meia-identidade, URL trocada e completed sem data recusados; updated_at mentiroso foi sobrescrito
+ schema "instagram_curator" already exists, skipping
+ relation "references" already exists, skipping
+ relation "references_shortcode_uq" already exists, skipping
+ relation "references_canonical_url_uq" already exists, skipping
+ relation "references_legacy_key_uq" already exists, skipping
+ relation "references_queue_idx" already exists, skipping
+ relation "references_source_topic_idx" already exists, skipping
+ relation "artifacts" already exists, skipping
+ relation "runs" already exists, skipping
+ relation "runs_started_idx" already exists, skipping
+ relation "events" already exists, skipping
+ relation "events_run_time_idx" already exists, skipping
+ relation "events_reference_time_idx" already exists, skipping
+ relation "editorial_rules" already exists, skipping
+ relation "locks" already exists, skipping
+ relation "locks_expiry_idx" already exists, skipping
+ relation "locks_run_id_idx" already exists, skipping
+ IC6) OK: as duas migrations reaplicadas — conteudo das 6 tabelas identico (md5 por tabela) e colunas identicas
+ schema "instagram_curator" already exists, skipping
+ relation "references" already exists, skipping
+ relation "references_shortcode_uq" already exists, skipping
+ relation "references_canonical_url_uq" already exists, skipping
+ relation "references_legacy_key_uq" already exists, skipping
+ relation "references_queue_idx" already exists, skipping
+ relation "references_source_topic_idx" already exists, skipping
+ relation "artifacts" already exists, skipping
+ relation "runs" already exists, skipping
+ relation "runs_started_idx" already exists, skipping
+ relation "events" already exists, skipping
+ relation "events_run_time_idx" already exists, skipping
+ relation "events_reference_time_idx" already exists, skipping
+ relation "editorial_rules" already exists, skipping
+ relation "locks" already exists, skipping
+ relation "locks_expiry_idx" already exists, skipping
+ relation "locks_run_id_idx" already exists, skipping
+ IC7) OK: a reaplicacao TROCA objetos (2 com OID novo — os gatilhos sao drop+create) e NAO muda valor nenhum: definicao e ACL identicas
+▶ BRAIN: o ERP volta a excluir
+ EX1) OK: cliente excluido; identidade ficou, com o rotulo "Cliente da Identidade"
+ EX2) OK: cliente excluido; interacao ficou, com o rotulo "Cliente da Interacao"
+ EX3) OK: cliente excluido; oportunidade ficou, com o rotulo "Cliente da Oportunidade"
+ EX4) OK: perfil excluido; evento ficou, actor_id nulo e actor_label "Autor do Evento"
+ EX5) OK: perfil excluido; tarefa ficou, created_by nulo e rotulo "Autor da Tarefa"
+ EX6) OK: perfil excluido; oportunidade ficou, created_by nulo e rotulo "Autor da Oportunidade"
+ EX7) OK: perfil excluido; interacao ficou, actor_id nulo e rotulo "Autor da Interacao"
+ EX8) OK: lead excluido; oportunidade, interacao e tarefa ficaram com rotulo; identidade saiu e o telefone voltou a servir
+ EX9) OK: perfil com evento, tarefa, oportunidade, interacao e lead excluido; cinco linhas ficaram com rotulo
+ EX10) OK: tentativa de passar a autoria para outro vendedor foi ignorada
+ EX11) OK: apagar a propria autoria foi ignorado — o perfil existe
+ EX12) OK: rotulos vieram do cadastro de verdade ("Cliente do Link"), nao do cliente
+ EX13) OK: sem lead e sem cliente nao entra, mesmo mandando rotulo (new row for relation "interactions" violates che)
+ EX14) OK: autor do evento nao se troca, nao se anula com perfil vivo e o rotulo nao se reescreve (O autor do evento nao se troca.)
+ EX15) OK: lead citado em lead_merges nao se exclui — o livro de fusoes fica de pe
+ EX16) OK: cliente com historico nao some (Este cliente tem 1 orçamento(s) e 0 pedido(s) ), desativa; e o BRAIN nem soube — vinculo intacto
+▶ BRAIN: pontes sob estresse
+ PT4/PT5) rodam em sessoes concorrentes: supabase/db-tests/pontes-concorrentes.sh
+ PT1a) OK: erro comum e capturado por OTHERS
+ PT1b) OK: query_canceled ESCAPA de OTHERS (so o tratador pelo nome pegou)
+ PT1c) OK (e este e o LIMITE): cancelamento dentro da ponte derruba a venda — o orcamento ficou em draft
+ PT2) OK: ingest_event quebrada; orcamento ORC-2026-0042 salvo, barramento sem o evento
+ PT3) OK: o estagio da oportunidade falhou, o orcamento foi enviado do mesmo jeito (estagio segue em prospecting)
+ PT6) OK: 2 venda(s) sem evento encontradas e repostas; a segunda reposicao nao duplicou nada
+ PT6b) OK: reposicao e lista de faltantes sao so do administrador
+ PT7) OK: orcamento → pedido com total 250000.00 = evento 250000.00; oportunidade ganha; lead convertido; 3 eventos de orcamento
+
+✔ concluído sem falhas

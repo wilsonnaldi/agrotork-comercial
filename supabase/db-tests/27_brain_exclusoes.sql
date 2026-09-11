@@ -13,6 +13,11 @@
 --
 -- Prefixo de UUID = 27, o número da suíte.
 -- ============================================================
+-- Nota de versão: até o PostgreSQL 17, violar `on delete restrict`
+-- levantava 23503 (`foreign_key_violation`). O PostgreSQL 18 passou a
+-- levantar 23001 (`restrict_violation`), que é o código do padrão. Os
+-- tratadores abaixo aceitam os dois, para a suíte valer nas duas versões
+-- — o comportamento do banco é o mesmo: a exclusão é recusada.
 reset role;
 
 insert into auth.users (id, email, raw_user_meta_data) values
@@ -334,7 +339,7 @@ begin
   begin
     delete from brain.leads where id = v_a;
     raise exception 'EX15 FALHOU: excluiu lead com merge registrado';
-  exception when foreign_key_violation then null;
+  exception when foreign_key_violation or restrict_violation then null;
   end;
   raise notice ' EX15) OK: lead citado em lead_merges nao se exclui — o livro de fusoes fica de pe';
 end
@@ -361,7 +366,7 @@ begin
   begin
     perform public.delete_customer(v_cli);
     raise exception 'EX16 FALHOU: excluiu fisicamente cliente com orcamento';
-  exception when foreign_key_violation then
+  exception when foreign_key_violation or restrict_violation then
     v_erro := sqlerrm;
   end;
 

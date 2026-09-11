@@ -13,6 +13,11 @@
 --   · cliente com pedido também não, mesmo sem orçamento vivo;
 --   · o vendedor não exclui cliente nenhum.
 -- ============================================================
+-- Nota de versão: até o PostgreSQL 17, violar `on delete restrict`
+-- levantava 23503 (`foreign_key_violation`). O PostgreSQL 18 passou a
+-- levantar 23001 (`restrict_violation`), que é o código do padrão. Os
+-- tratadores abaixo aceitam os dois, para a suíte valer nas duas versões
+-- — o comportamento do banco é o mesmo: a exclusão é recusada.
 reset role;
 
 -- Prefixo de UUID = numero da suite. Os prefixos de letra (aaaa…, ffff…)
@@ -81,7 +86,7 @@ begin
     perform public.delete_customer(
       (select id from public.customers where name = 'Cliente Com Orcamento'));
     raise notice 'EX3) FALHA: excluiu cliente com orcamento';
-  exception when foreign_key_violation then
+  exception when foreign_key_violation or restrict_violation then
     get stacked diagnostics v_erro = message_text;
     select count(*)::int into v_ainda
       from public.customers where name = 'Cliente Com Orcamento';
@@ -136,7 +141,7 @@ begin
     perform public.delete_customer(
       (select id from public.customers where name = 'Cliente Com Pedido'));
     raise notice 'EX5) FALHA: excluiu cliente que tem pedido';
-  exception when foreign_key_violation then
+  exception when foreign_key_violation or restrict_violation then
     get stacked diagnostics v_erro = message_text;
     raise notice 'EX5) OK: pedido tambem barra a exclusao — %', left(v_erro, 48);
   when others then

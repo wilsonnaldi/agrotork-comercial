@@ -9,6 +9,11 @@
 -- Contexto herdado: admin 1111…, vendedor 2222… (criados em 01 e 02).
 -- ============================================================
 \set ON_ERROR_STOP on
+-- Nota de versão: até o PostgreSQL 17, violar `on delete restrict`
+-- levantava 23503 (`foreign_key_violation`). O PostgreSQL 18 passou a
+-- levantar 23001 (`restrict_violation`), que é o código do padrão. Os
+-- tratadores abaixo aceitam os dois, para a suíte valer nas duas versões
+-- — o comportamento do banco é o mesmo: a exclusão é recusada.
 reset role;
 
 set role authenticated;
@@ -113,7 +118,7 @@ do $$ begin
   insert into public.kit_items (kit_id, product_id, quantity)
   select k.id, '00000000-0000-4000-8000-000000000000', 1 from public.kits k where k.code = 'KIT-F3';
   raise notice 'CJ) FALHA: aceitou produto inexistente';
-exception when foreign_key_violation then raise notice 'CJ) OK: produto inexistente bloqueado';
+exception when foreign_key_violation or restrict_violation then raise notice 'CJ) OK: produto inexistente bloqueado';
 end $$;
 
 -- ── PRODUTO INATIVO ─────────────────────────────────────────
@@ -180,7 +185,7 @@ order by q.created_at desc limit 1;
 do $$ begin
   delete from public.kits where code = 'KIT-F3';
   raise notice 'CQ) FALHA: apagou kit citado em orcamento';
-exception when foreign_key_violation then
+exception when foreign_key_violation or restrict_violation then
   raise notice 'CQ) OK: exclusao de kit com historico recusada';
 end $$;
 

@@ -1,0 +1,944 @@
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-autenticacao.mjs
+
+=== VALIDAÇÃO DE AUTENTICAÇÃO ===
+OK   rota protegida redireciona para login — /login?next=%2Fdashboard
+OK   redirect preserva o destino (?next=)
+OK   outra rota protegida também redireciona
+OK   raiz manda para o login quando sem sessão
+OK   senha errada é recusada
+OK   mensagem não revela se o e-mail existe
+OK   login válido entra no sistema — /configuracoes
+OK   respeita o ?next= após entrar
+OK   sessão gravada em cookie — 1 cookie(s)
+OK   cookie de sessão é httpOnly
+OK   cookie de sessão é sameSite=Lax
+OK   Content-Security-Policy presente
+OK   CSP usa nonce e strict-dynamic, sem unsafe-inline em script
+OK   CSP proíbe embutir em iframe
+OK   CSP restringe destino de formulário
+OK   CSP bloqueia object/embed
+OK   nonce muda a cada resposta
+OK   X-Content-Type-Options
+OK   X-Frame-Options
+OK   Referrer-Policy
+OK   Permissions-Policy presente
+OK   cabeçalho não revela o framework
+OK   HTML não contém service role key
+OK   painel abre com sessão
+OK   admin vê 3 clientes (dado real do banco)
+OK   admin vê os 3 orçamentos (RLS)
+OK   menu de admin mostra Configurações
+OK   sessão persiste em nova aba
+OK   já logado, /login redireciona ao painel
+OK   logout leva de volta ao login
+OK   logout limpa o cookie de sessão — 0 restante(s)
+OK   depois do logout a rota volta a ser protegida
+OK   vendedor entra no painel
+OK   vendedor NÃO vê o menu Configurações
+OK   vendedor vê só 1 orçamento (RLS aplicado)
+OK   vendedor vê os 3 clientes (catálogo compartilhado)
+OK   vendedor é barrado ao digitar /configuracoes — /dashboard?erro=sem-permissao
+OK   aviso de permissão é exibido
+
+38/38 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-clientes.mjs
+
+=== VALIDAÇÃO DO MÓDULO CLIENTES ===
+OK   listagem carrega os clientes semeados
+OK   listagem mostra a contagem
+OK   CNPJ inválido é recusado
+OK   o que foi digitado não se perde
+OK   cadastro válido cria o cliente
+OK   ficha mostra o nome
+OK   CNPJ aparece formatado
+OK   WhatsApp aparece formatado
+OK   CEP aparece formatado
+OK   histórico começa vazio
+OK   documento duplicado é bloqueado
+OK   busca por nome parcial encontra
+OK   busca por documento encontra
+OK   busca por cidade encontra
+OK   busca sem resultado mostra estado vazio
+OK   edição salva
+OK   desativar funciona
+OK   inativo some da listagem padrão
+OK   filtro de inativos encontra
+OK   reativar funciona
+OK   filtro por UF sem correspondência
+OK   vendedor enxerga a carteira de clientes
+OK   vendedor consegue cadastrar cliente
+OK   histórico do cliente mostra o orçamento do vendedor
+OK   histórico esconde orçamento de outro vendedor (RLS)
+OK   listagem sem rolagem horizontal em 360px — sobra 0px
+OK   formulário sem rolagem horizontal em 360px — sobra 0px
+OK   listagem sem rolagem horizontal em 768px — sobra 0px
+OK   formulário sem rolagem horizontal em 768px — sobra 0px
+OK   listagem sem rolagem horizontal em 1440px — sobra 0px
+OK   formulário sem rolagem horizontal em 1440px — sobra 0px
+
+31/31 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-produtos.mjs
+
+=== VALIDAÇÃO DO MÓDULO PRODUTOS ===
+OK   listagem carrega os produtos semeados
+OK   admin vê a coluna de custo
+OK   custo do produto aparece
+OK   margem calculada aparece
+OK   inativo não aparece por padrão
+OK   nome curto é recusado
+OK   unidade obrigatória é cobrada
+OK   preço de venda obrigatório é cobrado
+OK   o que foi digitado não se perde
+OK   unidade escolhida sobrevive ao erro de validação
+OK   máscara monetária monta o valor
+OK   margem é derivada de custo e venda
+OK   atalho de margem recalcula a venda
+OK   cadastro válido cria o produto
+OK   código é normalizado para maiúsculas
+OK   ficha mostra o preço de venda
+OK   ficha mostra o custo para o admin
+OK   ficha mostra a margem
+OK   código duplicado é bloqueado com mensagem clara
+OK   duplicidade independe de maiúsculas
+OK   código de fabricante exige marca
+OK   código de fabricante duplicado na mesma marca é bloqueado
+OK   mesmo código em outro fabricante é aceito
+OK   código do fabricante é normalizado
+OK   busca por código do fabricante encontra os dois
+OK   ficha mostra a procedência do catálogo
+OK   ficha mostra o catálogo de origem
+OK   ficha mostra a versão do catálogo
+OK   ficha mostra os dados técnicos
+OK   dados técnicos não trazem preço
+OK   massa de teste é identificada na ficha
+OK   busca por código encontra
+OK   busca por nome encontra
+OK   busca por descrição encontra
+OK   busca sem resultado mostra estado vazio
+OK   filtro por marca funciona
+OK   filtro de inativos encontra o produto inativo
+OK   ordenação por maior preço — P-004
+OK   ordenação por código — MFR-001 < P-001
+OK   primeira página traz 20 itens — 20 linhas
+OK   rodapé mostra o total — Página 1 de 2
+OK   segunda página traz o restante — 10 linhas
+OK   edição carrega o custo atual
+OK   edição salva o nome
+OK   edição salva o preço com centavos
+OK   margem acompanha o novo preço
+OK   desativação pede confirmação antes
+OK   é possível desistir da desativação
+OK   desativação funciona
+OK   inativo some da listagem padrão
+OK   reativação funciona
+OK   vendedor enxerga o catálogo
+OK   vendedor vê o preço de venda
+OK   vendedor NÃO vê o custo (R$ 100,00)
+OK   vendedor NÃO vê botão de novo produto
+OK   ficha do vendedor esconde o custo
+OK   ficha do vendedor esconde a margem
+OK   ficha do vendedor não oferece Editar
+OK   ficha do vendedor mostra o preço de venda
+OK   vendedor é barrado ao digitar /produtos/novo — /dashboard?erro=sem-permissao
+OK   listagem sem rolagem horizontal em 360px — sobra 0px
+OK   formulário sem rolagem horizontal em 360px — sobra 0px
+OK   listagem sem rolagem horizontal em 768px — sobra 0px
+OK   formulário sem rolagem horizontal em 768px — sobra 0px
+OK   listagem sem rolagem horizontal em 1440px — sobra 0px
+OK   formulário sem rolagem horizontal em 1440px — sobra 0px
+
+66/66 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-cadastros.mjs
+
+=== VALIDAÇÃO DOS CADASTROS DE APOIO ===
+OK   Configurações reúne os três cadastros
+OK   marca é apresentada como marca comercial, não fornecedor
+OK   admin vê Configurações na navegação
+OK   listagem traz as marcas semeadas
+OK   listagem mostra a situação
+OK   nome curto de marca é recusado
+OK   o que foi digitado não se perde
+OK   criação de marca confirma e volta para a lista
+OK   marca nova aparece na lista
+OK   marca duplicada é bloqueada, ignorando maiúsculas
+OK   edição de marca salva
+OK   busca de marca funciona
+OK   busca sem resultado mostra estado vazio
+OK   desativação pede confirmação antes
+OK   é possível desistir da desativação
+OK   marca desativada mostra situação Inativa
+OK   filtro de inativos encontra a marca desativada
+OK   marca inativa não é oferecida em produto novo — 9 opções
+OK   servidor recusa marca inativa mesmo com o campo forjado
+OK   produto com marca inativa não foi criado
+OK   reativação de marca funciona
+OK   ficha avisa quantos produtos usam a marca
+OK   aviso explica que os produtos continuam vinculados
+OK   produto da marca desativada continua na listagem
+OK   vínculo com a marca desativada é preservado na ficha
+OK   produto de marca desativada continua editável
+OK   listagem de categorias carrega
+OK   categoria criada aparece na lista
+OK   categoria duplicada é bloqueada
+OK   categoria desativada
+OK   categoria inativa não é oferecida em produto novo
+OK   listagem de unidades carrega
+OK   tela avisa que L e LT não são equivalentes
+OK   código de unidade com espaço é recusado
+OK   código da unidade é normalizado para maiúsculas
+OK   código de unidade duplicado é bloqueado
+OK   LT e L coexistem como unidades distintas
+OK   busca de unidade por código funciona
+OK   unidade nova nasce sem fração
+OK   fração é gravada
+OK   ficha da unidade avisa quantos produtos a usam
+OK   produto de unidade desativada continua listado
+OK   reativação de unidade funciona
+OK   vendedor não vê Configurações na navegação
+OK   vendedor é barrado em índice — /dashboard?erro=sem-permissao
+OK   vendedor é barrado em marcas — /dashboard?erro=sem-permissao
+OK   vendedor é barrado em nova marca — /dashboard?erro=sem-permissao
+OK   vendedor é barrado em categorias — /dashboard?erro=sem-permissao
+OK   vendedor é barrado em unidades — /dashboard?erro=sem-permissao
+OK   vendedor é barrado em nova unidade — /dashboard?erro=sem-permissao
+OK   vendedor consulta marcas e categorias pelo catálogo
+OK   vendedor tem os cadastros ativos nos filtros — 10 opções
+OK   índice sem rolagem horizontal em 360px — sobra 0px
+OK   listagem sem rolagem horizontal em 360px — sobra 0px
+OK   formulário sem rolagem horizontal em 360px — sobra 0px
+OK   unidades sem rolagem horizontal em 360px — sobra 0px
+OK   índice sem rolagem horizontal em 768px — sobra 0px
+OK   listagem sem rolagem horizontal em 768px — sobra 0px
+OK   formulário sem rolagem horizontal em 768px — sobra 0px
+OK   unidades sem rolagem horizontal em 768px — sobra 0px
+OK   índice sem rolagem horizontal em 1440px — sobra 0px
+OK   listagem sem rolagem horizontal em 1440px — sobra 0px
+OK   formulário sem rolagem horizontal em 1440px — sobra 0px
+OK   unidades sem rolagem horizontal em 1440px — sobra 0px
+
+64/64 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-kits.mjs
+
+=== VALIDAÇÃO DO MÓDULO KITS ===
+OK   listagem carrega o kit semeado
+OK   listagem mostra as colunas de composição
+OK   admin vê o botão de novo kit
+OK   código curto é recusado
+OK   nome curto é recusado
+OK   o que foi digitado não se perde
+OK   criação leva direto para a montagem
+OK   código é normalizado para maiúsculas
+OK   kit nasce vazio e a tela diz isso
+OK   código de kit duplicado é bloqueado
+OK   busca de componente encontra por código
+OK   busca oferece os dois papéis
+OK   componente obrigatório entra no kit
+OK   componente opcional entra no kit
+OK   as duas seções aparecem separadas
+OK   a tela explica obrigatório × opcional
+OK   a tela separa cadastro de seleção no orçamento
+OK   produto que já está no kit é marcado como tal
+OK   quantidade zero é recusada
+OK   produto não entrou com quantidade zero
+OK   unidade UN recusa quantidade fracionada
+OK   unidade M aceita 2,5
+OK   produto inativo não aparece na busca de componentes
+OK   servidor recusa produto inativo mesmo com o campo forjado
+OK   produto inativo não entrou no kit
+OK   obrigatório vira opcional
+OK   opcional volta a obrigatório
+OK   ficha mostra o cabeçalho
+OK   ficha separa obrigatórios de opcionais
+OK   ficha mostra o resumo de contagens
+OK   ficha mostra o preço-base
+OK   ficha explica opcional do kit × selecionado no orçamento
+OK   ficha mostra código e marca dos componentes
+OK   preço-base soma apenas os obrigatórios
+OK   remover componente funciona — 2 → 1
+OK   edição do cabeçalho salva
+OK   desativação pede confirmação antes
+OK   é possível desistir da desativação
+OK   kit desativado avisa na ficha
+OK   composição é preservada na desativação
+OK   reativação funciona
+OK   kit sem obrigatórios é marcado como incompleto
+OK   listagem sinaliza o kit incompleto
+OK   busca de kit funciona
+OK   busca sem resultado mostra estado vazio
+OK   filtro de inativos encontra o kit desativado
+OK   vendedor enxerga os kits ativos
+OK   vendedor NÃO vê kit desativado na listagem
+OK   vendedor NÃO vê botão de novo kit
+OK   vendedor não tem filtro de situação
+OK   vendedor abre a ficha e vê a composição
+OK   vendedor vê o preço de venda do componente
+OK   vendedor NÃO vê custo (R$ 100,00)
+OK   vendedor NÃO vê Editar kit
+OK   vendedor NÃO vê Desativar kit
+OK   vendedor é barrado em novo kit — /dashboard?erro=sem-permissao
+OK   vendedor é barrado em edição do kit — /dashboard?erro=sem-permissao
+OK   listagem sem rolagem horizontal em 360px — sobra 0px
+OK   formulário sem rolagem horizontal em 360px — sobra 0px
+OK   ficha sem rolagem horizontal em 360px — sobra 0px
+OK   editor de composição sem rolagem horizontal em 360px — sobra 0px
+OK   listagem sem rolagem horizontal em 768px — sobra 0px
+OK   formulário sem rolagem horizontal em 768px — sobra 0px
+OK   ficha sem rolagem horizontal em 768px — sobra 0px
+OK   editor de composição sem rolagem horizontal em 768px — sobra 0px
+OK   listagem sem rolagem horizontal em 1440px — sobra 0px
+OK   formulário sem rolagem horizontal em 1440px — sobra 0px
+OK   ficha sem rolagem horizontal em 1440px — sobra 0px
+OK   editor de composição sem rolagem horizontal em 1440px — sobra 0px
+
+69/69 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-orcamentos.mjs
+
+=== VALIDAÇÃO DO MÓDULO ORÇAMENTOS ===
+OK   listagem de orçamentos abre
+OK   admin vê o botão de novo orçamento
+OK   cliente é obrigatório
+OK   criação leva direto para a montagem
+OK   número é gerado pelo sistema — ORC-2026-0004
+OK   orçamento nasce como rascunho
+OK   busca de produto encontra
+OK   produto entra com quantidade 2 e total de linha correto
+OK   subtotal recalculado pelo banco
+OK   segundo produto soma ao subtotal — 396.00
+OK   unidade UN recusa quantidade fracionada
+OK   produto fracionado não entrou
+OK   produto inativo não aparece na busca
+OK   servidor recusa produto inativo pelo id forjado
+OK   produto inativo não entrou no orçamento
+OK   kit utilizável é oferecido
+OK   kit INCOMPLETO não é oferecido
+OK   kit DESATIVADO não é oferecido
+OK   servidor recusa kit incompleto pela URL
+OK   servidor recusa kit inativo pela URL
+OK   nenhum kit inválido entrou
+OK   tela de opcionais mostra obrigatórios e opcionais
+OK   tela avisa que a escolha não altera o cadastro do kit
+OK   obrigatório aparece marcado e bloqueado — 1 bloqueado(s)
+OK   kit entra com o preço-base dos obrigatórios
+OK   snapshot guarda TODOS os componentes do kit
+OK   opcionais não escolhidos ficam registrados como não selecionados
+OK   composição do kit aparece na linha do orçamento
+OK   ajuste usa os preços congelados
+OK   opcional marcado entra no preço do kit
+OK   desmarcar opcional volta o preço do kit
+OK   quantidade do kit multiplica a linha
+OK   composição mostra a quantidade efetiva do componente
+OK   kit não aceita quantidade fracionada
+OK   desconto por item aplicado pelo banco
+OK   subtotal com produtos, kit e desconto de item — 912.00
+OK   desconto percentual e frete no total — 870.80
+OK   tela mostra subtotal, desconto, frete e total
+OK   tela declara que o total vem do banco
+OK   desconto acima de 100% é recusado
+OK   total não mudou com o desconto inválido
+OK   remover item funciona — 3 → 2
+OK   ficha reabre com o número
+OK   ficha mostra o cliente
+OK   ficha mostra as condições comerciais
+OK   ficha mostra a composição congelada do kit
+OK   ficha explica o congelamento
+OK   itens do orçamento não mudaram com o catálogo
+OK   total do orçamento não mudou
+OK   nome antigo do produto continua no orçamento
+OK   nome novo do produto NÃO aparece
+OK   nome antigo do kit continua no orçamento
+OK   kit renomeado NÃO aparece
+OK   rascunho vira enviado
+OK   carimbo de envio gravado
+OK   enviado vira aprovado
+OK   admin ainda edita orçamento aprovado — /orcamentos/c3f66c67-3952-4f18-adb9-25b9796a2c0e/editar
+OK   orçamento sem itens não pode ser enviado
+OK   rascunho é descartado
+OK   descarte é lógico, não físico
+OK   filtro por situação funciona
+OK   busca sem resultado mostra estado vazio
+OK   listagem mostra número, cliente, total e situação
+OK   admin vê a coluna de vendedor
+OK   vendedor NÃO vê orçamento de outro vendedor
+OK   vendedor não tem filtro por vendedor
+OK   vendedor é barrado ao abrir orçamento alheio
+OK   vendedor cria o próprio orçamento
+OK   vendedor monta o próprio orçamento
+OK   vendedor NÃO vê custo no orçamento
+OK   vendedor é redirecionado ao tentar editar aprovado — /orcamentos/ca8a30e9-d6ec-452d-9be9-af4aeab3cccd?bloqueado=1
+OK   vendedor não vê botão de editar em aprovado
+OK   listagem sem rolagem horizontal em 360px — sobra 0px
+OK   formulário sem rolagem horizontal em 360px — sobra 0px
+OK   ficha sem rolagem horizontal em 360px — sobra 0px
+OK   montagem sem rolagem horizontal em 360px — sobra 0px
+OK   listagem sem rolagem horizontal em 768px — sobra 0px
+OK   formulário sem rolagem horizontal em 768px — sobra 0px
+OK   ficha sem rolagem horizontal em 768px — sobra 0px
+OK   montagem sem rolagem horizontal em 768px — sobra 0px
+OK   listagem sem rolagem horizontal em 1440px — sobra 0px
+OK   formulário sem rolagem horizontal em 1440px — sobra 0px
+OK   ficha sem rolagem horizontal em 1440px — sobra 0px
+OK   montagem sem rolagem horizontal em 1440px — sobra 0px
+
+84/84 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-pdf-compartilhamento.mjs
+
+=== VALIDAÇÃO DE PDF E COMPARTILHAMENTO ===
+OK   orçamento montado com produto e kit
+OK   ficha oferece o download do PDF
+OK   PDF responde 200 — 200
+OK   PDF vem como application/pdf
+OK   PDF vem como anexo com nome do orçamento — attachment; filename="ORC-2026-0004-Fazenda-Sao-Joao.pdf"
+OK   arquivo é um PDF de verdade
+OK   PDF traz o número do orçamento
+OK   PDF traz o cabeçalho da empresa
+OK   PDF traz contato da empresa configurado
+OK   PDF traz o cliente
+OK   PDF traz o produto do snapshot
+OK   PDF traz a marca do snapshot
+OK   PDF traz o kit
+OK   PDF mostra a composição incluída
+OK   PDF separa os opcionais não incluídos
+OK   PDF traz as condições comerciais
+OK   PDF traz as observações
+OK   PDF traz o total oficial do banco — 482.00
+OK   PDF traz o vendedor
+OK   PDF numera as páginas
+OK   PDF NÃO traz observação interna
+OK   PDF NÃO traz custo do produto
+OK   PDF NÃO fala em margem nem custo
+OK   PDF não gera páginas em branco — 1 página(s)
+OK   ficha avisa que gerar link envia o rascunho
+OK   link gerado com aviso
+OK   compartilhar marcou o orçamento como enviado
+OK   link usa token longo e aleatório — 48 caracteres
+OK   link não expõe o id do orçamento
+OK   ficha mostra a expiração do link
+OK   ficha explica o que o link não mostra
+OK   PDF reemitido continua com o preço antigo
+OK   PDF reemitido continua com o nome antigo do produto
+OK   PDF reemitido continua com o nome antigo do kit
+OK   PDF reemitido mantém o componente removido do cadastro
+OK   PDF reemitido é o mesmo documento comercial
+OK   página pública abre sem login — /orcamento-publico/720ae1e4514d72dbe3cd3af4488c594c0defe2c65d489693
+OK   página pública mostra o número
+OK   página pública mostra a empresa
+OK   página pública mostra o cliente
+OK   página pública formata o CNPJ do cliente
+OK   página pública mostra os itens do snapshot
+OK   página pública mostra a composição incluída
+OK   página pública separa os opcionais não incluídos
+OK   página pública mostra o total oficial
+OK   página pública mostra as condições
+OK   página pública mostra o vendedor
+OK   página pública NÃO mostra observação interna
+OK   página pública NÃO mostra custo
+OK   página pública NÃO fala em margem
+OK   página pública NÃO mostra o id do orçamento
+OK   página pública não é indexável
+OK   PDF público responde 200 — 200
+OK   PDF público traz o orçamento
+OK   PDF público NÃO traz observação interna
+OK   token inexistente devolve 404 — 404
+OK   token curto devolve 404 — 404
+OK   id do orçamento como token devolve 404 — 404
+OK   token de outro orçamento abre SÓ o outro
+OK   token expirado devolve 404 — 404
+OK   revogação confirmada na tela
+OK   orçamento continua intacto após revogar
+OK   histórico do link mostra o revogado
+OK   link revogado devolve 404 — 404
+OK   PDF do link revogado devolve 404
+OK   link novo é diferente do revogado
+OK   link novo funciona — 200
+OK   vendedor não baixa PDF de orçamento alheio — 404
+OK   vendedor não vê o painel de link de orçamento alheio
+OK   página pública sem rolagem horizontal em 360px — sobra 0px
+OK   página pública sem rolagem horizontal em 768px — sobra 0px
+OK   página pública sem rolagem horizontal em 1440px — sobra 0px
+
+72/72 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-empresa-usuarios.mjs
+OK   Configurações lista Dados da empresa
+OK   Configurações lista Usuários
+OK   tela de empresa abre para o admin
+OK   razão social gravada — AGROTORK COMERCIO DE IMPLEMENTOS LTDA
+OK   cidade gravada — Londrina
+OK   razão social vazia é recusada — AGROTORK COMERCIO DE IMPLEMENTOS LTDA
+OK   vendedor é barrado nos dados da empresa — http://localhost:3302/dashboard?erro=sem-permissao
+OK   vendedor é barrado em usuários — http://localhost:3302/dashboard?erro=sem-permissao
+OK   lista mostra o administrador
+OK   lista mostra o vendedor
+OK   marca quem é você
+OK   explica de onde vêm contas novas
+OK   botão de rebaixar a si mesmo está desabilitado
+OK   botão de desativar a si mesmo está desabilitado
+OK   admin promove o vendedor — admin
+OK   admin rebaixa de volta — salesperson
+OK   admin desativa o vendedor — f
+OK   admin reativa o vendedor — t
+OK   /configuracoes/empresa sem rolagem horizontal em 360px — sobra 0px
+OK   /configuracoes/usuarios sem rolagem horizontal em 360px — sobra 0px
+OK   /configuracoes/empresa sem rolagem horizontal em 768px — sobra 0px
+OK   /configuracoes/usuarios sem rolagem horizontal em 768px — sobra 0px
+OK   /configuracoes/empresa sem rolagem horizontal em 1440px — sobra 0px
+OK   /configuracoes/usuarios sem rolagem horizontal em 1440px — sobra 0px
+
+24/24 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-relatorios.mjs
+OK   Relatórios aparece no menu do admin
+OK   conta os 7 orçamentos do período
+OK   valor emitido soma R$ 6.500,00
+OK   valor aprovado soma R$ 2.500,00
+OK   taxa de conversão é 60% — 2 admin + 1 vendedor aprovados de 5 decididos
+OK   mostra o ticket médio
+OK   quebra por situação
+OK   admin vê a quebra por vendedor
+OK   explica como a conversão é calculada
+OK   período sem orçamento mostra estado vazio
+OK   vendedor abre o relatório
+OK   vendedor soma só R$ 500,00 — o RLS entrega só os orçamentos dele
+OK   vendedor NÃO vê a quebra por vendedor
+OK   vendedor não vê o valor dos outros
+OK   relatórios sem rolagem horizontal em 360px — sobra 0px
+OK   relatórios sem rolagem horizontal em 768px — sobra 0px
+OK   relatórios sem rolagem horizontal em 1440px — sobra 0px
+
+17/17 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-expiracao.mjs
+
+=== VALIDAÇÃO DA EXPIRAÇÃO AUTOMÁTICA ===
+OK   antes do job o orcamento vencido ainda aparece como Enviado
+OK   job expirou exatamente 1 orcamento — expire_quotes() = 1
+OK   o vencido virou expired no banco
+OK   o que vence hoje continua sent
+OK   o rascunho vencido continua draft
+OK   rodar o job de novo nao muda mais nada
+OK   vendedor ve o proprio orcamento como Expirado sem ter feito nada — orc-2026-0003 joão marchioni rolândia 11/09/2026 10/09/2026 1 r$ 1.500,00 expira
+OK   filtro Expirado encontra o orcamento
+OK   filtro Enviado nao lista mais o expirado
+OK   orcamento do admin que vence hoje continua Enviado para o admin — orc-2026-0001 fazenda são joão londrina administrador de teste 11/09/2026 11/09/
+OK   sessao de vendedor obtida pela API
+OK   vendedor autenticado NAO dispara expire_quotes por RPC — HTTP 403
+OK   a recusa e de privilegio, nao de argumento — {"code":"42501","message":"permission denied for function expire_quotes","details":null,"hint":null}
+OK   anonimo NAO dispara expire_quotes por RPC — HTTP 403
+OK   vendedor nao expira o orcamento de outro vendedor — HTTP 200
+
+15/15 verificações OK
+▶ semeando banco
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829000100_extensions.sql:4: NOTICE:  extension "pgcrypto" already exists, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_update" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "public_assets_delete" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_read" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "private_docs_write" for relation "storage.objects" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  policy "buckets_read" for relation "storage.buckets" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260829002000_storage.sql:118: NOTICE:  Storage configurado: public-assets (leitura pública) e private-docs (admin).
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901052525_expire_quotes_schedule.sql:133: NOTICE:  pg_cron nao instalado: expire_quotes() NAO foi agendada. Habilite a extensao no painel do Supabase e rode supabase/scripts/schedule-expire-quotes.sql.
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260901201459_enforce_quote_status_and_active_rls.sql:32: NOTICE:  trigger "trg_quotes_validate_status_transition" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:129: NOTICE:  trigger "trg_quotes_a_control" for relation "public.quotes" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:646: NOTICE:  trigger "trg_audit_orders" for relation "public.orders" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:650: NOTICE:  trigger "trg_audit_order_items" for relation "public.order_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909100000_guards_orcamentos_pedidos.sql:654: NOTICE:  trigger "trg_audit_price_conditions" for relation "public.price_conditions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:55: NOTICE:  trigger "trg_purchase_items_no_move" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:194: NOTICE:  trigger "trg_financial_entries_protect" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:251: NOTICE:  trigger "trg_financial_entries_amount" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:315: NOTICE:  trigger "trg_purchases_normalize" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:540: NOTICE:  trigger "trg_audit_suppliers" for relation "public.suppliers" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:544: NOTICE:  trigger "trg_audit_stock_movements" for relation "public.stock_movements" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:548: NOTICE:  trigger "trg_audit_product_serials" for relation "public.product_serials" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:552: NOTICE:  trigger "trg_audit_purchases" for relation "public.purchases" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:556: NOTICE:  trigger "trg_audit_purchase_items" for relation "public.purchase_items" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:560: NOTICE:  trigger "trg_audit_financial_entries" for relation "public.financial_entries" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:564: NOTICE:  trigger "trg_audit_financial_payments" for relation "public.financial_payments" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260909110000_guards_onda2.sql:568: NOTICE:  trigger "trg_audit_supplier_products" for relation "public.supplier_products" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:205: NOTICE:  trigger "references_touch_updated_at" for relation "instagram_curator.references" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260910151115_create_private_instagram_curator.sql:210: NOTICE:  trigger "artifacts_touch_updated_at" for relation "instagram_curator.artifacts" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:264: NOTICE:  trigger "trg_leads_b_labels" for relation "brain.leads" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:268: NOTICE:  trigger "trg_identities_b_labels" for relation "brain.identities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:/home/claude/agrotork-comercial/supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+▶ e2e-auditoria.mjs
+
+=== VALIDAÇÃO DA TRILHA DE AUDITORIA ===
+OK   cadastro feito na tela virou um evento com o vendedor como ator — customer.created|user|vendedor@teste.local|salesperson|authenticated|Cliente Auditado E2E
+OK   gerou exatamente uma linha, não duas — 1 linha(s)
+OK   sessões obtidas
+OK   aprovação pela API registrou quote.approved com de → para — quote.approved|admin@teste.local|sent->approved
+OK   vendedor lê ZERO linhas do log pela API — HTTP 200, 0 linha(s)
+OK   administrador lê o log pela API — HTTP 200, 5 linha(s)
+OK   anônimo não lê o log pela API — HTTP 200, 0 linha(s)
+OK   vendedor NÃO insere linha no log pela API — HTTP 403
+OK   administrador NÃO insere linha no log pela API — HTTP 403
+OK   vendedor NÃO altera linha do log pela API — HTTP 403
+OK   administrador NÃO altera linha do log pela API — HTTP 403
+OK   administrador NÃO apaga linha do log pela API — HTTP 403, 33 → 33
+OK   gerar link de compartilhamento virou quote.link_created — HTTP 201, 1 evento(s)
+OK   nenhum token de compartilhamento aparece no log — 0 vazamento(s)
+OK   todo evento de link grava o token como [REDIGIDO] — 0 sem redação
+OK   nenhum campo de autenticação chegou ao log — 0 ocorrência(s)
+OK   a lista de clientes continua abrindo com o cliente novo
+
+17/17 verificações OK

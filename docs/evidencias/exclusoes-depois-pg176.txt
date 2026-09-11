@@ -1,0 +1,20 @@
+psql:supabase/migrations/20260911140000_brain_exclusoes.sql:272: NOTICE:  trigger "trg_interactions_b_labels" for relation "brain.interactions" does not exist, skipping
+psql:supabase/migrations/20260911140000_brain_exclusoes.sql:276: NOTICE:  trigger "trg_opportunities_b_labels" for relation "brain.opportunities" does not exist, skipping
+psql:supabase/migrations/20260911140000_brain_exclusoes.sql:280: NOTICE:  trigger "trg_tasks_b_labels" for relation "brain.tasks" does not exist, skipping
+psql:supabase/migrations/20260911140000_brain_exclusoes.sql:403: NOTICE:  trigger "trg_events_a_actor" for relation "brain.events" does not exist, skipping
+ EX1) OK: cliente excluido; identidade ficou, com o rotulo "Cliente da Identidade"
+ EX2) OK: cliente excluido; interacao ficou, com o rotulo "Cliente da Interacao"
+ EX3) OK: cliente excluido; oportunidade ficou, com o rotulo "Cliente da Oportunidade"
+ EX4) OK: perfil excluido; evento ficou, actor_id nulo e actor_label "Autor do Evento"
+ EX5) OK: perfil excluido; tarefa ficou, created_by nulo e rotulo "Autor da Tarefa"
+ EX6) OK: perfil excluido; oportunidade ficou, created_by nulo e rotulo "Autor da Oportunidade"
+ EX7) OK: perfil excluido; interacao ficou, actor_id nulo e rotulo "Autor da Interacao"
+ EX8) OK: lead excluido; oportunidade, interacao e tarefa ficaram com rotulo; identidade saiu e o telefone voltou a servir
+ EX9) OK: perfil com evento, tarefa, oportunidade, interacao e lead excluido; cinco linhas ficaram com rotulo
+ EX10) OK: tentativa de passar a autoria para outro vendedor foi ignorada
+ EX11) OK: apagar a propria autoria foi ignorado — o perfil existe
+ EX12) OK: rotulos vieram do cadastro de verdade ("Cliente EX9"), nao do cliente
+ EX13) OK: sem lead e sem cliente nao entra, mesmo mandando rotulo (new row for relation "interactions" violates che)
+ EX14) OK: autor do evento nao se troca, nao se anula com perfil vivo e o rotulo nao se reescreve (O autor do evento nao se troca.)
+ EX15) OK: lead citado em lead_merges nao se exclui — o livro de fusoes fica de pe
+ EX16) OK: cliente com historico nao some (Este cliente tem 1 orçamento(s) e 0 pedido(s) ), desativa; e o BRAIN nem soube — vinculo intacto
