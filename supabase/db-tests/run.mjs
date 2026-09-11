@@ -75,6 +75,8 @@ const SUITES = [
   ["importação de NF-e", "24_importacao_nfe.sql", /NF\d+\)|NOTICE/],
   ["AGROTORK BRAIN — fase 1", "25_brain.sql", /BR\d+[a-z]?\)|NOTICE/],
   ["instagram_curator (baseline)", "26_instagram_curator.sql", /IC\d+\)|NOTICE/],
+  ["BRAIN: o ERP volta a excluir", "27_brain_exclusoes.sql", /EX\d+\)|NOTICE/],
+  ["BRAIN: pontes sob estresse", "28_brain_pontes.sql", /PT\d+[a-z]?\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {
