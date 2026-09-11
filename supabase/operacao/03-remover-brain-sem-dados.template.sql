@@ -128,7 +128,8 @@ revoke execute on function public.audit_capture() from public, anon, authenticat
 delete from supabase_migrations.schema_migrations
  where version in ('20260911130000','20260911140000','20260911150000',
                    '20260911160000','20260911170000','20260911180000',
-                   '20260911190000','20260911200000','20260911210000');
+                   '20260911190000','20260911200000','20260911210000',
+                   '20260911220000');
 
 -- ── Fim de linha: CRLF vira LF antes de conferir o md5 ──────
 -- Mesmo motivo do roteiro 02: este arquivo é colado no SQL Editor e o
