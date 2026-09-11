@@ -162,3 +162,13 @@ begin
   end if;
 end
 $$;
+
+-- ── Schema `extensions`: o default do Supabase ───────────────
+-- Em producao `anon`, `authenticated` e `service_role` tem USAGE no schema
+-- `extensions` (medido em 11/09/2026), e e por isso que funcoes `security
+-- invoker` com `search_path = ''` conseguem chamar `extensions.unaccent()`
+-- na sessao de um usuario. O ensaio precisa do mesmo grant, senao o RLS
+-- e a busca falham aqui com "permission denied for schema extensions" e
+-- passam la — o pior tipo de divergencia.
+create schema if not exists extensions;
+grant usage on schema extensions to anon, authenticated, service_role;
