@@ -566,7 +566,7 @@ OK   kit renomeado NÃO aparece
 OK   rascunho vira enviado
 OK   carimbo de envio gravado
 OK   enviado vira aprovado
-OK   admin ainda edita orçamento aprovado — /orcamentos/c3f66c67-3952-4f18-adb9-25b9796a2c0e/editar
+OK   admin ainda edita orçamento aprovado — /orcamentos/fddbb390-d6ea-4ccb-b720-9de2a7d9e7de/editar
 OK   orçamento sem itens não pode ser enviado
 OK   rascunho é descartado
 OK   descarte é lógico, não físico
@@ -580,7 +580,7 @@ OK   vendedor é barrado ao abrir orçamento alheio
 OK   vendedor cria o próprio orçamento
 OK   vendedor monta o próprio orçamento
 OK   vendedor NÃO vê custo no orçamento
-OK   vendedor é redirecionado ao tentar editar aprovado — /orcamentos/ca8a30e9-d6ec-452d-9be9-af4aeab3cccd?bloqueado=1
+OK   vendedor é redirecionado ao tentar editar aprovado — /orcamentos/9b0bfd23-f615-4d7b-a057-f04dbd9736ff?bloqueado=1
 OK   vendedor não vê botão de editar em aprovado
 OK   listagem sem rolagem horizontal em 360px — sobra 0px
 OK   formulário sem rolagem horizontal em 360px — sobra 0px
@@ -671,7 +671,7 @@ OK   PDF reemitido continua com o nome antigo do produto
 OK   PDF reemitido continua com o nome antigo do kit
 OK   PDF reemitido mantém o componente removido do cadastro
 OK   PDF reemitido é o mesmo documento comercial
-OK   página pública abre sem login — /orcamento-publico/720ae1e4514d72dbe3cd3af4488c594c0defe2c65d489693
+OK   página pública abre sem login — /orcamento-publico/c280559f2ff85c11332588d48c2bf3d347666ce54c6ff8c7
 OK   página pública mostra o número
 OK   página pública mostra a empresa
 OK   página pública mostra o cliente

@@ -1,0 +1,26 @@
+▶ D1: aplicar
+NOTICE:  database "ensaio_deploy" does not exist, skipping
+  ✓ D1: 9 tabelas, 7 versões registradas, 0 resíduo de fumaça
+  ✓ D1: a fumaça foi até pedido, oportunidade ganha e lead convertido
+  ✓ D1: a fumaça se desfez por inteiro
+▶ D2: pós-condição falsa — não pode confirmar
+  ✓ D2: abortou na pós-condição; schema brain NÃO existe e nada foi registrado
+▶ D3: pré-condição falsa — audit_capture mais nova
+  ✓ D3: recusou sobrescrever uma audit_capture desconhecida; nada foi aplicado
+▶ D4: remover logo após o deploy, sem dados
+  ✓ D4: schema fora, 0 gatilhos, audit_capture no md5 original, registro limpo
+▶ D5: remover COM dados — tem de parar
+  ✓ D5: parou, schema intacto, o lead continua lá
+▶ D6: incidente com dados — copia e desliga, não apaga
+  ✓ D6: ponte desligada, brain intacto, cópia com o lead, registro preservado
+▶ D6b: fumaça que falha — o COMMIT tem de virar ROLLBACK
+  ✓ D6b: a fumaça falhou e o COMMIT virou ROLLBACK — sem schema, sem registro, sem orçamento de teste
+▶ D7: religar a ponte e repor o que passou
+  ✓ D7: ponte religada; 1 venda(s) sem evento, 1 reposta(s), 0 faltando depois
+▶ D8: evento comercial REAL barra a remoção sem dados
+  ✓ D8: 1 evento(s) do ERP barraram a remoção; o schema continua de pé
+▶ D9/D10/D11: dependente externo barra a remoção
+  ✓ D9/D10/D11 [view]: barrou e o schema continua de pé
+  ✓ D9/D10/D11 [funcao]: barrou e o schema continua de pé
+  ✓ D9/D10/D11 [fk]: barrou e o schema continua de pé
+✔ deploy e reversão ensaiados nos 11 cenários

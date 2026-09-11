@@ -1,0 +1,4 @@
+psql:/tmp/medir2.sql:28: NOTICE:  rodada 1: com ponte 0.689 ms | sem ponte 0.261 ms | custo da ponte 0.428 ms | 0.0053 % do orcamento de 8s
+psql:/tmp/medir2.sql:28: NOTICE:  rodada 2: com ponte 0.540 ms | sem ponte 0.268 ms | custo da ponte 0.272 ms | 0.0034 % do orcamento de 8s
+psql:/tmp/medir2.sql:28: NOTICE:  rodada 3: com ponte 0.585 ms | sem ponte 0.302 ms | custo da ponte 0.283 ms | 0.0035 % do orcamento de 8s
+psql:/tmp/medir2.sql:44: NOTICE:  lock_timeout da sessao devolvido: 7s (a ponte nao deixa heranca)

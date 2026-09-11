@@ -6,11 +6,12 @@
 #   PGHOST=/tmp PGPORT=5437 PGUSER=postgres PSQL=/opt/pg176/bin/psql \
 #     bash supabase/db-tests/pontes-concorrentes.sh <banco>
 #
-# PT4: sem lock_timeout — a ponte ESPERA e a venda passa quando o
-#      bloqueio sai.
-# PT5: com lock_timeout curto — a espera vira `query_canceled`, que
-#      `exception when others` NÃO captura, e a venda CAI. É esse o
-#      limite que o relatório declara.
+# PT4:  sem lock_timeout na sessão — a ponte tem o DELA, de 250ms
+#       (migration 20260911190000), então desiste rápido e a venda passa
+#       sem esperar o bloqueio sair.
+# PT5:  lock_timeout curto na sessão — 55P03, que OTHERS captura.
+# PT5b: statement_timeout — 57014, que OTHERS NÃO captura, e a venda CAI.
+#       É esse o limite residual que o relatório declara.
 # ============================================================
 set -uo pipefail
 DB="${1:-pontes_conc}"
@@ -42,20 +43,21 @@ preparar() {
                    values ('$QUOTE', '$CLI', 'Oportunidade travada $QUOTE', 'other')"
 }
 
-echo "▶ PT4: a ponte espera o bloqueio sair"
+echo "▶ PT4: a ponte tem lock_timeout proprio e nao espera o bloqueio sair"
 preparar
-( q -c "begin; select id from brain.opportunities where quote_id = '$QUOTE' for update; select pg_sleep(3); commit;" >/dev/null 2>&1 ) &
+( q -c "begin; select id from brain.opportunities where quote_id = '$QUOTE' for update; select pg_sleep(5); commit;" >/dev/null 2>&1 ) &
 TRAVA=$!
 sleep 1
-INICIO=$(date +%s)
+INICIO=$(date +%s%N)
 SAIDA=$(q -c "update public.quotes set status = 'sent' where id = '$QUOTE' returning status" 2>&1)
-FIM=$(date +%s)
-wait $TRAVA
+FIM=$(date +%s%N)
+MS=$(( (FIM - INICIO) / 1000000 ))
 STATUS=$(q -c "select status from public.quotes where id = '$QUOTE'")
-if [ "$STATUS" = "sent" ]; then
-  echo " PT4) OK: a venda passou depois de esperar $((FIM-INICIO))s pelo bloqueio (status=$STATUS)"
+wait $TRAVA
+if [ "$STATUS" = "sent" ] && [ "$MS" -lt 3000 ]; then
+  echo " PT4) OK: a venda passou em ${MS}ms — a ponte desistiu do bloqueio em 250ms em vez de esperar os 5s"
 else
-  echo " PT4) FALHOU: status=$STATUS saida=$SAIDA"; exit 1
+  echo " PT4) FALHOU: status=$STATUS tempo=${MS}ms"; echo "$SAIDA" | tail -3; exit 1
 fi
 
 echo "▶ PT5: lock_timeout — a espera vira 55P03, que OTHERS captura"
@@ -79,18 +81,38 @@ FALTANDO=$(q -c "select count(*) from brain.events e where e.source = 'erp' and 
 if [ "$FALTANDO" != "0" ]; then echo " PT5) FALHOU: reconciliacao nao acusaria a falta"; exit 1; fi
 echo "      o quote.sent se perdeu e a reconciliacao acusa a venda como nao publicada"
 
-echo "▶ PT5b: statement_timeout — a espera vira 57014, que OTHERS NAO captura"
+echo "▶ PT5b: statement_timeout DENTRO da ponte — 57014, e a venda cai"
+# Depois da migration 20260911190000 a contenção de lock não produz mais
+# 57014: a ponte desiste em 250ms e cai em 55P03, que é capturado. O que
+# SOBRA é o tempo de execução da própria ponte. Para exercitar essa
+# janela residual, aqui ela é alargada de propósito com um gatilho
+# temporário que dorme — e é assim que se vê o limite que continua de pé.
 preparar
-( q -c "begin; select id from brain.opportunities where quote_id = '$QUOTE' for update; select pg_sleep(4); commit;" >/dev/null 2>&1 ) &
-TRAVA=$!
-sleep 1
+q >/dev/null <<'SQL'
+create or replace function brain.teste_lento() returns trigger language plpgsql as $t$
+begin perform pg_sleep(1); return new; end $t$;
+create trigger trg_teste_lento before update on brain.opportunities
+ for each row execute function brain.teste_lento();
+SQL
 SAIDA=$(q -c "set statement_timeout = '400ms'; update public.quotes set status = 'sent' where id = '$QUOTE' returning status" 2>&1)
-wait $TRAVA
 STATUS=$(q -c "select status from public.quotes where id = '$QUOTE'")
+q >/dev/null <<'SQL'
+drop trigger if exists trg_teste_lento on brain.opportunities;
+drop function if exists brain.teste_lento();
+SQL
 if echo "$SAIDA" | grep -qi "statement timeout" && [ "$STATUS" = "draft" ]; then
-  echo " PT5b) OK (e este e o LIMITE): statement_timeout na ponte derrubou a venda — o orcamento ficou em '$STATUS'"
+  echo " PT5b) OK (e este e o LIMITE RESIDUAL): statement_timeout estourou dentro da ponte e a venda CAIU — o orcamento ficou em '$STATUS'"
 else
   echo " PT5b) FALHOU: status='$STATUS'"; echo "--- saida ---"; echo "$SAIDA"; exit 1
+fi
+
+echo "▶ PT5c: a ponte devolve o lock_timeout da sessao"
+preparar
+SAIDA=$(q -c "set lock_timeout = '7s'; update public.quotes set status = 'sent' where id = '$QUOTE'; show lock_timeout" 2>&1 | tail -1)
+if [ "$SAIDA" = "7s" ]; then
+  echo " PT5c) OK: lock_timeout da sessao continua 7s — a ponte usa o dela e devolve o seu"
+else
+  echo " PT5c) FALHOU: lock_timeout ficou em '$SAIDA'"; exit 1
 fi
 
 q >/dev/null <<SQL
@@ -99,4 +121,4 @@ delete from public.quotes where notes = 'PT4/PT5';
 delete from public.customers where id = '28282828-0000-4000-8000-0000000000c1';
 delete from auth.users where id = '28282828-0000-4000-8000-00000000cc01';
 SQL
-echo "✔ PT4 e PT5 concluidos"
+echo "✔ PT4, PT5, PT5b e PT5c concluidos"

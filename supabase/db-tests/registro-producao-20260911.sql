@@ -6,8 +6,11 @@
 -- estado REAL, não contra um estado imaginado. As nove linhas com
 -- versão `2026090914…` são o defeito que o script vem corrigir.
 --
--- `statements` não entra: o ensaio mede versão e nome, e carregar 200 KB
--- de SQL não provaria nada a mais.
+-- `statements` entra como um TRECHO: o ensaio precisa dele para exercer a
+-- conferência de conteúdo por marca, mas carregar os 200 KB de SQL real
+-- não provaria nada a mais. Para as nove linhas defeituosas guarda-se a
+-- marca de cada uma — o nome do objeto que só aquela migration cria, e
+-- que foi conferido presente em produção em 11/09 (leitura).
 -- ============================================================
 create schema if not exists supabase_migrations;
 
@@ -74,3 +77,20 @@ insert into supabase_migrations.schema_migrations (version, name) values
  ('20260909144344', '20260909110000_guards_onda2'),
  ('20260910151115', 'create_private_instagram_curator'),
  ('20260910151534', 'harden_private_instagram_curator');
+
+-- As nove linhas defeituosas, com a marca de conteúdo que o roteiro 01
+-- confere. Conferido em produção (leitura) em 11/09/2026: a marca de cada
+-- uma está presente no `statements` real.
+update supabase_migrations.schema_migrations set statements = array['-- trecho de ensaio: ' || m.marca]
+  from (values
+    ('20260909143542','suppliers'),
+    ('20260909143713','delete_customer'),
+    ('20260909143758','stock_movements'),
+    ('20260909143830','product_serials'),
+    ('20260909143930','purchase_items'),
+    ('20260909144028','financial_entries'),
+    ('20260909144051','remember_supplier_product'),
+    ('20260909144232','protect_quote_control_columns'),
+    ('20260909144344','block_purchase_item_move')
+  ) as m(v, marca)
+ where supabase_migrations.schema_migrations.version = m.v;

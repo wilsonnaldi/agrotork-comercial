@@ -77,6 +77,8 @@ const SUITES = [
   ["instagram_curator (baseline)", "26_instagram_curator.sql", /IC\d+\)|NOTICE/],
   ["BRAIN: o ERP volta a excluir", "27_brain_exclusoes.sql", /EX\d+\)|NOTICE/],
   ["BRAIN: pontes sob estresse", "28_brain_pontes.sql", /PT\d+[a-z]?\)|NOTICE/],
+  ["BRAIN: volatilidade e autoria", "29_brain_volatilidade.sql", /VL\d+\)|NOTICE/],
+  ["BRAIN: reconciliação comercial", "30_brain_reconciliacao.sql", /RC\d+\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {

@@ -1,5 +1,5 @@
 ▶ psql do host (/tmp:5437)
-▶ criando banco descartável agrotork_check_mtwfoos6
+▶ criando banco descartável agrotork_check_mtwjr8qe
 ▶ aplicando migrations
   ok 20260829000100_extensions.sql
   ok 20260829000200_enums_helpers.sql
@@ -57,6 +57,10 @@
   ok 20260911130000_brain_foundation.sql
   ok 20260911140000_brain_exclusoes.sql
   ok 20260911150000_brain_pontes.sql
+  ok 20260911160000_brain_volatilidade.sql
+  ok 20260911170000_brain_reconciliacao.sql
+  ok 20260911180000_brain_dependentes.sql
+  ok 20260911190000_brain_janela.sql
 ▶ regras de negócio
  1) profile criado por trigger | Admin Teste | admin
  2) margem calculada | P-001 |     100.00 |     150.00 |        50.0000
@@ -654,8 +658,21 @@
  PT1c) OK (e este e o LIMITE): cancelamento dentro da ponte derruba a venda — o orcamento ficou em draft
  PT2) OK: ingest_event quebrada; orcamento ORC-2026-0042 salvo, barramento sem o evento
  PT3) OK: o estagio da oportunidade falhou, o orcamento foi enviado do mesmo jeito (estagio segue em prospecting)
- PT6) OK: 2 venda(s) sem evento encontradas e repostas; a segunda reposicao nao duplicou nada
+ PT6) OK: 3 venda(s) sem evento encontradas e repostas; a segunda reposicao nao duplicou nada
  PT6b) OK: reposicao e lista de faltantes sao so do administrador
  PT7) OK: orcamento → pedido com total 250000.00 = evento 250000.00; oportunidade ganha; lead convertido; 3 eventos de orcamento
+▶ BRAIN: volatilidade e autoria
+ VL1) OK: plano em cache com argumento constante enxergou a remocao do perfil (antes 29292929 / depois nulo)
+ VL2) OK: so normalize_phone e normalize_identity sao immutable — as duas nao leem tabela
+ VL3) OK: mantem / ignora troca / ignora nulo com perfil vivo / aceita nulo com perfil ausente
+▶ BRAIN: reconciliação comercial
+ RC1) OK: 9 divergencia(s) em 6 tipos — estagio_atrasado, evento_ausente, lead_nao_convertido, pedido_nao_ligado, venda_desfeita, venda_nao_ganha
+ RC2) OK: reconciliado — evento_ausente=4, lead_nao_convertido=1, pedido_nao_ligado=1, venda_desfeita=1, venda_nao_ganha=1; relatorio zerado
+ RC3) OK: pedido cancelado — oportunidade em negotiation, nunca marcada como ganha
+ RC4) OK: oportunidade em lost continua em lost, e o lead dela nao foi convertido
+ RC5) OK: venda completa — oportunidade ganha, lead convertido, evento no barramento
+ RC6) OK: oportunidade ganha nao foi rebaixada pelo orcamento aprovado
+ RC7) OK: execucao seguinte corrigiu 0 e o md5 do CRM nao mudou (5d6e89c76bc8)
+ RC8) OK: reconciliar e ver divergencia sao so do administrador
 
 ✔ concluído sem falhas

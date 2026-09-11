@@ -1,0 +1,29 @@
+▶ R1: estado real de produção
+NOTICE:  database "ensaio_registro" does not exist, skipping
+  ✓ R1: 9 acertadas, 0 versões erradas, cópia com 53 linhas, total 53
+▶ R2: segunda execução na mesma base
+  ✓ R2: registro INTACTO (md5 f869d20107423769a0b0120b8bef9c96)
+▶ R10: as duas execuções deixaram DUAS cópias
+  ✓ R10: 2 cópias guardadas, nenhuma sobrescrita (a mais antiga com 53 linhas, o estado ORIGINAL)
+▶ R3: nome divergente na origem
+  ✓ R3: abortou com a mensagem certa
+  ✓ R3: registro INTACTO (md5 586a5718852c24fa20ec45bae7bae7e6)
+▶ R4: versão ausente
+  ✓ R4: abortou com a mensagem certa
+  ✓ R4: registro INTACTO (md5 f54904cdb5646d67fc4bf184c19e83e6)
+▶ R5: conflito — a versão de destino já ocupada
+  ✓ R5: abortou com a mensagem certa
+  ✓ R5: registro INTACTO (md5 424dd400a585d88c232d9ef230f44fad)
+▶ R7: conteúdo errado numa linha POR ACERTAR
+  ✓ R7: abortou — a linha tinha o corpo de outra migration
+  ✓ R7: registro INTACTO (md5 f5494ddbdc4a6282f0b922f06cd07ed2)
+▶ R8: conteúdo errado numa linha JÁ ACERTADA
+  ✓ R8: abortou mesmo com a versão já certa — rodar de novo confere de novo
+  ✓ R8: registro INTACTO (md5 f869d20107423769a0b0120b8bef9c96)
+▶ R9: statements vazio
+  ✓ R9: abortou — não dá para afirmar que é aquela migration
+  ✓ R9: registro INTACTO (md5 f5494ddbdc4a6282f0b922f06cd07ed2)
+▶ R6: registro remoto sem arquivo no Git
+  ✓ R6: abortou com a mensagem certa
+  ✓ R6: registro INTACTO (md5 2526f605631416eb73a371708fb29eaa)
+✔ reconciliação ensaiada nos 10 cenários

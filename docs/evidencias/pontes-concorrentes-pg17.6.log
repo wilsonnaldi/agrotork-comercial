@@ -1,0 +1,10 @@
+▶ PT4: a ponte tem lock_timeout proprio e nao espera o bloqueio sair
+ PT4) OK: a venda passou em 270ms — a ponte desistiu do bloqueio em 250ms em vez de esperar os 5s
+▶ PT5: lock_timeout — a espera vira 55P03, que OTHERS captura
+ PT5) OK: lock_timeout levanta lock_not_available (55P03), OTHERS capturou — a venda passou e o evento se perdeu
+      o quote.sent se perdeu e a reconciliacao acusa a venda como nao publicada
+▶ PT5b: statement_timeout DENTRO da ponte — 57014, e a venda cai
+ PT5b) OK (e este e o LIMITE RESIDUAL): statement_timeout estourou dentro da ponte e a venda CAIU — o orcamento ficou em 'draft'
+▶ PT5c: a ponte devolve o lock_timeout da sessao
+ PT5c) OK: lock_timeout da sessao continua 7s — a ponte usa o dela e devolve o seu
+✔ PT4, PT5, PT5b e PT5c concluidos

@@ -28,23 +28,30 @@ else
   echo "  ✗ divergiram: migration=$DA_MIGRATION cópia=$DA_COPIA"; FALHAS=$((FALHAS+1))
 fi
 
-echo "▶ 2. os roteiros aplicam migration por \\i, não por cópia"
-if grep -q '^\\i supabase/migrations/' supabase/operacao/02-aplicar-brain.sql; then
-  N=$(grep -c '^\\i supabase/migrations/' supabase/operacao/02-aplicar-brain.sql)
-  echo "  ✓ 02-aplicar-brain.sql inclui $N migration(s) por \\i"
+echo "▶ 2. o consolidado do deploy está em dia com o template e as migrations"
+bash supabase/operacao/gerar-consolidado.sh /tmp/02-regerado.sql >/dev/null
+if diff -q supabase/operacao/02-aplicar-brain.sql /tmp/02-regerado.sql >/dev/null; then
+  echo "  ✓ 02-aplicar-brain.sql é exatamente o que o gerador produz hoje"
 else
-  echo "  ✗ 02-aplicar-brain.sql não usa \\i"; FALHAS=$((FALHAS+1))
+  echo "  ✗ 02-aplicar-brain.sql divergiu — rode: bash supabase/operacao/gerar-consolidado.sh"
+  diff -u supabase/operacao/02-aplicar-brain.sql /tmp/02-regerado.sql | head -20
+  FALHAS=$((FALHAS+1))
 fi
-if grep -qE '^(create table|create or replace function) (brain|public)\.' supabase/operacao/02-aplicar-brain.sql; then
-  echo "  ✗ 02-aplicar-brain.sql tem DDL colado em vez de \\i"; FALHAS=$((FALHAS+1))
+echo "▶ 2b. nenhum roteiro usa \\i de migration (o caminho é o SQL Editor)"
+if grep -l '^\\i supabase/migrations/' supabase/operacao/*.sql 2>/dev/null | grep -q .; then
+  echo "  ✗ ainda há roteiro incluindo migration por \\i:"; grep -l '^\\i supabase/migrations/' supabase/operacao/*.sql
+  FALHAS=$((FALHAS+1))
 else
-  echo "  ✓ nenhum DDL de estrutura colado nos roteiros"
+  echo "  ✓ nenhum"
 fi
 
 echo "▶ 3. toda versão citada existe como arquivo"
-for v in $(grep -rhoE "202[0-9]{11}" supabase/operacao/*.sql | sort -u); do
+# O histórico é citado em comentário (a renumeração, as versões erradas
+# que o roteiro 01 corrige). Só as versões em CÓDIGO precisam de arquivo.
+for v in $(grep -rhoE "202[0-9]{11}" supabase/operacao/*.sql | grep -v '^2026090914' | sort -u); do
   case "$v" in
-    2026090914*) continue;;   # as versões ERRADAS, que o roteiro corrige
+    20260910120000) continue;;  # a versão ANTIGA da fundação, citada na
+                                # nota de renumeração — não é para existir
   esac
   if ! ls supabase/migrations/${v}_*.sql >/dev/null 2>&1; then
     echo "  ✗ $v citada nos roteiros e sem arquivo em supabase/migrations"; FALHAS=$((FALHAS+1))
