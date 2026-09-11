@@ -20,6 +20,14 @@ H="${PGHOST:-/tmp}"; P="${PGPORT:-5437}"; U="${PGUSER:-postgres}"
 q() { "$PSQL" -h "$H" -p "$P" -U "$U" -d "$DB" -v ON_ERROR_STOP=0 -At "$@"; }
 
 # A suíte 28 limpa a própria massa no fim, então este script monta a sua.
+# E as pontes nascem DESLIGADAS (20260911200000): este script existe para
+# medir a ponte, então liga as três e as devolve desligadas no fim.
+q >/dev/null <<'SQL'
+alter table public.quotes enable trigger trg_brain_quotes;
+alter table public.orders enable trigger trg_brain_orders;
+alter table public.orders enable trigger trg_brain_orders_created;
+SQL
+
 q >/dev/null <<'SQL'
 insert into auth.users (id, email, raw_user_meta_data)
  values ('28282828-0000-4000-8000-00000000cc01','conc.admin@teste.local','{"full_name":"Admin Concorrente","role":"admin"}')
@@ -122,3 +130,9 @@ delete from public.customers where id = '28282828-0000-4000-8000-0000000000c1';
 delete from auth.users where id = '28282828-0000-4000-8000-00000000cc01';
 SQL
 echo "✔ PT4, PT5, PT5b e PT5c concluidos"
+
+q >/dev/null <<'SQL'
+alter table public.quotes disable trigger trg_brain_quotes;
+alter table public.orders disable trigger trg_brain_orders;
+alter table public.orders disable trigger trg_brain_orders_created;
+SQL

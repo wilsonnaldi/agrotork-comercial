@@ -1,14 +1,15 @@
 # Operação do BRAIN — um caminho só
 
-Quatro roteiros, na ordem. Todos rodam **no SQL Editor do Supabase**,
+Três roteiros na ordem do deploy, mais dois de reversão. Todos rodam **no SQL Editor do Supabase**,
 colados inteiros, de uma vez.
 
 | Ordem | Arquivo | Quando |
 | --- | --- | --- |
 | 1 | `01-reconciliar-registro.sql` | antes de tudo, uma vez |
 | 2 | `02-aplicar-brain.sql` | o deploy |
-| 3 | `03-remover-brain-sem-dados.sql` | logo depois, se nada foi usado |
-| 4 | `04-incidente-com-dados.sql` | incidente com dado real dentro |
+| 3 | `05-agendar-reconciliacao.sql` | logo depois do 02, para ligar o cron |
+| — | `03-remover-brain-sem-dados.sql` | reversão, se nada foi usado |
+| — | `04-incidente-com-dados.sql` | incidente com dado real dentro |
 
 ## Por que SQL Editor, e só ele
 
@@ -62,6 +63,34 @@ select pid, state, wait_event_type, xact_start, left(query, 60)
  where state <> 'idle' and pid <> pg_backend_pid()
  order by xact_start;
 ```
+
+## Modo desacoplado
+
+O primeiro deploy entra com as **três pontes desabilitadas**: os gatilhos
+existem, e estão `DISABLE`. Nenhum código do BRAIN roda dentro da
+transação de orçamento ou de pedido.
+
+Quem liga o ERP ao BRAIN é o pg_cron, a cada minuto:
+
+```
+ERP confirma orçamento/pedido
+  → a transação comercial termina, sem nada do BRAIN dentro
+  → pg_cron chama brain.reconciliar_erp_periodico()
+  → divergencias_erp() acha o que falta
+  → reconciliar_erp() corrige
+  → o BRAIN recebe evento, vínculo e estágio
+  → a execução seguinte devolve relatório vazio
+```
+
+Conferir o estado das pontes a qualquer momento:
+
+```sql
+select * from brain.estado_das_pontes();   -- habilitado tem de ser false nos 3
+```
+
+Religar é uma migration nova com `alter table ... enable trigger`, não uma
+edição do arquivo — e só depois de a reconciliação periódica ter rodado
+tempo suficiente para se confiar nela.
 
 ## Depois de um período com a ponte desligada
 

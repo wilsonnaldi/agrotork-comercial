@@ -277,3 +277,8 @@ delete from public.quotes where customer_id in ('30303030-0000-4000-8000-0000000
 delete from public.products where code = 'RC-001';
 delete from public.customers where id in ('30303030-0000-4000-8000-0000000000c1','30303030-0000-4000-8000-0000000000c2','30303030-0000-4000-8000-0000000000c3');
 delete from auth.users where id in ('30303030-0000-4000-8000-000000000001','30303030-0000-4000-8000-000000000002');
+
+-- Devolve o estado de produção: pontes desligadas.
+alter table public.quotes disable trigger trg_brain_quotes;
+alter table public.orders disable trigger trg_brain_orders;
+alter table public.orders disable trigger trg_brain_orders_created;

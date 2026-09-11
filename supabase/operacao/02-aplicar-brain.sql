@@ -26,14 +26,27 @@
 --   · o schema `brain` ainda não existe;
 --   · nenhuma versão do BRAIN registrada.
 --
+-- ── MODO DESACOPLADO ────────────────────────────────────────
+--
+-- Este deploy entra com as TRÊS PONTES DESABILITADAS. Os gatilhos são
+-- criados (o código está aplicado e testado) e em seguida desligados por
+-- 20260911200000. Nenhum processamento do BRAIN acontece dentro da
+-- transação de orçamento ou de pedido.
+--
+-- A sincronização é periódica, por `brain.reconciliar_erp()` chamada
+-- pelo pg_cron a cada minuto. O passo de agendar o cron vem DEPOIS do
+-- COMMIT — ver supabase/operacao/05-agendar-reconciliacao.sql.
+--
 -- ── PÓS-CONDIÇÕES, conferidas aqui dentro ───────────────────
 --   · 9 tabelas, todas com RLS; view `journey_entries` security_invoker;
 --   · toda função com `search_path` vazio, nenhuma executável por `anon`,
 --     nenhuma `immutable` indevida;
---   · 3 gatilhos em `public`, todos AFTER;
+--   · 3 gatilhos em `public`, todos AFTER e todos DESABILITADOS;
 --   · `audit_capture()` no md5 esperado DEPOIS da mudança;
---   · fumaça COMPLETA — orçamento → pedido → oportunidade ganha → lead
---     convertido — e sem resíduo.
+--   · nenhum dado comercial existente alterado;
+--   · fumaça COMPLETA do fluxo DESACOPLADO — orçamento → pedido sem
+--     nenhum evento, reconciliação reproduzindo o fato, relatório vazio
+--     — e sem resíduo.
 --
 -- Falhou qualquer uma? A exceção aborta a transação, e o COMMIT lá
 -- embaixo é executado como ROLLBACK. Não há resgate: este roteiro não
@@ -66,7 +79,7 @@ begin
     raise exception 'instagram_curator ausente ou sem registro — o banco nao e o que a auditoria descreveu. PARADO.';
   end if;
 
-  if exists (select 1 from supabase_migrations.schema_migrations where version like '202609111%') then
+  if exists (select 1 from supabase_migrations.schema_migrations where version like '20260911%') then
     raise exception 'Alguma versao do BRAIN ja esta registrada — PARADO.';
   end if;
 
@@ -3322,11 +3335,531 @@ end;
 $$;
 
 
+-- ────────────────────────────────────────────────────────────
+-- INCLUIDO DE: supabase/migrations/20260911200000_brain_desacoplado.sql
+-- (gerado por supabase/operacao/gerar-consolidado.sh — nao edite aqui)
+-- ────────────────────────────────────────────────────────────
+-- ============================================================
+-- BRAIN — modo DESACOPLADO: as pontes nascem desligadas
+--
+-- Decisão de arquitetura tomada no GO condicionado de 11/09/2026: no
+-- primeiro deploy em produção, NENHUM processamento do BRAIN acontece
+-- dentro da transação de orçamento ou de pedido.
+--
+-- Os três gatilhos continuam EXISTINDO — o código está aplicado,
+-- revisado e testado — mas ficam `DISABLE`. A sincronização ERP → BRAIN
+-- passa a ser periódica:
+--
+--   ERP confirma orçamento/pedido
+--     → a transação comercial termina (sem nada do BRAIN dentro)
+--     → pg_cron chama brain.reconciliar_erp()
+--     → divergencias_erp() acha o que falta
+--     → reconciliar_erp() corrige
+--     → o BRAIN recebe evento, vínculo e estágio
+--     → a execução seguinte devolve relatório vazio
+--
+-- O preço é latência: o BRAIN sabe da venda no minuto seguinte, não no
+-- instante. O ganho é que o risco residual do `statement_timeout` — o
+-- único que sobrava depois de 20260911190000 — cai a ZERO, porque não há
+-- mais código do BRAIN dentro da transação comercial.
+--
+-- ── COMO RELIGAR, quando for a hora ─────────────────────────
+-- Não é editando este arquivo. É uma migration nova, com
+-- `alter table ... enable trigger`, depois de a reconciliação periódica
+-- ter rodado tempo suficiente para se confiar nela. Até lá, um banco
+-- montado do Git reproduz produção: pontes desligadas.
+-- ============================================================
+
+alter table public.quotes disable trigger trg_brain_quotes;
+alter table public.orders disable trigger trg_brain_orders;
+alter table public.orders disable trigger trg_brain_orders_created;
+
+-- ── A reconciliação precisa ser alcançável pelo pg_cron ─────
+-- `is_admin()` responde pelo JWT, e o pg_cron não tem JWT nenhum: roda
+-- como `postgres`, sem `auth.uid()`. `brain.is_privileged()` já sabe
+-- distinguir isso — ela é verdadeira para administrador, para o marcador
+-- interno e para papel de confiança sem JWT (postgres, service_role), e
+-- FALSA para `anon` e para vendedor autenticado.
+--
+-- Trocar `is_admin()` por `is_privileged()` nas duas funções é o que
+-- deixa o cron entrar sem abrir nada para quem não deve.
+
+create or replace function brain.divergencias_erp()
+returns table (
+  tipo          text,
+  entidade      text,
+  id            uuid,
+  numero        text,
+  situacao      text,
+  detalhe       text
+)
+language sql stable security definer set search_path = '' as $$
+  with permitido as (select brain.is_privileged() as pode),
+
+  ev_quote as (
+    select 'evento_ausente'::text, 'quote'::text, q.id, q.number::text, q.status::text,
+           'nenhum evento do ERP com status ' || q.status::text
+      from public.quotes q, permitido p
+     where p.pode and q.deleted_at is null
+       and not exists (select 1 from brain.events e
+                        where e.source = 'erp'
+                          and e.payload ->> 'quote_id' = q.id::text
+                          and e.payload ->> 'status'   = q.status::text)
+  ),
+  ev_order as (
+    select 'evento_ausente'::text, 'order'::text, o.id, o.number::text, o.status::text,
+           'nenhum evento do ERP com status ' || o.status::text
+      from public.orders o, permitido p
+     where p.pode and o.deleted_at is null
+       and not exists (select 1 from brain.events e
+                        where e.source = 'erp'
+                          and e.payload ->> 'order_id' = o.id::text
+                          and e.payload ->> 'status'   = o.status::text)
+  ),
+  estagio as (
+    select 'estagio_atrasado'::text, 'opportunity'::text, op.id, q.number::text, op.stage::text,
+           'orcamento em ' || q.status::text || ' e oportunidade em ' || op.stage::text
+      from brain.opportunities op
+      join public.quotes q on q.id = op.quote_id, permitido p
+     where p.pode and q.deleted_at is null
+       and op.stage not in ('won', 'lost')
+       and ((q.status = 'approved' and op.stage in ('prospecting', 'qualified', 'proposal'))
+         or (q.status = 'sent'     and op.stage in ('prospecting', 'qualified')))
+  ),
+  nao_ganha as (
+    select 'venda_nao_ganha'::text, 'opportunity'::text, op.id, o.number::text, op.stage::text,
+           'pedido em ' || o.status::text || ' e oportunidade em ' || op.stage::text
+      from public.orders o
+      join brain.opportunities op
+        on (op.order_id = o.id or (op.order_id is null and op.quote_id = o.quote_id)), permitido p
+     where p.pode and o.deleted_at is null and o.status <> 'cancelled'
+       and op.stage <> 'won' and op.stage <> 'lost'
+  ),
+  desfeita as (
+    select 'venda_desfeita'::text, 'opportunity'::text, op.id, o.number::text, op.stage::text,
+           'pedido cancelado e oportunidade ainda em won'
+      from public.orders o
+      join brain.opportunities op on op.order_id = o.id, permitido p
+     where p.pode and o.status = 'cancelled' and op.stage = 'won'
+  ),
+  sem_vinculo as (
+    select 'pedido_nao_ligado'::text, 'opportunity'::text, op.id, o.number::text, op.stage::text,
+           'oportunidade sem order_id apontando para o pedido'
+      from public.orders o
+      join brain.opportunities op on op.quote_id = o.quote_id, permitido p
+     where p.pode and o.deleted_at is null and o.status <> 'cancelled'
+       and op.order_id is null and op.stage <> 'lost'
+  ),
+  lead_parado as (
+    select 'lead_nao_convertido'::text, 'lead'::text, l.id, o.number::text, l.status::text,
+           'pedido vivo e lead em ' || l.status::text
+      from public.orders o
+      join brain.opportunities op
+        on (op.order_id = o.id or (op.order_id is null and op.quote_id = o.quote_id))
+      join brain.leads l on l.id = op.lead_id, permitido p
+     where p.pode and o.deleted_at is null and o.status <> 'cancelled'
+       and l.status <> 'converted' and l.status <> 'lost'
+       and op.stage <> 'lost'
+  )
+
+  select * from ev_quote
+  union all select * from ev_order
+  union all select * from estagio
+  union all select * from nao_ganha
+  union all select * from desfeita
+  union all select * from sem_vinculo
+  union all select * from lead_parado;
+$$;
+
+-- Só a porta de entrada muda; o corpo é o mesmo de 20260911170000.
+create or replace function brain.reconciliar_erp(p_limite integer default 500)
+returns table (
+  tipo       text,
+  corrigidas integer
+)
+language plpgsql security definer set search_path = '' as $$
+declare
+  r           record;
+  v_eventos   int := 0;
+  v_estagio   int := 0;
+  v_ganhas    int := 0;
+  v_desfeitas int := 0;
+  v_ligadas   int := 0;
+  v_leads     int := 0;
+  v_n         int;
+begin
+  if not brain.is_privileged() then
+    raise exception 'Somente administrador (ou o processo periodico) reconcilia o BRAIN com o ERP'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if p_limite is null or p_limite < 1 or p_limite > 5000 then
+    raise exception 'Limite fora da faixa (1 a 5000)';
+  end if;
+
+  perform pg_catalog.set_config('brain.internal', 'on', true);
+
+  update brain.opportunities op
+     set stage = 'negotiation'
+    from public.orders o
+   where op.order_id = o.id and o.status = 'cancelled' and op.stage = 'won';
+  get diagnostics v_desfeitas = row_count;
+
+  for r in
+    select o.id as pedido, o.customer_id, op.id as oportunidade, op.lead_id
+      from public.orders o
+      join brain.opportunities op
+        on (op.order_id = o.id or (op.order_id is null and op.quote_id = o.quote_id))
+     where o.deleted_at is null and o.status <> 'cancelled' and op.stage <> 'lost'
+     order by o.created_at
+     limit p_limite
+  loop
+    update brain.opportunities set order_id = r.pedido
+     where id = r.oportunidade and order_id is null;
+    get diagnostics v_n = row_count;  v_ligadas := v_ligadas + v_n;
+
+    update brain.opportunities
+       set stage = 'won', customer_id = coalesce(customer_id, r.customer_id)
+     where id = r.oportunidade and stage <> 'won';
+    get diagnostics v_n = row_count;  v_ganhas := v_ganhas + v_n;
+
+    if r.lead_id is not null then
+      update brain.leads
+         set status = 'converted',
+             converted_at = coalesce(converted_at, now()),
+             customer_id = coalesce(customer_id, r.customer_id)
+       where id = r.lead_id and status not in ('converted', 'lost');
+      get diagnostics v_n = row_count;  v_leads := v_leads + v_n;
+    end if;
+  end loop;
+
+  update brain.opportunities op
+     set stage = 'negotiation'
+    from public.quotes q
+   where q.id = op.quote_id and q.deleted_at is null and q.status = 'approved'
+     and op.stage in ('prospecting', 'qualified', 'proposal');
+  get diagnostics v_n = row_count;  v_estagio := v_estagio + v_n;
+
+  update brain.opportunities op
+     set stage = 'proposal'
+    from public.quotes q
+   where q.id = op.quote_id and q.deleted_at is null and q.status = 'sent'
+     and op.stage in ('prospecting', 'qualified');
+  get diagnostics v_n = row_count;  v_estagio := v_estagio + v_n;
+
+  for r in
+    select d.entidade, d.id, d.situacao
+      from brain.divergencias_erp() d
+     where d.tipo = 'evento_ausente'
+     limit p_limite
+  loop
+    if r.entidade = 'quote' then
+      perform brain.ingest_event(
+        case when r.situacao = 'draft' then 'quote.created' else 'quote.' || r.situacao end,
+        'erp',
+        (select jsonb_build_object('quote_id', q.id, 'number', q.number, 'status', q.status,
+                                   'total', q.total, 'owner_id', q.owner_id)
+           from public.quotes q where q.id = r.id),
+        'quote:' || r.id::text || ':reconciliacao:' || r.situacao,
+        (select q.updated_at from public.quotes q where q.id = r.id),
+        'salesperson',
+        (select op.lead_id from brain.opportunities op where op.quote_id = r.id order by op.created_at limit 1),
+        (select q.customer_id from public.quotes q where q.id = r.id),
+        (select op.id from brain.opportunities op where op.quote_id = r.id order by op.created_at limit 1),
+        null, null, null, null, 1,
+        jsonb_build_object('reconciliado_em', now(), 'reconciliado_por', (select auth.uid())));
+    else
+      perform brain.ingest_event(
+        case when r.situacao = 'draft' then 'order.created' else 'order.' || r.situacao end,
+        'erp',
+        (select jsonb_build_object('order_id', o.id, 'number', o.number, 'status', o.status,
+                                   'total', o.total, 'quote_id', o.quote_id, 'owner_id', o.owner_id)
+           from public.orders o where o.id = r.id),
+        'order:' || r.id::text || ':reconciliacao:' || r.situacao,
+        (select o.updated_at from public.orders o where o.id = r.id),
+        'salesperson',
+        (select op.lead_id from brain.opportunities op where op.order_id = r.id order by op.created_at limit 1),
+        (select o.customer_id from public.orders o where o.id = r.id),
+        (select op.id from brain.opportunities op where op.order_id = r.id order by op.created_at limit 1),
+        null, null, null, null, 1,
+        jsonb_build_object('reconciliado_em', now(), 'reconciliado_por', (select auth.uid())));
+    end if;
+    v_eventos := v_eventos + 1;
+  end loop;
+
+  perform pg_catalog.set_config('brain.internal', 'off', true);
+
+  return query
+    select * from (values
+      ('evento_ausente',      v_eventos),
+      ('estagio_atrasado',    v_estagio),
+      ('venda_nao_ganha',     v_ganhas),
+      ('venda_desfeita',      v_desfeitas),
+      ('pedido_nao_ligado',   v_ligadas),
+      ('lead_nao_convertido', v_leads)
+    ) as t(tipo, corrigidas);
+exception when others then
+  perform pg_catalog.set_config('brain.internal', 'off', true);
+  raise;
+end;
+$$;
+
+revoke execute on function brain.divergencias_erp()          from public, anon;
+revoke execute on function brain.reconciliar_erp(integer)    from public, anon;
+grant  execute on function brain.divergencias_erp()          to authenticated, service_role;
+grant  execute on function brain.reconciliar_erp(integer)    to authenticated, service_role;
+
+-- ── O que o pg_cron chama ───────────────────────────────────
+-- Uma função sem argumento, que engole a própria falha: se a
+-- reconciliação quebrar, o job NÃO pode ficar em estado de erro
+-- permanente nem poluir o log a cada minuto. Ela registra o problema
+-- como `warning` e devolve o total corrigido (ou -1 quando falhou), e a
+-- execução seguinte tenta de novo.
+--
+-- Isto NÃO é a ponte: roda na sessão do pg_cron, fora de qualquer
+-- transação comercial. Uma falha aqui não tem como tocar num orçamento.
+
+create or replace function brain.reconciliar_erp_periodico()
+returns integer language plpgsql security definer set search_path = '' as $$
+declare v_total integer := 0; r record;
+begin
+  for r in select * from brain.reconciliar_erp(500) loop
+    v_total := v_total + r.corrigidas;
+  end loop;
+  return v_total;
+exception when others then
+  raise warning '[brain-reconciliacao] falhou: % (%)', sqlerrm, sqlstate;
+  return -1;
+end;
+$$;
+
+revoke execute on function brain.reconciliar_erp_periodico() from public, anon, authenticated;
+grant  execute on function brain.reconciliar_erp_periodico() to service_role;
+
+comment on function brain.reconciliar_erp_periodico() is
+  'Ponto de entrada do pg_cron. Roda fora de qualquer transacao comercial; se falhar, registra warning e devolve -1, e o minuto seguinte tenta de novo.';
+
+-- ── Quem está ligado, para conferir de fora ─────────────────
+create or replace function brain.estado_das_pontes()
+returns table (gatilho text, tabela text, habilitado boolean, estado "char")
+language sql stable security definer set search_path = '' as $$
+  select t.tgname::text, c.relname::text, t.tgenabled <> 'D', t.tgenabled
+    from pg_catalog.pg_trigger t
+    join pg_catalog.pg_class c on c.oid = t.tgrelid
+   where t.tgname in ('trg_brain_quotes', 'trg_brain_orders', 'trg_brain_orders_created');
+$$;
+
+revoke execute on function brain.estado_das_pontes() from public, anon;
+grant  execute on function brain.estado_das_pontes() to authenticated, service_role;
+
+comment on function brain.estado_das_pontes() is
+  'Estado dos tres gatilhos da ponte ERP -> BRAIN. No modo desacoplado, os tres tem de vir habilitado = false.';
+
+
+-- ────────────────────────────────────────────────────────────
+-- INCLUIDO DE: supabase/migrations/20260911210000_brain_fidelidade.sql
+-- (gerado por supabase/operacao/gerar-consolidado.sh — nao edite aqui)
+-- ────────────────────────────────────────────────────────────
+-- ════════════════════════════════════════════════════════════
+-- BRAIN — fidelidade do nome do evento reposto
+-- ════════════════════════════════════════════════════════════
+-- O ensaio do deploy em modo desacoplado pegou uma divergência REAL
+-- entre os dois caminhos que publicam o mesmo fato:
+--
+--   ponte (síncrona)  INSERT em `public.orders` → `order.created`
+--   reconciliação     pedido novo               → `order.confirmed`
+--
+-- O nome vinha do status, e o status de nascimento de um pedido é
+-- `confirmed` — `draft` nem existe em `public.order_status`, é status
+-- de orçamento. Resultado: `order.created` NUNCA sairia pela
+-- reconciliação. Com as pontes desligadas em produção, o BRAIN passaria
+-- a receber um histórico com nomes diferentes dos que a ponte produz, e
+-- quem for consumir esses eventos na Fase 2 leria dois vocabulários
+-- para o mesmo fato.
+--
+-- A regra passa a ser a da ponte, e não a do status:
+--
+--   entidade SEM nenhum evento do ERP  →  `X.created`   (é o nascimento)
+--   entidade COM evento do ERP         →  `X.<status>`  (é uma mudança)
+--
+-- Um pedido nascido e ainda `confirmed` recebe `order.created`, igual à
+-- ponte. Um pedido que já tem evento e foi para `invoiced` recebe
+-- `order.invoiced`, igual à ponte. Um orçamento que nasceu e já foi
+-- para `sent` sem nenhum evento recebe `quote.created` carregando o
+-- estado atual: o nascimento é o fato mais antigo que faltou, e o
+-- `payload` diz a verdade de agora. O evento sai marcado com
+-- `reconciliado_em` no metadado — é uma reconstrução, e está dito.
+--
+-- Idempotência: a chave de deduplicação passa a carregar o nome do
+-- evento além do status, então rodar de novo não duplica nada, e o
+-- relatório seguinte volta vazio porque `divergencias_erp()` compara
+-- `payload ->> 'status'`, que o evento reposto carrega correto nos dois
+-- casos.
+--
+-- Não mexe em ponte, não religa nada, não toca em dado comercial.
+
+create or replace function brain.nome_do_evento_erp(
+  p_entidade text, p_id uuid, p_situacao text)
+returns text language sql stable security definer set search_path = '' as $$
+  select case
+    when exists (select 1 from brain.events e
+                  where e.source = 'erp'
+                    and e.payload ->> (p_entidade || '_id') = p_id::text)
+    then p_entidade || '.' || p_situacao
+    else p_entidade || '.created'
+  end;
+$$;
+
+revoke execute on function brain.nome_do_evento_erp(text, uuid, text) from public, anon;
+grant  execute on function brain.nome_do_evento_erp(text, uuid, text) to authenticated, service_role;
+
+comment on function brain.nome_do_evento_erp(text, uuid, text) is
+  'Nome do evento que a ponte teria publicado: X.created quando a entidade nao tem nenhum evento do ERP (e o nascimento), X.<status> quando ja tem.';
+
+create or replace function brain.reconciliar_erp(p_limite integer default 500)
+returns table (
+  tipo       text,
+  corrigidas integer
+)
+language plpgsql security definer set search_path = '' as $$
+declare
+  r           record;
+  v_eventos   int := 0;
+  v_estagio   int := 0;
+  v_ganhas    int := 0;
+  v_desfeitas int := 0;
+  v_ligadas   int := 0;
+  v_leads     int := 0;
+  v_n         int;
+begin
+  if not brain.is_privileged() then
+    raise exception 'Somente administrador (ou o processo periodico) reconcilia o BRAIN com o ERP'
+      using errcode = 'insufficient_privilege';
+  end if;
+  if p_limite is null or p_limite < 1 or p_limite > 5000 then
+    raise exception 'Limite fora da faixa (1 a 5000)';
+  end if;
+
+  perform pg_catalog.set_config('brain.internal', 'on', true);
+
+  update brain.opportunities op
+     set stage = 'negotiation'
+    from public.orders o
+   where op.order_id = o.id and o.status = 'cancelled' and op.stage = 'won';
+  get diagnostics v_desfeitas = row_count;
+
+  for r in
+    select o.id as pedido, o.customer_id, op.id as oportunidade, op.lead_id
+      from public.orders o
+      join brain.opportunities op
+        on (op.order_id = o.id or (op.order_id is null and op.quote_id = o.quote_id))
+     where o.deleted_at is null and o.status <> 'cancelled' and op.stage <> 'lost'
+     order by o.created_at
+     limit p_limite
+  loop
+    update brain.opportunities set order_id = r.pedido
+     where id = r.oportunidade and order_id is null;
+    get diagnostics v_n = row_count;  v_ligadas := v_ligadas + v_n;
+
+    update brain.opportunities
+       set stage = 'won', customer_id = coalesce(customer_id, r.customer_id)
+     where id = r.oportunidade and stage <> 'won';
+    get diagnostics v_n = row_count;  v_ganhas := v_ganhas + v_n;
+
+    if r.lead_id is not null then
+      update brain.leads
+         set status = 'converted',
+             converted_at = coalesce(converted_at, now()),
+             customer_id = coalesce(customer_id, r.customer_id)
+       where id = r.lead_id and status not in ('converted', 'lost');
+      get diagnostics v_n = row_count;  v_leads := v_leads + v_n;
+    end if;
+  end loop;
+
+  update brain.opportunities op
+     set stage = 'negotiation'
+    from public.quotes q
+   where q.id = op.quote_id and q.deleted_at is null and q.status = 'approved'
+     and op.stage in ('prospecting', 'qualified', 'proposal');
+  get diagnostics v_n = row_count;  v_estagio := v_estagio + v_n;
+
+  update brain.opportunities op
+     set stage = 'proposal'
+    from public.quotes q
+   where q.id = op.quote_id and q.deleted_at is null and q.status = 'sent'
+     and op.stage in ('prospecting', 'qualified');
+  get diagnostics v_n = row_count;  v_estagio := v_estagio + v_n;
+
+  for r in
+    select d.entidade, d.id, d.situacao
+      from brain.divergencias_erp() d
+     where d.tipo = 'evento_ausente'
+     limit p_limite
+  loop
+    if r.entidade = 'quote' then
+      perform brain.ingest_event(
+        brain.nome_do_evento_erp('quote', r.id, r.situacao),
+        'erp',
+        (select jsonb_build_object('quote_id', q.id, 'number', q.number, 'status', q.status,
+                                   'total', q.total, 'owner_id', q.owner_id)
+           from public.quotes q where q.id = r.id),
+        'quote:' || r.id::text || ':reconciliacao:'
+          || brain.nome_do_evento_erp('quote', r.id, r.situacao) || ':' || r.situacao,
+        (select q.updated_at from public.quotes q where q.id = r.id),
+        'salesperson',
+        (select op.lead_id from brain.opportunities op where op.quote_id = r.id order by op.created_at limit 1),
+        (select q.customer_id from public.quotes q where q.id = r.id),
+        (select op.id from brain.opportunities op where op.quote_id = r.id order by op.created_at limit 1),
+        null, null, null, null, 1,
+        jsonb_build_object('reconciliado_em', now(), 'reconciliado_por', (select auth.uid())));
+    else
+      perform brain.ingest_event(
+        brain.nome_do_evento_erp('order', r.id, r.situacao),
+        'erp',
+        (select jsonb_build_object('order_id', o.id, 'number', o.number, 'status', o.status,
+                                   'total', o.total, 'quote_id', o.quote_id, 'owner_id', o.owner_id)
+           from public.orders o where o.id = r.id),
+        'order:' || r.id::text || ':reconciliacao:'
+          || brain.nome_do_evento_erp('order', r.id, r.situacao) || ':' || r.situacao,
+        (select o.updated_at from public.orders o where o.id = r.id),
+        'salesperson',
+        (select op.lead_id from brain.opportunities op where op.order_id = r.id order by op.created_at limit 1),
+        (select o.customer_id from public.orders o where o.id = r.id),
+        (select op.id from brain.opportunities op where op.order_id = r.id order by op.created_at limit 1),
+        null, null, null, null, 1,
+        jsonb_build_object('reconciliado_em', now(), 'reconciliado_por', (select auth.uid())));
+    end if;
+    v_eventos := v_eventos + 1;
+  end loop;
+
+  perform pg_catalog.set_config('brain.internal', 'off', true);
+
+  return query
+    select * from (values
+      ('evento_ausente',      v_eventos),
+      ('estagio_atrasado',    v_estagio),
+      ('venda_nao_ganha',     v_ganhas),
+      ('venda_desfeita',      v_desfeitas),
+      ('pedido_nao_ligado',   v_ligadas),
+      ('lead_nao_convertido', v_leads)
+    ) as t(tipo, corrigidas);
+exception when others then
+  perform pg_catalog.set_config('brain.internal', 'off', true);
+  raise;
+end;
+$$;
+
+revoke execute on function brain.reconciliar_erp(integer) from public, anon;
+grant  execute on function brain.reconciliar_erp(integer) to authenticated, service_role;
+
+comment on function brain.reconciliar_erp(integer) is
+  'Poe o BRAIN de acordo com o ERP: evento (com o nome que a ponte teria dado), estagio, venda ganha, venda desfeita, vinculo do pedido e conversao do lead. Nao atropela decisao humana (lost fica lost) e rodar duas vezes nao muda nada.';
+
+
 -- ── Pós-condições estruturais ───────────────────────────────
 do $$
 declare
   v_tab int; v_rls int; v_pol int; v_fun int; v_sem_sp int; v_anon int;
-  v_imut text; v_trig int; v_after int; v_view text; v_md5 text; v_canais int;
+  v_imut text; v_trig int; v_after int; v_ligados int; v_view text; v_md5 text; v_canais int;
 begin
   select count(*) into v_tab from pg_class c join pg_namespace n on n.oid = c.relnamespace
    where n.nspname = 'brain' and c.relkind = 'r';
@@ -3349,6 +3882,8 @@ begin
   select count(*) into v_trig from pg_trigger where tgname like 'trg_brain%';
   select count(*) into v_after from pg_trigger
    where tgname like 'trg_brain%' and (tgtype::int & 2) = 0;
+  select count(*) into v_ligados from pg_trigger
+   where tgname like 'trg_brain%' and tgenabled <> 'D';
   select count(*) into v_canais from brain.channels;
 
   if v_tab <> 9     then raise exception 'Esperava 9 tabelas no brain, vieram % — PARADO.', v_tab; end if;
@@ -3367,6 +3902,10 @@ begin
   end if;
   if v_trig <> 3    then raise exception 'Esperava 3 gatilhos do brain em public, vieram % — PARADO.', v_trig; end if;
   if v_after <> 3   then raise exception 'Algum gatilho do brain em public nao e AFTER — PARADO.'; end if;
+  -- MODO DESACOPLADO: existem, e estao desligados.
+  if v_ligados <> 0 then
+    raise exception 'MODO DESACOPLADO violado: % ponte(s) HABILITADA(S). Nenhum codigo do BRAIN pode rodar dentro da transacao comercial — PARADO.', v_ligados;
+  end if;
   if v_canais <> 12 then raise exception 'Esperava 12 canais semeados, vieram % — PARADO.', v_canais; end if;
 
   select md5(pg_get_functiondef(p.oid)) into v_md5
@@ -3376,29 +3915,52 @@ begin
     raise exception 'audit_capture() ficou em md5 % e o ensaio em PostgreSQL 17.6 deu ee2f5cd583295c30fbe64eb81eec2d9e — PARADO.', v_md5;
   end if;
 
-  raise notice 'Estrutura conferida: 9 tabelas com RLS, % policies, % funcoes, 3 gatilhos AFTER, 12 canais, audit_capture no md5 do ensaio.',
+  raise notice 'Estrutura conferida: 9 tabelas com RLS, % policies, % funcoes, 3 gatilhos AFTER e DESABILITADOS, 12 canais, audit_capture no md5 do ensaio.',
     v_pol, v_fun;
 end
 $$;
 
--- ── Fumaça COMPLETA, e sem resíduo ──────────────────────────
--- Exercita o caminho inteiro: lead → orçamento → itens → enviado →
--- aprovado → PEDIDO → gatilho diferido forçado → oportunidade ganha →
--- lead convertido. Depois desfaz tudo, evento incluído.
+-- ── Fotografia do comercial, ANTES ──────────────────────────
+-- Nenhum dado comercial existente pode ser alterado por este deploy. A
+-- prova é o md5 do conteúdo das tabelas de negócio, tirado agora e
+-- conferido no fim.
+create temporary table deploy_comercial_antes on commit drop as
+select 'customers'         as tabela, md5(coalesce(string_agg(t::text, '|' order by t::text), '')) as retrato from public.customers t
+union all select 'products',          md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.products t
+union all select 'quotes',            md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.quotes t
+union all select 'quote_items',       md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.quote_items t
+union all select 'orders',            md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.orders t
+union all select 'order_items',       md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.order_items t
+union all select 'stock_movements',   md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.stock_movements t
+union all select 'financial_entries', md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.financial_entries t
+union all select 'purchases',         md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.purchases t;
+
+-- ── Fumaça do fluxo DESACOPLADO, e sem resíduo ──────────────
+-- Exercita o caminho que produção vai usar de verdade:
 --
--- Num bloco só, de propósito: sem `savepoint`, porque `rollback to
--- savepoint` RESGATA uma transação abortada e uma fumaça que falhasse
--- deixaria de impedir o COMMIT.
+--   1. o ERP faz a venda inteira — orçamento, itens, enviado, aprovado,
+--      pedido — e o BRAIN NÃO é tocado: zero eventos, oportunidade
+--      parada, lead não convertido. É isso que "desacoplado" significa;
+--   2. `divergencias_erp()` enxerga o que ficou para trás;
+--   3. `reconciliar_erp()` reproduz o fato: evento, vínculo, venda
+--      ganha, lead convertido;
+--   4. `divergencias_erp()` volta VAZIO;
+--   5. desfaz tudo, evento incluído, e prova que sobrou zero.
+--
+-- Num bloco só, sem `savepoint`: `rollback to savepoint` RESGATA uma
+-- transação abortada, e uma fumaça que falhasse deixaria de impedir o
+-- COMMIT. Aqui, qualquer assertiva que falhe aborta e o COMMIT lá
+-- embaixo é executado como ROLLBACK.
 --
 -- O que sobra em produção depois desta fumaça: as linhas de
--- `public.audit_log` que ela gerou. É append-only por projeto e não se
--- apaga — e é correto que o log registre que a fumaça aconteceu.
+-- `public.audit_log` que ela gerou. É append-only por projeto — e é
+-- correto que o log registre que a fumaça aconteceu.
 do $$
 declare
   v_cli uuid; v_admin uuid; v_unidade uuid;
   v_lead uuid; v_quote uuid; v_order uuid; v_prod uuid; v_opp uuid;
   v_total numeric; v_evento numeric;
-  v_sobrou int;
+  v_div int; v_sobrou int; r record; v_corrigidas int := 0;
 begin
   select id into v_cli   from public.customers where deleted_at is null order by created_at limit 1;
   select id into v_admin from public.profiles  where role = 'admin'     order by created_at limit 1;
@@ -3411,6 +3973,7 @@ begin
    values ('FUMACA-DEPLOY', 'Produto da fumaca (sera apagado)', v_unidade, 1000.00)
    returning id into v_prod;
 
+  -- O lead e a oportunidade são do CRM, não do ERP: entram direto.
   select lead_id into v_lead
     from brain.find_or_create_lead('Fumaca do deploy (sera apagada)', null, null, null, 'other');
   if v_lead is null then raise exception 'find_or_create_lead nao devolveu lead — PARADO.'; end if;
@@ -3429,40 +3992,71 @@ begin
 
   v_order := public.create_order_from_quote(v_quote);
 
-  -- O gatilho do pedido é `deferrable initially deferred`: sem isto ele
-  -- só rodaria no COMMIT, e as assertivas abaixo não veriam nada.
+  -- ── 1. Com as pontes desligadas, o BRAIN não soube de nada ─
+  -- `set constraints` continua aqui de propósito: se alguém religar a
+  -- ponte do pedido, o gatilho diferido dispararia AQUI e a assertiva
+  -- abaixo pegaria — é a rede de segurança do modo desacoplado.
   execute 'set constraints public.trg_brain_orders_created immediate';
 
   select total into v_total from public.orders where id = v_order;
+  if (select count(*) from brain.events) <> 0 then
+    raise exception 'MODO DESACOPLADO violado: a ponte publicou % evento(s) dentro da transacao comercial — PARADO.',
+      (select count(*) from brain.events);
+  end if;
+  if (select stage from brain.opportunities where id = v_opp) <> 'prospecting' then
+    raise exception 'MODO DESACOPLADO violado: a oportunidade mudou de estagio dentro da transacao comercial — PARADO.';
+  end if;
+  if (select status from brain.leads where id = v_lead) = 'converted' then
+    raise exception 'MODO DESACOPLADO violado: o lead foi convertido dentro da transacao comercial — PARADO.';
+  end if;
+
+  raise notice 'Fumaca 1/4: venda concluida (pedido %, total %) SEM nenhum evento no BRAIN — as pontes estao mesmo desligadas.',
+    (select number from public.orders where id = v_order), v_total;
+
+  -- ── 2. O relatório enxerga o que ficou para trás ───────────
+  select count(*) into v_div from brain.divergencias_erp();
+  if v_div = 0 then
+    raise exception 'A reconciliacao nao viu a venda que acabou de acontecer — PARADO.';
+  end if;
+  raise notice 'Fumaca 2/4: divergencias_erp() acusou % pendencia(s).', v_div;
+
+  -- ── 3. A reconciliação reproduz o fato ────────────────────
+  for r in select * from brain.reconciliar_erp() loop
+    v_corrigidas := v_corrigidas + r.corrigidas;
+  end loop;
+
   select (payload ->> 'total')::numeric into v_evento
     from brain.events where event_name = 'order.created' and payload ->> 'order_id' = v_order::text;
 
   if v_evento is null then
-    raise exception 'A ponte nao publicou order.created — PARADO.';
+    raise exception 'A reconciliacao nao publicou order.created — PARADO.';
   end if;
   if v_evento <> v_total then
     raise exception 'Evento com total % e pedido com total % — PARADO.', v_evento, v_total;
   end if;
   if (select stage from brain.opportunities where id = v_opp) <> 'won' then
-    raise exception 'A oportunidade nao foi ganha (%) — PARADO.',
+    raise exception 'A reconciliacao nao marcou a venda como ganha (%) — PARADO.',
       (select stage from brain.opportunities where id = v_opp);
   end if;
   if (select status from brain.leads where id = v_lead) <> 'converted' then
-    raise exception 'O lead nao foi convertido (%) — PARADO.',
+    raise exception 'A reconciliacao nao converteu o lead (%) — PARADO.',
       (select status from brain.leads where id = v_lead);
   end if;
-  if (select count(*) from brain.events where payload ->> 'quote_id' = v_quote::text
-        and event_name in ('quote.created','quote.sent','quote.approved')) <> 3 then
-    raise exception 'Faltou evento de orcamento no caminho — PARADO.';
+  if (select order_id from brain.opportunities where id = v_opp) is distinct from v_order then
+    raise exception 'A reconciliacao nao ligou o pedido a oportunidade — PARADO.';
   end if;
 
-  raise notice 'Fumaca: orcamento → pedido % com total % = evento %; oportunidade ganha; lead convertido.',
-    (select number from public.orders where id = v_order), v_total, v_evento;
+  raise notice 'Fumaca 3/4: reconciliacao corrigiu % coisa(s) — evento com total % = pedido, venda ganha, lead convertido, pedido ligado.',
+    v_corrigidas, v_evento;
+
+  -- ── 4. O relatório volta vazio ────────────────────────────
+  select count(*) into v_div from brain.divergencias_erp();
+  if v_div <> 0 then
+    raise exception 'Depois de reconciliar ainda sobraram % divergencia(s) — PARADO.', v_div;
+  end if;
+  raise notice 'Fumaca 4/4: divergencias_erp() vazio.';
 
   -- ── Desfazer, tudo ────────────────────────────────────────
-  -- Os eventos são append-only por gatilho. Aqui o gatilho sai por um
-  -- instante, dentro da MESMA transação: se qualquer coisa falhar, o
-  -- ROLLBACK devolve o gatilho junto.
   alter table brain.events disable trigger trg_events_immutable;
   delete from brain.events
    where payload ->> 'quote_id' = v_quote::text or payload ->> 'order_id' = v_order::text;
@@ -3476,7 +4070,6 @@ begin
   delete from brain.leads         where id = v_lead;
   delete from public.products     where id = v_prod;
 
-  -- ── Provar que não sobrou nada ────────────────────────────
   select (select count(*) from brain.leads)
        + (select count(*) from brain.identities)
        + (select count(*) from brain.interactions)
@@ -3502,6 +4095,32 @@ begin
 end
 $$;
 
+-- ── O comercial não mudou ───────────────────────────────────
+do $$
+declare v_dif text;
+begin
+  with agora as (
+    select 'customers' as tabela, md5(coalesce(string_agg(t::text, '|' order by t::text), '')) as retrato from public.customers t
+    union all select 'products',          md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.products t
+    union all select 'quotes',            md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.quotes t
+    union all select 'quote_items',       md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.quote_items t
+    union all select 'orders',            md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.orders t
+    union all select 'order_items',       md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.order_items t
+    union all select 'stock_movements',   md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.stock_movements t
+    union all select 'financial_entries', md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.financial_entries t
+    union all select 'purchases',         md5(coalesce(string_agg(t::text, '|' order by t::text), '')) from public.purchases t
+  )
+  select string_agg(a.tabela, ', ') into v_dif
+    from deploy_comercial_antes a join agora g on g.tabela = a.tabela
+   where a.retrato is distinct from g.retrato;
+
+  if v_dif is not null then
+    raise exception 'O deploy ALTEROU dado comercial em: % — PARADO.', v_dif;
+  end if;
+  raise notice 'Dado comercial intacto: as 9 tabelas de negocio com o mesmo retrato de antes do deploy.';
+end
+$$;
+
 -- ── Registro, no mesmo COMMIT da aplicação ──────────────────
 insert into supabase_migrations.schema_migrations (version, name) values
  ('20260911130000', 'brain_foundation'),
@@ -3510,13 +4129,19 @@ insert into supabase_migrations.schema_migrations (version, name) values
  ('20260911160000', 'brain_volatilidade'),
  ('20260911170000', 'brain_reconciliacao'),
  ('20260911180000', 'brain_dependentes'),
- ('20260911190000', 'brain_janela');
+ ('20260911190000', 'brain_janela'),
+ ('20260911200000', 'brain_desacoplado'),
+ ('20260911210000', 'brain_fidelidade');
 
 do $$
 begin
+  -- Lista explícita: `like '202609111%'` não pegava 20260911200000 nem
+  -- 20260911210000, e o número conferido seria sempre o errado.
   if (select count(*) from supabase_migrations.schema_migrations
-       where version like '202609111%') <> 7 then
-    raise exception 'O registro das sete versoes do BRAIN nao fechou — PARADO.';
+       where version in ('20260911130000','20260911140000','20260911150000',
+                         '20260911160000','20260911170000','20260911180000',
+                         '20260911190000','20260911200000','20260911210000')) <> 9 then
+    raise exception 'O registro das nove versoes do BRAIN nao fechou — PARADO.';
   end if;
   if exists (select 1 from brain.divergencias_erp()) then
     raise exception 'O relatorio de divergencias ja nasce com pendencia — PARADO.';

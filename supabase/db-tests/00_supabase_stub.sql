@@ -115,3 +115,50 @@ begin
     'select string_to_array(regexp_replace(name, ''/[^/]*$'', ''''), ''/'')'
   $fn$;
 end $$;
+
+-- ── pg_cron de mentira, só para ensaiar o agendamento ───────
+-- O `pg_cron` de verdade precisa de `shared_preload_libraries` e não
+-- existe neste PostgreSQL descartável. O ensaio de
+-- supabase/operacao/05-agendar-reconciliacao.sql não é sobre o
+-- escalonador — é sobre a LÓGICA do roteiro: pré-condições, remover o
+-- agendamento anterior antes de criar o novo, e as pós-condições.
+--
+-- Em produção quem responde é o pg_cron real; aqui responde isto. A
+-- diferença está registrada no relatório, e a execução de verdade é
+-- conferida em `cron.job_run_details`, que só existe lá.
+create schema if not exists cron;
+
+create table if not exists cron.job (
+  jobid    bigint generated always as identity primary key,
+  schedule text not null,
+  command  text not null,
+  nodename text not null default 'localhost',
+  nodeport integer not null default 5432,
+  database text not null default current_database(),
+  username text not null default current_user,
+  active   boolean not null default true,
+  jobname  text unique
+);
+
+create or replace function cron.schedule(p_jobname text, p_schedule text, p_command text)
+returns bigint language sql as $$
+  insert into cron.job (schedule, command, jobname) values (p_schedule, p_command, p_jobname)
+  returning jobid;
+$$;
+
+create or replace function cron.unschedule(p_jobname text)
+returns boolean language sql as $$
+  delete from cron.job where jobname = p_jobname returning true;
+$$;
+
+-- `pg_extension` não aceita linha nova sem a extensão; o roteiro confere
+-- a presença por `pg_extension`, então no ensaio ele é informado por uma
+-- view que soma as duas coisas. Em produção a extensão existe de fato.
+do $$
+begin
+  if not exists (select 1 from pg_extension where extname = 'pg_cron') then
+    -- Marca para o ensaio: a tabela existe, a extensão não.
+    execute 'comment on schema cron is ''stub de ensaio — nao e o pg_cron real''';
+  end if;
+end
+$$;

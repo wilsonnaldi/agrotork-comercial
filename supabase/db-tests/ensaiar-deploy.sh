@@ -51,11 +51,17 @@ echo "▶ D1: aplicar"
 montar_pre_brain
 SAIDA=$(q -f supabase/operacao/02-aplicar-brain.sql 2>&1)
 TAB=$(q -c "select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='brain' and c.relkind='r'")
-REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '202609111%'")
+REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
 SUJEIRA=$(q -c "select (select count(*) from brain.leads) + (select count(*) from brain.events) + (select count(*) from public.quotes) + (select count(*) from public.orders) + (select count(*) from public.products where code = 'FUMACA-DEPLOY')")
-if [ "$TAB" = "9" ] && [ "$REG" = "7" ] && [ "$SUJEIRA" = "0" ]; then
-  ok "D1: 9 tabelas, 7 versões registradas, 0 resíduo de fumaça"
-  echo "$SAIDA" | grep -q "oportunidade ganha; lead convertido" && ok "D1: a fumaça foi até pedido, oportunidade ganha e lead convertido" || nok "D1: a fumaça não completou o fluxo"
+if [ "$TAB" = "9" ] && [ "$REG" = "9" ] && [ "$SUJEIRA" = "0" ]; then
+  ok "D1: 9 tabelas, 8 versões registradas, 0 resíduo de fumaça"
+  echo "$SAIDA" | grep -q "SEM nenhum evento no BRAIN" && ok "D1: a venda passou sem tocar no BRAIN (pontes desligadas)" || nok "D1: a fumaça não provou o desacoplamento"
+  echo "$SAIDA" | grep -q "venda ganha, lead convertido, pedido ligado" && ok "D1: a reconciliação reproduziu o fato" || nok "D1: a reconciliação não reproduziu o fato"
+  echo "$SAIDA" | grep -q "divergencias_erp() vazio" && ok "D1: relatório de divergências vazio" || nok "D1: sobrou divergência"
+  echo "$SAIDA" | grep -q "Dado comercial intacto" && ok "D1: as 9 tabelas de negócio com o mesmo retrato de antes" || nok "D1: dado comercial alterado"
+  PONTES=$(q -c "select count(*) from brain.estado_das_pontes() where habilitado")
+  EXISTEM=$(q -c "select count(*) from brain.estado_das_pontes()")
+  if [ "$EXISTEM" = "3" ] && [ "$PONTES" = "0" ]; then ok "D1: as 3 pontes existem e estão DESABILITADAS"; else nok "D1: pontes existem=$EXISTEM habilitadas=$PONTES"; fi
   echo "$SAIDA" | grep -q "Fumaca desfeita" && ok "D1: a fumaça se desfez por inteiro" || nok "D1: a fumaça não se desfez"
 else
   nok "D1: tabelas=$TAB registro=$REG sujeira=$SUJEIRA"; echo "$SAIDA" | tail -5
@@ -69,7 +75,7 @@ sed 's|^-- ── Pós-condições estruturais|alter view brain.journey_entries 
   supabase/operacao/02-aplicar-brain.sql > /tmp/02-sabotado.sql
 SAIDA=$(q -f /tmp/02-sabotado.sql 2>&1)
 EXISTE=$(q -c "select count(*) from pg_namespace where nspname='brain'")
-REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '202609111%'")
+REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
 if echo "$SAIDA" | grep -q "journey_entries esta com reloptions" && [ "$EXISTE" = "0" ] && [ "$REG" = "0" ]; then
   ok "D2: abortou na pós-condição; schema brain NÃO existe e nada foi registrado"
 else
@@ -94,7 +100,7 @@ SAIDA=$(q -f supabase/operacao/03-remover-brain-sem-dados.sql 2>&1)
 EXISTE=$(q -c "select count(*) from pg_namespace where nspname='brain'")
 TRIG=$(q -c "select count(*) from pg_trigger where tgname like 'trg_brain%'")
 MD5=$(q -c "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='audit_capture'")
-REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '202609111%'")
+REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
 if [ "$EXISTE" = "0" ] && [ "$TRIG" = "0" ] && [ "$MD5" = "24fd65a7eb791b2e2644abe1b2ba876b" ] && [ "$REG" = "0" ]; then
   ok "D4: schema fora, 0 gatilhos, audit_capture no md5 original, registro limpo"
 else
@@ -120,8 +126,8 @@ EXISTE=$(q -c "select count(*) from pg_namespace where nspname='brain'")
 TRIG=$(q -c "select count(*) from pg_trigger where tgname like 'trg_brain%'")
 COPIA=$(q -c "select count(*) from brain_arquivo.leads")
 LEADS=$(q -c "select count(*) from brain.leads")
-REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '202609111%'")
-if [ "$EXISTE" = "1" ] && [ "$TRIG" = "0" ] && [ "$COPIA" = "1" ] && [ "$LEADS" = "1" ] && [ "$REG" = "7" ]; then
+REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
+if [ "$EXISTE" = "1" ] && [ "$TRIG" = "0" ] && [ "$COPIA" = "1" ] && [ "$LEADS" = "1" ] && [ "$REG" = "9" ]; then
   ok "D6: ponte desligada, brain intacto, cópia com o lead, registro preservado"
 else
   nok "D6: existe=$EXISTE trig=$TRIG copia=$COPIA leads=$LEADS registro=$REG"; echo "$SAIDA" | tail -5
@@ -133,7 +139,7 @@ sed 's/  if v_evento <> v_total then/  v_evento := v_evento + 99;\n  if v_evento
   supabase/operacao/02-aplicar-brain.sql > /tmp/02-fumaca-ruim.sql
 SAIDA=$(q -f /tmp/02-fumaca-ruim.sql 2>&1)
 EXISTE=$(q -c "select count(*) from pg_namespace where nspname='brain'")
-REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '202609111%'")
+REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
 QUOTES=$(q -c "select count(*) from public.quotes")
 if echo "$SAIDA" | grep -q "Evento com total" && [ "$EXISTE" = "0" ] && [ "$REG" = "0" ] && [ "$QUOTES" = "0" ]; then
   ok "D6b: a fumaça falhou e o COMMIT virou ROLLBACK — sem schema, sem registro, sem orçamento de teste"
@@ -175,8 +181,12 @@ fi
 echo "▶ D8: evento comercial REAL barra a remoção sem dados"
 montar_pre_brain
 q -q -f supabase/operacao/02-aplicar-brain.sql >/dev/null 2>&1
-# Um orçamento de verdade: a ponte publica o evento, e é só isso que há.
+# Um orçamento de verdade. Em modo desacoplado a ponte não publica nada:
+# quem publica é a reconciliação, exatamente como o pg_cron faz a cada
+# minuto em produção. O evento resultante é tão real quanto o da ponte —
+# e tem de barrar a remoção do mesmo jeito.
 q -q -c "insert into public.quotes (customer_id, owner_id) select id, 'aaaaaaaa-0000-4000-8000-00000000d001' from public.customers limit 1" >/dev/null
+q -q -c "select brain.reconciliar_erp_periodico()" >/dev/null
 EVENTOS=$(q -c "select count(*) from brain.events")
 SAIDA=$(q -f supabase/operacao/03-remover-brain-sem-dados.sql 2>&1)
 EXISTE=$(q -c "select count(*) from pg_namespace where nspname='brain'")
@@ -204,5 +214,57 @@ for CASO in view funcao fk; do
   fi
 done
 
+echo "▶ D12: ponte HABILITADA no deploy — modo desacoplado violado, tem de abortar"
+montar_pre_brain
+sed 's|^-- ── Pós-condições estruturais|alter table public.quotes enable trigger trg_brain_quotes;\n-- ── Pós-condições estruturais|' \
+  supabase/operacao/02-aplicar-brain.sql > /tmp/02-ponte-ligada.sql
+SAIDA=$(q -f /tmp/02-ponte-ligada.sql 2>&1)
+EXISTE=$(q -c "select count(*) from pg_namespace where nspname='brain'")
+REG=$(q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
+if echo "$SAIDA" | grep -q "MODO DESACOPLADO violado" && [ "$EXISTE" = "0" ] && [ "$REG" = "0" ]; then
+  ok "D12: ponte habilitada abortou o deploy — sem schema, sem registro"
+else
+  nok "D12: existe=$EXISTE registro=$REG"; echo "$SAIDA" | tail -4
+fi
+
+echo "▶ D13: falha forçada na reconciliação NÃO toca a transação comercial"
+montar_pre_brain
+q -q -f supabase/operacao/02-aplicar-brain.sql >/dev/null 2>&1
+# A reconciliação é quebrada de propósito.
+q -q -c "alter function brain.divergencias_erp() rename to divergencias_erp_guardada" >/dev/null
+FALHOU=$(q -q -c "select brain.reconciliar_erp_periodico()")
+# Com ela quebrada, o ERP tem de operar normalmente.
+NOVO=$(q -q -c "insert into public.quotes (customer_id, owner_id) select id, 'aaaaaaaa-0000-4000-8000-00000000d001' from public.customers limit 1 returning id")
+STATUS=$(q -q -c "select status from public.quotes where id = '$NOVO'")
+q -q -c "alter function brain.divergencias_erp_guardada() rename to divergencias_erp" >/dev/null
+DEPOIS=$(q -q -c "select brain.reconciliar_erp_periodico()")
+RESTANTE=$(q -q -c "select count(*) from brain.divergencias_erp()")
+if [ "$FALHOU" = "-1" ] && [ -n "$NOVO" ] && [ "$STATUS" = "draft" ] && [ "$DEPOIS" -ge 1 ] && [ "$RESTANTE" = "0" ]; then
+  ok "D13: reconciliação quebrada devolveu -1, o orçamento foi criado normalmente, e ao consertar ela reconciliou ($DEPOIS) e zerou o relatório"
+else
+  nok "D13: falhou=$FALHOU novo=$NOVO status=$STATUS depois=$DEPOIS restante=$RESTANTE"
+fi
+
+echo "▶ D14: agendamento da reconciliação (roteiro 05)"
+montar_pre_brain
+q -q -f supabase/operacao/02-aplicar-brain.sql >/dev/null 2>&1
+SAIDA=$(q -f supabase/operacao/05-agendar-reconciliacao.sql 2>&1)
+JOBS=$(q -q -c "select count(*) from cron.job where jobname='brain-reconciliar'")
+HORA=$(q -q -c "select schedule from cron.job where jobname='brain-reconciliar'")
+ATIVO=$(q -q -c "select active from cron.job where jobname='brain-reconciliar'")
+# Rodar de novo não pode duplicar o job.
+q -q -f supabase/operacao/05-agendar-reconciliacao.sql >/dev/null 2>&1
+JOBS2=$(q -q -c "select count(*) from cron.job where jobname='brain-reconciliar'")
+# Com uma ponte HABILITADA o agendamento tem de se recusar.
+q -q -c "alter table public.quotes enable trigger trg_brain_quotes" >/dev/null
+RECUSA=$(q -f supabase/operacao/05-agendar-reconciliacao.sql 2>&1)
+q -q -c "alter table public.quotes disable trigger trg_brain_quotes" >/dev/null
+if [ "$JOBS" = "1" ] && [ "$HORA" = "* * * * *" ] && [ "$ATIVO" = "t" ] && [ "$JOBS2" = "1" ] \
+   && echo "$RECUSA" | grep -q "MODO DESACOPLADO violado"; then
+  ok "D14: job único a cada minuto e ativo; rodar de novo não duplica; ponte ligada faz o agendamento recusar"
+else
+  nok "D14: jobs=$JOBS hora=$HORA ativo=$ATIVO jobs2=$JOBS2"; echo "$SAIDA" | tail -4
+fi
+
 adm -c "drop database if exists $DB" >/dev/null
-[ "$FALHAS" = "0" ] && echo "✔ deploy e reversão ensaiados nos 11 cenários" || { echo "✗ $FALHAS falha(s)"; exit 1; }
+[ "$FALHAS" = "0" ] && echo "✔ deploy e reversão ensaiados nos 14 cenários" || { echo "✗ $FALHAS falha(s)"; exit 1; }

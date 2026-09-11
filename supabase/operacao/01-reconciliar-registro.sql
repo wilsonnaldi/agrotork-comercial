@@ -279,11 +279,14 @@ begin
     ('20260911150000'),
     ('20260911160000'),
     ('20260911170000'),
-    ('20260911180000');
+    ('20260911180000'),
+    ('20260911190000'),
+    ('20260911200000'),
+    ('20260911210000');
 
   -- O BRAIN ainda não foi aplicado: sai da comparação, e a ausência dele
   -- no banco é conferida explicitamente logo abaixo.
-  delete from versoes_do_git where version like '202609111%';
+  delete from versoes_do_git where version like '20260911%';
 
   select string_agg(g.version, ', ' order by g.version) into v_so_no_git
     from versoes_do_git g
@@ -300,7 +303,7 @@ begin
     raise exception 'Registro no banco sem arquivo no Git: % — e exatamente a divergencia que esta rodada veio eliminar. Nada foi gravado.', v_so_no_banco;
   end if;
 
-  if exists (select 1 from supabase_migrations.schema_migrations where version like '202609111%') then
+  if exists (select 1 from supabase_migrations.schema_migrations where version like '20260911%') then
     raise exception 'O BRAIN aparece como aplicado e nao deveria — quem registra isso e 02-aplicar-brain.sql, no mesmo COMMIT em que aplica. Nada foi gravado.';
   end if;
 

@@ -19,6 +19,13 @@
 -- ============================================================
 reset role;
 
+-- Esta suíte é sobre a PONTE, e a migration 20260911200000 deixa as três
+-- desligadas — é assim que produção nasce. Para medir o comportamento da
+-- ponte é preciso ligá-la aqui, e devolvê-la desligada no fim.
+alter table public.quotes enable trigger trg_brain_quotes;
+alter table public.orders enable trigger trg_brain_orders;
+alter table public.orders enable trigger trg_brain_orders_created;
+
 insert into auth.users (id, email, raw_user_meta_data) values
  ('28282828-0000-4000-8000-000000000001','ponte.admin@teste.local','{"full_name":"Admin Pontes","role":"admin"}'),
  ('28282828-0000-4000-8000-000000000002','ponte.vend@teste.local' ,'{"full_name":"Vendedor Pontes","role":"salesperson"}');
@@ -303,3 +310,8 @@ delete from public.quote_items where quote_id in (select id from public.quotes w
 delete from public.quotes where customer_id = '28282828-0000-4000-8000-0000000000c1';
 delete from public.customers where id = '28282828-0000-4000-8000-0000000000c1';
 delete from auth.users where email like 'ponte.%@teste.local';
+
+-- Devolve o estado de produção: pontes desligadas.
+alter table public.quotes disable trigger trg_brain_quotes;
+alter table public.orders disable trigger trg_brain_orders;
+alter table public.orders disable trigger trg_brain_orders_created;
