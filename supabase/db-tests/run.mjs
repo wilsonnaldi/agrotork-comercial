@@ -74,6 +74,7 @@ const SUITES = [
   ["financeiro", "23_financeiro.sql", /FI\d+\)|NOTICE/],
   ["importação de NF-e", "24_importacao_nfe.sql", /NF\d+\)|NOTICE/],
   ["AGROTORK BRAIN — fase 1", "25_brain.sql", /BR\d+[a-z]?\)|NOTICE/],
+  ["instagram_curator (baseline)", "26_instagram_curator.sql", /IC\d+\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {
