@@ -266,5 +266,48 @@ else
   nok "D14: jobs=$JOBS hora=$HORA ativo=$ATIVO jobs2=$JOBS2"; echo "$SAIDA" | tail -4
 fi
 
+echo "▶ D15: roteiro colado com CRLF (editor do Windows) — tem de aplicar igual"
+# O SQL Editor do navegador normaliza a quebra de linha para CRLF. Como
+# toda função nasce dentro de `$$ … $$`, o \r entra no CORPO e muda todo
+# md5. Foi o que abortou a primeira tentativa em produção, em 11/09/2026.
+montar_pre_brain
+python3 - <<'PYEOF'
+d = open('supabase/operacao/02-aplicar-brain.sql','rb').read()
+open('/tmp/ensaio-02-crlf.sql','wb').write(d.replace(b'\n', b'\r\n'))
+PYEOF
+chmod a+r /tmp/ensaio-02-crlf.sql
+SAIDA=$(q -f /tmp/ensaio-02-crlf.sql 2>&1)
+TAB=$(q -q -c "select count(*) from information_schema.tables where table_schema='brain'")
+MD5=$(q -q -c "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='audit_capture'")
+SOBROU=$(q -q -c "select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where (n.nspname='brain' or (n.nspname='public' and p.proname='audit_capture')) and strpos(p.prosrc, chr(13)) > 0")
+LIGADAS=$(q -q -c "select count(*) from pg_trigger where tgname like 'trg_brain%' and tgenabled <> 'D'")
+RETRATO_CRLF=$(q -q -f supabase/db-tests/retrato-brain.sql)
+# E o mesmo roteiro com LF, para comparar banco com banco.
+montar_pre_brain
+q -q -f supabase/operacao/02-aplicar-brain.sql >/dev/null 2>&1
+RETRATO_LF=$(q -q -f supabase/db-tests/retrato-brain.sql)
+if [ "$TAB" = "10" ] && [ "$MD5" = "ee2f5cd583295c30fbe64eb81eec2d9e" ] && [ "$SOBROU" = "0" ] \
+   && [ "$LIGADAS" = "0" ] && [ -n "$RETRATO_LF" ] && [ "$RETRATO_CRLF" = "$RETRATO_LF" ]; then
+  ok "D15: colado com CRLF aplicou igual — 38 funções reescritas com LF, audit_capture no md5 auditado, retrato idêntico ao do LF"
+else
+  nok "D15: tabelas=$TAB md5=$MD5 sobrou_cr=$SOBROU ligadas=$LIGADAS crlf=$RETRATO_CRLF lf=$RETRATO_LF"; echo "$SAIDA" | grep ERROR | head -3
+fi
+
+echo "▶ D16: reversão colada com CRLF — tem de restaurar no md5 pré-BRAIN"
+python3 - <<'PYEOF'
+d = open('supabase/operacao/03-remover-brain-sem-dados.sql','rb').read()
+open('/tmp/ensaio-03-crlf.sql','wb').write(d.replace(b'\n', b'\r\n'))
+PYEOF
+chmod a+r /tmp/ensaio-03-crlf.sql
+SAIDA=$(q -f /tmp/ensaio-03-crlf.sql 2>&1)
+EXISTE=$(q -q -c "select count(*) from pg_namespace where nspname='brain'")
+MD5=$(q -q -c "select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname='audit_capture'")
+REG=$(q -q -c "select count(*) from supabase_migrations.schema_migrations where version like '20260911%'")
+if [ "$EXISTE" = "0" ] && [ "$MD5" = "24fd65a7eb791b2e2644abe1b2ba876b" ] && [ "$REG" = "0" ]; then
+  ok "D16: reversão com CRLF devolveu audit_capture no md5 pré-BRAIN e limpou o registro"
+else
+  nok "D16: existe=$EXISTE md5=$MD5 registro=$REG"; echo "$SAIDA" | grep ERROR | head -3
+fi
+
 adm -c "drop database if exists $DB" >/dev/null
-[ "$FALHAS" = "0" ] && echo "✔ deploy e reversão ensaiados nos 14 cenários" || { echo "✗ $FALHAS falha(s)"; exit 1; }
+[ "$FALHAS" = "0" ] && echo "✔ deploy e reversão ensaiados nos 16 cenários" || { echo "✗ $FALHAS falha(s)"; exit 1; }

@@ -37,6 +37,24 @@ else
   diff -u supabase/operacao/02-aplicar-brain.sql /tmp/02-regerado.sql | head -20
   FALHAS=$((FALHAS+1))
 fi
+TEMPLATE=supabase/operacao/03-remover-brain-sem-dados.template.sql \
+  bash supabase/operacao/gerar-consolidado.sh /tmp/03-regerado.sql >/dev/null
+if diff -q supabase/operacao/03-remover-brain-sem-dados.sql /tmp/03-regerado.sql >/dev/null; then
+  echo "  ✓ 03-remover-brain-sem-dados.sql é exatamente o que o gerador produz hoje"
+else
+  echo "  ✗ 03-remover-brain-sem-dados.sql divergiu — regere com TEMPLATE=...03-...template.sql"
+  diff -u supabase/operacao/03-remover-brain-sem-dados.sql /tmp/03-regerado.sql | head -20
+  FALHAS=$((FALHAS+1))
+fi
+
+echo "▶ 2c. nenhum roteiro de operação usa meta-comando do psql"
+if grep -rn '^\\[a-z]' supabase/operacao/*.sql >/dev/null 2>&1; then
+  echo "  ✗ meta-comando do psql encontrado — o SQL Editor não entende"
+  grep -rn '^\\[a-z]' supabase/operacao/*.sql | head -5
+  FALHAS=$((FALHAS+1))
+else
+  echo "  ✓ nenhum: todos os roteiros rodam colados no SQL Editor"
+fi
 echo "▶ 2b. nenhum roteiro usa \\i de migration (o caminho é o SQL Editor)"
 if grep -l '^\\i supabase/migrations/' supabase/operacao/*.sql 2>/dev/null | grep -q .; then
   echo "  ✗ ainda há roteiro incluindo migration por \\i:"; grep -l '^\\i supabase/migrations/' supabase/operacao/*.sql

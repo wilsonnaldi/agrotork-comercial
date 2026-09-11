@@ -105,6 +105,62 @@ $$;
 -- @incluir supabase/migrations/20260911200000_brain_desacoplado.sql
 -- @incluir supabase/migrations/20260911210000_brain_fidelidade.sql
 
+-- ── Fim de linha: CRLF vira LF antes de qualquer conferência ─
+--
+-- Este roteiro é COLADO no SQL Editor, de um arquivo que veio para uma
+-- máquina Windows. O editor do navegador normaliza a quebra de linha para
+-- CRLF, e como toda função aqui é definida dentro de `$$ … $$`, o `\r`
+-- entra no CORPO da função. Não quebra nada — o parser trata `\r` como
+-- espaço em branco — mas muda o texto, e com ele todo md5.
+--
+-- Medido em 11/09/2026, PostgreSQL 17.6: o mesmo `audit_capture()` dá
+-- `ee2f5cd5…e2d9e` com LF e `54ffdb93…c0379` com CRLF. Foi exatamente
+-- essa diferença que abortou a primeira tentativa em produção — a trava
+-- funcionou, e pegou o que `.gitattributes` já avisava que pegaria.
+--
+-- A resposta certa NÃO é afrouxar a trava: é fazer o banco guardar o
+-- texto auditado. `pg_get_functiondef()` devolve o `create or replace`
+-- inteiro, com todos os atributos (volatilidade, security, search_path,
+-- owner de execução); reexecutá-lo sem os `\r` reescreve a função
+-- exatamente como ela seria se o arquivo tivesse chegado com LF. As
+-- concessões e revogações sobrevivem: `create or replace` preserva ACL.
+--
+-- Se o roteiro chegou com LF, este bloco não encontra nada e não faz nada.
+do $$
+declare r record; v_n int := 0;
+begin
+  for r in
+    select p.oid, n.nspname, p.proname
+      from pg_catalog.pg_proc p
+      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+     where (n.nspname = 'brain'
+            or (n.nspname = 'public' and p.proname = 'audit_capture'))
+       and pg_catalog.strpos(p.prosrc, pg_catalog.chr(13)) > 0
+     order by n.nspname, p.proname
+  loop
+    execute pg_catalog.replace(pg_catalog.pg_get_functiondef(r.oid), pg_catalog.chr(13), '');
+    v_n := v_n + 1;
+  end loop;
+
+  if v_n > 0 then
+    raise notice 'Fim de linha: o roteiro chegou com CRLF (editor do Windows) e % funcao(oes) foram reescritas com LF, para o texto em producao ser o texto auditado.', v_n;
+  else
+    raise notice 'Fim de linha: LF, como no repositorio. Nada a normalizar.';
+  end if;
+
+  -- Nao pode sobrar nenhuma.
+  if exists (
+    select 1 from pg_catalog.pg_proc p
+      join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+     where (n.nspname = 'brain'
+            or (n.nspname = 'public' and p.proname = 'audit_capture'))
+       and pg_catalog.strpos(p.prosrc, pg_catalog.chr(13)) > 0
+  ) then
+    raise exception 'Sobrou CRLF no corpo de alguma funcao depois da normalizacao — PARADO.';
+  end if;
+end
+$$;
+
 -- ── Pós-condições estruturais ───────────────────────────────
 do $$
 declare

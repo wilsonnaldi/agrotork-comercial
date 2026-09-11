@@ -13,7 +13,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
-TEMPLATE=supabase/operacao/02-aplicar-brain.template.sql
+TEMPLATE="${TEMPLATE:-supabase/operacao/02-aplicar-brain.template.sql}"
 SAIDA="${1:-supabase/operacao/02-aplicar-brain.sql}"
 
 : > "$SAIDA"
