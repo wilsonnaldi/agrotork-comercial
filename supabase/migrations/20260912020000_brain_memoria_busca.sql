@@ -44,9 +44,27 @@ create type brain.knowledge_hit as (
   file_sha256     text
 );
 
--- Filtros aceitos, validados ANTES de qualquer consulta: chave desconhecida
--- ou valor mal formado e erro limpo (invalid_parameter_value), nunca um erro
--- do banco arrastando o corpo da funcao para o cliente.
+-- ── Sincronizado com a produção (12/09/2026) ─────────────────
+-- O deploy real do Lote A recusou `create function ... set
+-- pg_trgm.word_similarity_threshold = 0.35` no Supabase gerenciado (o GUC
+-- da extensão não é aceito como configuração de função ali, embora o
+-- PostgreSQL local aceite). A correção aplicada em produção — e que este
+-- arquivo passa a representar — fixa o limiar DENTRO da execução, com
+-- `set_config(..., true)` (local à transação), logo depois de normalizar a
+-- pergunta. Consequências:
+--   · a função é VOLATILE (altera configuração de sessão), não mais stable;
+--   · o limiar efetivo continua 0,35 e vale só até o fim da transação;
+--   · nenhum privilégio a mais: `set_config` de um GUC de extensão é
+--     permitido a qualquer papel;
+--   · o corpo abaixo é BYTE A BYTE o que `pg_get_functiondef` devolve em
+--     produção (md5 3b54175bfd5a335ff737b799ca3eb3b6), conferido pela
+--     suíte 34 (RAG-H11). A explicação de cada bloco está na versão
+--     comentada do Lote A em docs/brain/fase-2-lote-a.md §6.
+--
+-- Regras de entrada: nível NULL → vazio; p_limit NULL → 10, ≤ 0 → vazio,
+-- teto 100; pergunta normalizada e cortada em 1000 caracteres; p_filters
+-- NULL → {}; chave desconhecida, valor nulo ou mal formado →
+-- invalid_parameter_value com mensagem curta.
 create or replace function brain.search_knowledge(
   p_query               text,
   p_filters             jsonb   default '{}'::jsonb,
@@ -54,69 +72,52 @@ create or replace function brain.search_knowledge(
   p_include_superseded  boolean default false
 )
 returns setof brain.knowledge_hit
-language plpgsql stable security invoker
+language plpgsql security invoker
 set search_path = ''
--- Limiar do operador `<%` (word_similarity). 0,35 aceita erro de digitacao
--- em codigo curto (MJ981CPA → MJ981CAP) sem trazer ruido; o operador usa o
--- indice GIN trigram, a funcao word_similarity() sozinha nao usaria.
-set pg_trgm.word_similarity_threshold = 0.35
 as $$
 declare
-  v_level  brain.access_level := brain.caller_access_level();
-  v_q      text;
-  v_codes  text[];
-  v_tsq    tsquery;
-  v_limit  integer;
-  v_today  date := current_date;
-  v_f      jsonb := coalesce(p_filters, '{}'::jsonb);
-  v_key    text;
-  v_version_id  uuid; v_document_id uuid; v_brand_id uuid; v_category_id uuid; v_product_id uuid;
-  v_doc_type    brain.document_type; v_kind brain.chunk_kind;
-  v_source_key  text; v_version_label text;
+  v_level brain.access_level := brain.caller_access_level();
+  v_q text;
+  v_codes text[];
+  v_tsq tsquery;
+  v_limit integer;
+  v_today date := current_date;
+  v_f jsonb := coalesce(p_filters, '{}'::jsonb);
+  v_key text;
+  v_version_id uuid; v_document_id uuid; v_brand_id uuid; v_category_id uuid; v_product_id uuid;
+  v_doc_type brain.document_type; v_kind brain.chunk_kind;
+  v_source_key text; v_version_label text;
 begin
-  -- Quem nao tem nivel nao tem resultado: conjunto vazio, sem erro que revele nada.
-  if v_level is null then
-    return;
-  end if;
-
-  -- Limite: NULL = 10; zero ou negativo = nada; teto 100.
+  if v_level is null then return; end if;
   v_limit := coalesce(p_limit, 10);
-  if v_limit <= 0 then
-    return;
-  end if;
+  if v_limit <= 0 then return; end if;
   v_limit := least(v_limit, 100);
-
-  -- Pergunta normalizada e limitada: 1000 caracteres bastam para qualquer
-  -- pergunta real e evitam trigram sobre texto colado por engano.
   v_q := left(brain.normalize_text(p_query), 1000);
-  if v_q is null then
-    return;
-  end if;
+  if v_q is null then return; end if;
 
-  -- ── Filtros: validacao explicita ─────────────────────────
+  perform set_config('pg_trgm.word_similarity_threshold', '0.35', true);
+
   if jsonb_typeof(v_f) <> 'object' then
     raise exception 'p_filters deve ser um objeto JSON' using errcode = 'invalid_parameter_value';
   end if;
   for v_key in select jsonb_object_keys(v_f) loop
-    if v_key not in ('source_key','document_id','document_type','brand_id','category_id',
-                     'version_label','version_id','kind','product_id') then
+    if v_key not in ('source_key','document_id','document_type','brand_id','category_id','version_label','version_id','kind','product_id') then
       raise exception 'Filtro desconhecido: %', v_key using errcode = 'invalid_parameter_value';
     end if;
   end loop;
   begin
-    v_version_id    := (v_f ->> 'version_id')::uuid;
-    v_document_id   := (v_f ->> 'document_id')::uuid;
-    v_brand_id      := (v_f ->> 'brand_id')::uuid;
-    v_category_id   := (v_f ->> 'category_id')::uuid;
-    v_product_id    := (v_f ->> 'product_id')::uuid;
-    v_doc_type      := (v_f ->> 'document_type')::brain.document_type;
-    v_kind          := (v_f ->> 'kind')::brain.chunk_kind;
+    v_version_id := (v_f ->> 'version_id')::uuid;
+    v_document_id := (v_f ->> 'document_id')::uuid;
+    v_brand_id := (v_f ->> 'brand_id')::uuid;
+    v_category_id := (v_f ->> 'category_id')::uuid;
+    v_product_id := (v_f ->> 'product_id')::uuid;
+    v_doc_type := (v_f ->> 'document_type')::brain.document_type;
+    v_kind := (v_f ->> 'kind')::brain.chunk_kind;
   exception when invalid_text_representation or invalid_parameter_value then
     raise exception 'Filtro com valor invalido' using errcode = 'invalid_parameter_value';
   end;
-  v_source_key    := v_f ->> 'source_key';
+  v_source_key := v_f ->> 'source_key';
   v_version_label := v_f ->> 'version_label';
-  -- Filtro presente com valor nulo e filtro mal formado.
   if (v_f ? 'version_id' and v_version_id is null) or (v_f ? 'document_id' and v_document_id is null)
   or (v_f ? 'brand_id' and v_brand_id is null) or (v_f ? 'category_id' and v_category_id is null)
   or (v_f ? 'product_id' and v_product_id is null) or (v_f ? 'document_type' and v_doc_type is null)
@@ -125,8 +126,6 @@ begin
     raise exception 'Filtro com valor nulo' using errcode = 'invalid_parameter_value';
   end if;
 
-  -- Cada palavra da pergunta, normalizada como codigo (MJ981CAP), mais a
-  -- pergunta inteira sem espacos: 'mj 981 cap' → {'MJ','981','CAP','MJ981CAP'}.
   select array_agg(distinct c) into v_codes
     from (select brain.normalize_code(t) as c from unnest(regexp_split_to_array(v_q, '\s+')) t
           union all select brain.normalize_code(v_q)) s
@@ -135,11 +134,7 @@ begin
   v_tsq := websearch_to_tsquery('portuguese'::regconfig, v_q);
 
   return query
-  -- `not materialized`: o predicado de acesso e vigencia e copiado para dentro
-  -- de cada braco, no MESMO no de varredura em que o indice GIN e usado. O
-  -- ranking (row_number) so ve linhas que ja passaram por esse filtro.
   with candidatos as not materialized (
-    -- ── O filtro vem ANTES de qualquer ranking ───────────────
     select c.id, c.kind, c.content, c.content_norm, c.table_data, c.page_from, c.page_to,
            c.heading_path, c.codes, c.fts, c.access_level,
            v.id as version_id, v.version_label, v.status as version_status,
@@ -149,35 +144,27 @@ begin
       join brain.document_versions v on v.id = c.version_id
       join brain.documents d on d.id = v.document_id
      where c.access_level <= v_level
-       and (
-             (v.status = 'active'
+       and ((v.status = 'active'
               and (v.valid_from is null or v.valid_from <= v_today)
-              and (v.valid_to   is null or v.valid_to   >= v_today))
+              and (v.valid_to is null or v.valid_to >= v_today))
           or (p_include_superseded and v.status = 'superseded')
-          or (v_version_id is not null and v.id = v_version_id and v.status <> 'withdrawn')
-           )
-       -- `version_id` e restritivo (so aquela versao) E permissivo (mesmo superseded);
-       -- withdrawn nunca, nem pedindo pelo id.
-       and (v_version_id    is null or v.id = v_version_id)
-       and (v_source_key    is null or d.source_key = v_source_key)
-       and (v_document_id   is null or d.id = v_document_id)
-       and (v_doc_type      is null or d.document_type = v_doc_type)
-       and (v_brand_id      is null or d.brand_id = v_brand_id)
-       and (v_category_id   is null or d.category_id = v_category_id)
+          or (v_version_id is not null and v.id = v_version_id and v.status <> 'withdrawn'))
+       and (v_version_id is null or v.id = v_version_id)
+       and (v_source_key is null or d.source_key = v_source_key)
+       and (v_document_id is null or d.id = v_document_id)
+       and (v_doc_type is null or d.document_type = v_doc_type)
+       and (v_brand_id is null or d.brand_id = v_brand_id)
+       and (v_category_id is null or d.category_id = v_category_id)
        and (v_version_label is null or v.version_label = v_version_label)
-       and (v_kind          is null or c.kind = v_kind)
-       and (v_product_id    is null
-            or exists (select 1 from brain.chunk_products cp
-                        where cp.chunk_id = c.id and cp.product_id = v_product_id))
+       and (v_kind is null or c.kind = v_kind)
+       and (v_product_id is null or exists (select 1 from brain.chunk_products cp where cp.chunk_id = c.id and cp.product_id = v_product_id))
   ),
-  -- ── Braco A1: codigo exato (GIN em codes, operador &&) ──
   exato as (
     select id, row_number() over (order by cardinality(codes_batidos) desc, id) as rk
       from (select c.id, array(select unnest(c.codes) intersect select unnest(v_codes)) as codes_batidos
               from candidatos c
              where v_codes is not null and c.codes && v_codes) s
   ),
-  -- ── Braco A2: trigram por palavra (GIN em content_norm, operador <%) ──
   trgm as (
     select id, row_number() over (order by sim desc, id) as rk
       from (select c.id, extensions.word_similarity(v_q, c.content_norm) as sim
@@ -185,7 +172,6 @@ begin
              where v_q operator(extensions.<%) c.content_norm) s
      limit 50
   ),
-  -- ── Braco B: full-text em portugues (GIN em fts, operador @@) ──
   fts as (
     select id, row_number() over (order by rk_score desc, id) as rk
       from (select c.id, ts_rank_cd(c.fts, v_tsq) as rk_score
@@ -193,20 +179,16 @@ begin
              where c.fts @@ v_tsq) s
      limit 50
   ),
-  -- ── Reciprocal Rank Fusion, k = 60 ───────────────────────
-  -- score = Σ 1/(60 + rank_braco). O braco vetorial do Lote C entra como
-  -- mais uma parcela desta soma; nada aqui muda de forma.
   fundido as (
     select coalesce(e.id, t.id, f.id) as id,
            e.rk as rank_exact, t.rk as rank_trgm, f.rk as rank_fts,
            (coalesce(1.0 / (60 + e.rk), 0)
           + coalesce(1.0 / (60 + t.rk), 0)
           + coalesce(1.0 / (60 + f.rk), 0)
-          -- Codigo exato e evidencia forte: vale um braco inteiro a mais.
           + case when e.rk is not null then 1.0 / 60 else 0 end)::numeric(12,8) as score
       from exato e
       full join trgm t on t.id = e.id
-      full join fts  f on f.id = coalesce(e.id, t.id)
+      full join fts f on f.id = coalesce(e.id, t.id)
   )
   select c.id, fu.score, fu.rank_exact::integer, fu.rank_trgm::integer, fu.rank_fts::integer,
          c.kind, c.content, c.table_data, c.page_from, c.page_to, c.heading_path, c.codes,

@@ -147,8 +147,9 @@ select * from brain.search_knowledge('T100', '{"product_id":"<uuid>"}', 10, true
    normalizados (`mj 981 cap` → `MJ981CAP`); `codes && v_codes`. Ordena por número de
    códigos batidos.
 3. **A2 — trigram por palavra**: `pergunta <% content_norm` (operador de
-   `word_similarity`, limiar 0,35 fixado na própria função via
-   `pg_trgm.word_similarity_threshold`), ordenado por `word_similarity`. Acha `MJ981CAB`
+   `word_similarity`, limiar 0,35 fixado **dentro da execução** com
+   `set_config('pg_trgm.word_similarity_threshold','0.35', true)` — ver §17),
+   ordenado por `word_similarity`. Acha `MJ981CAB`
    quando o certo é `MJ981CAP`. O operador é o indexável em `gin_trgm_ops`; a função
    sozinha não era.
 4. **B — FTS**: `websearch_to_tsquery('portuguese', pergunta)` sobre `fts`, `ts_rank_cd`.
@@ -374,3 +375,39 @@ ausente; servidor PostgreSQL 17.6; 10 migrations do BRAIN registradas, última
   conjunto.
 - **`brain` fora do PostgREST**: `search_knowledge` só é alcançável do app via schema
   exposto ou invólucro em `public` — decisão do Lote B, junto com a auditoria de consulta.
+
+## 17. Correção pós-deploy: limiar trigram (12/09/2026)
+
+**O que aconteceu.** No deploy real do Lote A, o Supabase gerenciado recusou a
+declaração `create function brain.search_knowledge(...) ... set
+pg_trgm.word_similarity_threshold = 0.35` (a versão publicada em `1cfc086`). O
+PostgreSQL local (16, 17.6, 18.6) aceita essa cláusula; o gerenciado não aceitou o GUC
+de extensão como configuração de função. A correção foi aplicada **em produção, durante
+o deploy**: a cláusula `set` saiu da declaração e o limiar passou a ser fixado dentro
+da execução, logo após normalizar a pergunta:
+
+```sql
+perform set_config('pg_trgm.word_similarity_threshold', '0.35', true);
+```
+
+Consequências: o limiar efetivo continua 0,35; é local à transação (`true`), então
+nada vaza para a chamada seguinte em outra transação; a função deixa de ser `stable` e
+passa a **`VOLATILE`** (altera configuração de sessão); nenhum privilégio a mais é
+necessário (`set_config` de GUC de extensão é permitido a qualquer papel); grants
+inalterados (`authenticated`, `service_role`; `anon` sem EXECUTE); RLS por baixo
+inalterado.
+
+**O que este repositório fez.** A migration `20260912020000_brain_memoria_busca.sql`
+foi reescrita para criar **diretamente** a versão correta — o corpo da função é byte a
+byte o que `pg_get_functiondef` devolve em produção (md5
+`3b54175bfd5a335ff737b799ca3eb3b6`). **Produção já contém a correção; o commit apenas
+sincroniza o código versionado ao estado real.** Não é uma migration nova: o ledger de
+produção continua com `20260912010000` e `20260912020000`, e uma instalação do zero
+cria a função certa de primeira. A suíte 34 ganhou `RAG-H11`/`RAG-H11b`: sem `SET
+pg_trgm` na declaração, `VOLATILE`, md5 igual ao de produção, limiar 0,35 efetivo
+(termo de controle com similaridade 0,50 é achado; a 0,6 não seria), refixado a cada
+chamada e sem vazamento entre transações.
+
+**Diferença local × gerenciado, registrada:** funções com `SET <guc-de-extensão>` na
+declaração não devem ser usadas neste projeto; o padrão é `set_config(..., true)` no
+corpo.

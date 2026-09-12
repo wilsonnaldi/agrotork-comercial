@@ -5,7 +5,7 @@
 #   PGHOST=/tmp PGPORT=5437 PGUSER=postgres PSQL=/opt/pg176/bin/psql \
 #     bash supabase/db-tests/ensaiar-memoria.sh
 #
-# M1  todas as migrations → suites 33 e 34 passam (17 + 10 asserções, 0 erro)
+# M1  todas as migrations → suites 33 e 34 passam (17 + 12 asserções, 0 erro)
 # M2  a Fase 1 continua igual: 9 tabelas, 3 pontes desligadas, suite 25
 # M3  06-remover-memoria: com dados, PARA; sem dados, remove e a Fase 1
 #     fica intacta (retrato antes = depois)
@@ -42,7 +42,7 @@ echo "▶ M1: migrations + suites 33 e 34"
 montar || nok "M1: montagem"
 SAIDA=$(suite33)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "27" ] && [ "$E" = "0" ]; then ok "M1: suites 33 e 34 — 27 asserções, 0 erro"; else nok "M1: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$N" = "29" ] && [ "$E" = "0" ]; then ok "M1: suites 33 e 34 — 29 asserções, 0 erro"; else nok "M1: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ M2: Fase 1 intacta ao lado do Lote A"
 TAB=$(q -q -c "select count(*) from pg_tables where schemaname='brain' and tablename in ('channels','attributions','leads','identities','interactions','opportunities','tasks','events','lead_merges')")
@@ -97,7 +97,7 @@ for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/m
 done
 SAIDA=$(suite33)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "27" ] && [ "$E" = "0" ]; then ok "M4: reaplicado, suites 33 e 34 passam de novo (27/0)"; else nok "M4: asserções=$N erros=$E"; fi
+if [ "$N" = "29" ] && [ "$E" = "0" ]; then ok "M4: reaplicado, suites 33 e 34 passam de novo (29/0)"; else nok "M4: asserções=$N erros=$E"; fi
 
 echo "▶ M5: 03-remover-brain recusa com o Lote A aplicado"
 SAIDA=$(q -f supabase/operacao/03-remover-brain-sem-dados.sql 2>&1)

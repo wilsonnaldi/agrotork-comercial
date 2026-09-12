@@ -15,6 +15,8 @@
 --   RAG-H8   arquivo: imutabilidade lógica; mesmo sha em documentos distintos
 --   RAG-H9   fontes: só aparecem as alcançáveis ou com documento visível
 --   RAG-H10  chunk_products: FK ao ERP, sem duplicata, produto apagado leva o vínculo, nada escreve no ERP
+--   RAG-H11  pós-deploy: limiar trigram por set_config (sem SET na função), 0,35 efetivo,
+--            local à transação, corpo igual ao de produção, volatile, grants iguais
 --
 -- Prefixo de UUID = 34. Fixtures artificiais; limpeza no fim.
 -- ============================================================
@@ -539,6 +541,63 @@ begin
   -- e o chunk continua la: o vinculo e que morre, nao o conhecimento
   if not exists (select 1 from brain.document_chunks where id = v_chunk) then raise exception 'RAG-H10 FALHOU: chunk sumiu com o produto'; end if;
   raise notice ' RAG-H10) OK: FK em public.products; sem duplicata; produto inexistente recusado; nenhum gatilho do brain no ERP; inativar mantem, apagar leva o vinculo e preserva o chunk';
+end
+$$;
+
+-- ════════════════════════════════════════════════════════════
+-- RAG-H11 — sincronizacao pos-deploy do limiar trigram
+-- ════════════════════════════════════════════════════════════
+-- Em producao o Supabase gerenciado recusou `create function ... set
+-- pg_trgm.word_similarity_threshold = 0.35`; a funcao passou a fixar o
+-- limiar com set_config(..., true) dentro da execucao. Este teste prova que
+-- o arquivo versionado e o que esta em producao e que o comportamento e o
+-- aprovado no Lote A.
+do $$
+declare v_cfg text[]; v_vol "char"; v_md5 text; v_antes text; v_durante text; v_sim real; r record; v_n int;
+begin
+  reset role;
+  select p.proconfig, p.provolatile, md5(pg_get_functiondef(p.oid)) into v_cfg, v_vol, v_md5
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'brain' and p.proname = 'search_knowledge';
+  -- 1. nenhum GUC de extensao na declaracao da funcao; so o search_path vazio
+  if exists (select 1 from unnest(v_cfg) c where c like 'pg_trgm.%') then raise exception 'RAG-H11 FALHOU: SET pg_trgm na declaracao'; end if;
+  if v_cfg <> array['search_path=""'] then raise exception 'RAG-H11 FALHOU: proconfig = %', v_cfg; end if;
+  -- 2. volatile (altera configuracao de sessao), nao stable
+  if v_vol <> 'v' then raise exception 'RAG-H11 FALHOU: volatilidade = %', v_vol; end if;
+  -- 3. corpo byte a byte igual ao aplicado em producao em 12/09/2026
+  if v_md5 <> '3b54175bfd5a335ff737b799ca3eb3b6' then raise exception 'RAG-H11 FALHOU: definicao diverge da producao (md5 %)', v_md5; end if;
+
+  -- 4. limiar efetivo 0,35 durante a execucao: 'kw7710' tem similaridade 0,50
+  --    com o chunk KWZ7710 — passa em 0,35 e NAO passaria no default 0,6.
+  v_sim := extensions.word_similarity('kw7710', 'ponta kwz7710 de ceramica para herbicida glifox, vazao calibrada.');
+  if v_sim < 0.35 or v_sim >= 0.6 then raise exception 'RAG-H11 FALHOU: similaridade de controle = %', v_sim; end if;
+  v_antes := current_setting('pg_trgm.word_similarity_threshold', true);
+  perform set_config('request.jwt.claim.sub', '34343434-0000-4000-8000-000000000001', true);
+  perform set_config('role', 'authenticated', true);
+  select * into r from brain.search_knowledge('kw7710') limit 1;
+  if r.chunk_id is null or r.rank_trgm is null then raise exception 'RAG-H11 FALHOU: trigram a 0,35 nao achou KWZ7710: %', to_jsonb(r); end if;
+  -- e o mesmo termo, com o limiar em 0,6, nao acha por trigram (prova de que e o 0,35 que decide)
+  perform set_config('pg_trgm.word_similarity_threshold', '0.6', true);
+  select count(*) into v_n from brain.document_chunks where 'kw7710' operator(extensions.<%) content_norm;
+  if v_n <> 0 then raise exception 'RAG-H11 FALHOU: controle a 0,6 achou %', v_n; end if;
+  -- 5. a funcao (re)fixa 0,35 a cada chamada, mesmo depois de alguem mexer no GUC
+  select * into r from brain.search_knowledge('kw7710') limit 1;
+  if r.rank_trgm is null then raise exception 'RAG-H11 FALHOU: nao refixou o limiar'; end if;
+  v_durante := current_setting('pg_trgm.word_similarity_threshold', true);
+  if v_durante <> '0.35' then raise exception 'RAG-H11 FALHOU: limiar apos a chamada = %', v_durante; end if;
+  perform set_config('role', 'none', true); reset role;
+  raise notice ' RAG-H11) OK: sem SET na declaracao, volatile, corpo = producao (md5 %), limiar 0,35 efetivo (controle: 0,50 passa; a 0,6 nao), refixado a cada chamada; antes da chamada era %', v_md5, coalesce(v_antes, '(default)');
+end
+$$;
+
+-- 6. o set_config e LOCAL a transacao: o bloco anterior terminou e o limiar
+--    voltou ao default (0,6) — nada vaza entre transacoes.
+do $$
+declare v_agora text;
+begin
+  v_agora := current_setting('pg_trgm.word_similarity_threshold', true);
+  if v_agora = '0.35' then raise exception 'RAG-H11b FALHOU: limiar vazou para outra transacao (%)', v_agora; end if;
+  raise notice ' RAG-H11b) OK: em nova transacao o limiar e % — nada vazou', coalesce(v_agora, '(default)');
 end
 $$;
 
