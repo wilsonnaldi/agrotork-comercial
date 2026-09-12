@@ -28,7 +28,8 @@
 --
 --   4. Storage: as policies do bucket `brain-documents` em storage.objects
 --      (leitura por nível da versão dona do arquivo; escrita só do
---      administrador). O BUCKET NÃO É CRIADO AQUI: criar exige decisão de
+--      administrador e só em nome que é `storage_path` de uma versão
+--      registrada — sem objeto órfão). O BUCKET NÃO É CRIADO AQUI: criar exige decisão de
 --      plano (o plano atual limita o arquivo a 50 MB; o Catálogo Magnojet
 --      V41 tem 177 MB). O roteiro supabase/operacao/07-criar-bucket-brain-
 --      documents.sql cria o bucket quando autorizado; as policies abaixo
@@ -199,6 +200,18 @@ $$;
 -- Abrir uma ingestao. Uma versao que JA tem paginas/chunks so e reprocessada
 -- com `p_replace = true`: as paginas e chunks antigos saem, a ingestao antiga
 -- fica como historico apontando para a nova.
+--
+-- ATOMICIDADE (auditoria pos-publicacao): a remocao do conteudo antigo, as
+-- paginas e chunks novos e o fechamento (`ingestion_finish`) pertencem a UMA
+-- transacao do chamador — o worker nao confirma nada entre `ingestion_start`
+-- e `ingestion_finish`. Se qualquer passo falhar, o rollback devolve as
+-- paginas e chunks anteriores exatamente como estavam; a tentativa e entao
+-- registrada por `ingestion_record_failure` numa transacao propria. Um
+-- replace que falha NUNCA deixa a versao sem o conhecimento valido anterior.
+--
+-- CONCORRENCIA: a linha da versao e travada (`for update`) ate o fim da
+-- transacao. Dois workers na mesma versao se serializam: o segundo espera o
+-- primeiro terminar e entao ve o conteudo dele (e e recusado sem replace).
 create or replace function brain.ingestion_start(
   p_version_id        uuid,
   p_method            text,
@@ -214,12 +227,16 @@ declare
   v_id uuid;
   v_n  int;
 begin
-  if not exists (select 1 from brain.document_versions v where v.id = p_version_id) then
+  -- Trava a versao ate o COMMIT do chamador: serializa ingestoes concorrentes.
+  perform 1 from brain.document_versions v where v.id = p_version_id for update;
+  if not found then
     raise exception 'Versao % nao existe (ou nao e visivel)', p_version_id using errcode = 'no_data_found';
   end if;
   if coalesce(btrim(p_pipeline_version), '') = '' then
     raise exception 'pipeline_version obrigatorio' using errcode = 'invalid_parameter_value';
   end if;
+  -- Uma ingestao aberta e COMMITADA so existe se alguem confirmou no meio (SQL
+  -- a mao); o worker nunca faz isso. Ainda assim, nao se abre outra por cima.
   if exists (select 1 from brain.knowledge_ingestions i where i.version_id = p_version_id
               and i.status in ('pending', 'extracting', 'chunking')) then
     raise exception 'Ja existe uma ingestao em andamento para a versao %', p_version_id using errcode = 'object_in_use';
@@ -380,6 +397,45 @@ returns brain.knowledge_ingestions language sql security invoker set search_path
   select brain.ingestion_finish(p_ingestion_id, 'failed', p_error, p_warnings, '{}'::jsonb);
 $$;
 
+-- Registrar uma tentativa que FALHOU e foi desfeita por rollback: a ingestao
+-- aberta nao existe mais (saiu com o rollback), entao a trilha e escrita
+-- aqui, numa transacao propria, sem pagina nem chunk. `p_replace_attempt`
+-- diz se era um reprocessamento (o conteudo anterior continua intacto).
+create or replace function brain.ingestion_record_failure(
+  p_version_id        uuid,
+  p_method            text,
+  p_parser            text,
+  p_pipeline_version  text,
+  p_executor          text,
+  p_error             text,
+  p_warnings          jsonb   default '[]'::jsonb,
+  p_replace_attempt   boolean default false,
+  p_started_at        timestamptz default null
+)
+returns brain.knowledge_ingestions language plpgsql security invoker set search_path = '' as $$
+declare v_row brain.knowledge_ingestions;
+begin
+  if not exists (select 1 from brain.document_versions v where v.id = p_version_id) then
+    raise exception 'Versao % nao existe (ou nao e visivel)', p_version_id using errcode = 'no_data_found';
+  end if;
+  if coalesce(btrim(p_error), '') = '' then
+    raise exception 'Falha registrada precisa de erro' using errcode = 'invalid_parameter_value';
+  end if;
+  insert into brain.knowledge_ingestions
+    (version_id, status, method, parser, pipeline_version, executor, started_at, finished_at,
+     pages_done, chunks_created, tables_created, error, warnings, metadata, created_by)
+  values
+    (p_version_id, 'failed', coalesce(p_method, 'other'), p_parser, coalesce(nullif(btrim(p_pipeline_version), ''), 'desconhecido'),
+     p_executor, coalesce(p_started_at, now()), now(), 0, 0, 0, btrim(p_error), coalesce(p_warnings, '[]'::jsonb),
+     jsonb_build_object('rolled_back', true, 'replace_attempt', coalesce(p_replace_attempt, false)), (select auth.uid()))
+  returning * into v_row;
+  return v_row;
+end;
+$$;
+
+revoke execute on function brain.ingestion_record_failure(uuid, text, text, text, text, text, jsonb, boolean, timestamptz) from public, anon;
+grant  execute on function brain.ingestion_record_failure(uuid, text, text, text, text, text, jsonb, boolean, timestamptz) to authenticated, service_role;
+
 revoke execute on function brain.register_version(uuid, text, text, text, text, bigint, date, integer, jsonb) from public, anon;
 revoke execute on function brain.ingestion_start(uuid, text, text, text, text, boolean, integer, boolean)      from public, anon;
 revoke execute on function brain.ingestion_add_page(uuid, integer, text, text, boolean, jsonb, jsonb)         from public, anon;
@@ -413,8 +469,8 @@ declare
   v_hits  brain.knowledge_hit[];
   v_uid   uuid := (select auth.uid());
 begin
-  if v_uid is null then
-    return;   -- sem usuario nao ha trilha; e sem trilha nao ha busca
+  if v_uid is null or brain.caller_access_level() is null then
+    return;   -- sem usuario ativo nao ha trilha (a policy recusaria) nem busca
   end if;
   select coalesce(array_agg(h order by h.score desc, h.chunk_id), '{}')
     into v_hits
@@ -468,16 +524,23 @@ begin
                           where v.storage_bucket = 'brain-documents' and v.storage_path = storage.objects.name
                             and v.access_level <= (select brain.caller_access_level())))
   $p$;
+  -- Sem objeto orfao: so entra (ou e renomeado para) um nome que JA e o
+  -- storage_path de uma versao registrada. O bucket nunca acumula arquivo
+  -- sem identidade documental no BRAIN — nem por administrador.
   execute $p$
     create policy brain_documents_write on storage.objects
       for insert to authenticated
-      with check (bucket_id = 'brain-documents' and (select public.is_admin()))
+      with check (bucket_id = 'brain-documents' and (select public.is_admin())
+                  and exists (select 1 from brain.document_versions v
+                               where v.storage_bucket = 'brain-documents' and v.storage_path = storage.objects.name))
   $p$;
   execute $p$
     create policy brain_documents_update on storage.objects
       for update to authenticated
       using (bucket_id = 'brain-documents' and (select public.is_admin()))
-      with check (bucket_id = 'brain-documents' and (select public.is_admin()))
+      with check (bucket_id = 'brain-documents' and (select public.is_admin())
+                  and exists (select 1 from brain.document_versions v
+                               where v.storage_bucket = 'brain-documents' and v.storage_path = storage.objects.name))
   $p$;
   execute $p$
     create policy brain_documents_delete on storage.objects
@@ -516,7 +579,7 @@ begin
   if v_n <> 0 then raise exception 'Funcao do brain declarada immutable indevidamente'; end if;
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where n.nspname in ('brain', 'public') and p.prosecdef
-     and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','brain_search','brain_provenance');
+     and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure','brain_search','brain_provenance');
   if v_n <> 0 then raise exception 'Funcao do Lote B declarada security definer'; end if;
   if exists (select 1 from information_schema.role_table_grants where table_schema = 'brain' and grantee = 'anon') then
     raise exception 'anon com grant em tabela do brain';

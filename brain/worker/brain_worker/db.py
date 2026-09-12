@@ -105,9 +105,16 @@ class BrainDb:
             (row,) = cur.fetchone()
         return row if isinstance(row, dict) else json.loads(row)
 
-    def fail(self, ingestion_id, error: str, warnings: list[str]):
+    def record_failure(self, version_id, method: str, parser: str, pipeline_version: str, executor: str | None,
+                       error: str, warnings: list[str], replace_attempt: bool, started_at) -> dict[str, Any]:
+        """Trilha de uma tentativa desfeita por rollback (a ingestao aberta ja nao existe)."""
         with self.conn.cursor() as cur:
-            cur.execute("select brain.ingestion_fail(%s, %s, %s)", (ingestion_id, error, Jsonb(warnings)))
+            cur.execute(
+                "select to_jsonb(r) from brain.ingestion_record_failure(%s, %s, %s, %s, %s, %s, %s, %s, %s) r",
+                (version_id, method, parser, pipeline_version, executor, error, Jsonb(warnings), replace_attempt, started_at),
+            )
+            (row,) = cur.fetchone()
+        return row if isinstance(row, dict) else json.loads(row)
 
     def commit(self):
         self.conn.commit()
