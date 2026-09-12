@@ -76,16 +76,17 @@ DELETE das tabelas é `is_admin()` no RLS (suíte 35, B18).
 ```
 brain/worker/
   brain_worker/
-    __init__.py     PIPELINE_VERSION = "lote-b.1"
+    __init__.py     PIPELINE_VERSION = "lote-b.2"  (lote-b.1 = piloto; calibrado em fase-2-piloto-magnojet.md)
     extract.py      PDF (pdfplumber), XLSX (openpyxl), CSV, TXT/MD; OCR local (tesseract) só quando falta camada textual
-    tables.py       tabela técnica → table_data (JSONB) + texto pesquisável; números pt-BR → numéricos
+    tables.py       tabela técnica → table_data (JSONB) + texto pesquisável; números pt-BR → numéricos; auditor automático
+    spatial.py      reconstrução espacial de tabela técnica pela geometria (x/y das palavras) quando o detector por régua falha
     chunking.py     chunking determinístico por página
     codes.py        códigos de peça/modelo (MJ981CAP, T70P, DB1580, 4626215)
     gate.py         porteiro do processamento externo (consulta brain.external_processing_for)
     db.py           só as funções da API (psycopg 3)
     pipeline.py     arquivo → plano → transação
     __main__.py     CLI: `python -m brain_worker plan|ingest`
-  tests/            fixtures sintéticas (reportlab/openpyxl) + 20 testes (11 unidade, 9 com banco)
+  tests/            fixtures sintéticas (reportlab/openpyxl) + 27 testes (18 unidade, 9 com banco)
   requirements.txt
 ```
 
@@ -269,9 +270,10 @@ real e ficam para a ingestão piloto autorizada.
 | Onde | O quê | Asserções |
 |---|---|---|
 | `supabase/db-tests/35_brain_ingestao.sql` | B1–B24 + BG1, BG2, BG5, BG12, BG13, BG14 — B21 `--replace` atômico (falha após remoção → conteúdo anterior idêntico, falha auditada, sucesso sem mistura), B22 primeira ingestão falhada (draft vazio, reingestão sem `--replace`, `object_in_use` para ingestão aberta), B23 storage sem objeto órfão, B24 usuário inativo/sem perfil na busca | 30 |
-| `brain/worker/tests/test_worker.py` | W1–W6: sha/mime/assinatura, páginas e tabela, números pt-BR, códigos, determinismo, isolamento de páginas, títulos, XLSX/TXT, OCR | 11 |
+| `brain/worker/tests/test_worker.py` | W1–W6: sha/mime/assinatura, páginas e tabela, números pt-BR, códigos, determinismo, isolamento de páginas, títulos, XLSX/TXT, OCR; **W7–W12** (piloto): tabela por geometria (colunas fundidas, cabeçalho de dois níveis, código propagado), auditor, títulos (reset por página, corridas, arte vertical), códigos com pontuação/barra/espaço e perfil, `price_table` só com evidência de preço, fragmentos agregados, `lote-b.2` determinístico | 18 |
+| `supabase/db-tests/36_brain_busca_calibracao.sql` | C1–C10: código por padrão na pergunta, code intent guard, fuzzy código×código, cobertura de lexemas, evidência mínima, pressão/vazão/L_ha@12, segurança, filtros | 10 |
 | `brain/worker/tests/test_pipeline_db.py` | D1–D9 contra o banco: ingestão completa, idempotência e `--replace`, arquivo diferente, busca+proveniência após ativar, porteiro externo, falha registrada e ERP intocado; **D7** falha forçada em 4 pontos do `--replace` (após `start`, após páginas, no meio dos chunks, antes de `finish`) com retrato de páginas/chunks/hashes/busca/proveniência idêntico e zero conteúdo parcial; **D8** semântica da primeira ingestão falhada; **D9** duas ingestões concorrentes da mesma versão serializam no lock | 9 |
-| `supabase/db-tests/ensaiar-ingestao.sh` | I1–I8: suíte 35 (30); worker de ponta a ponta com PDF sintético (CLI); pytest (D1–D9); `06` remove A+B e `03` recusa; reaplicação → 33/34/35 (59); zero vetor e zero documento real versionado; bucket só pelo roteiro 07; **I7** `08` remove só o Lote B com retrato estrutural igual ao do Lote A puro; **I8** `08` recusa conteúdo repetido em páginas diferentes | 8 cenários |
+| `supabase/db-tests/ensaiar-ingestao.sh` | I1–I8: suítes 35/36 (40); worker de ponta a ponta com PDF sintético (CLI); pytest (D1–D9); `06` remove A+B+calibração e `03` recusa; reaplicação → 33/34/35/36 (69); zero vetor e zero documento real versionado; bucket só pelo roteiro 07; **I7** `08` remove só o Lote B com retrato estrutural igual ao do Lote A puro; **I8** `08` recusa conteúdo repetido em páginas diferentes | 8 cenários |
 | `supabase/db-tests/34_brain_memoria_hardening.sql` | + RAG-H11/H11b (sincronização pós-deploy do limiar trigram) | +2 |
 
 `npm run db:test` (`run.mjs`) inclui a suíte 35. Documentos usados: **somente sintéticos**, gerados
@@ -287,7 +289,7 @@ depois. Continua recusando se qualquer das sete tabelas de conteúdo tiver linha
 consulta pode ter linhas). O `03-remover-brain` (Fase 1) segue exigindo o `06` antes. Ensaiado em
 I4 e M3/M4.
 
-**Voltar só o Lote B, preservando o Lote A** (`supabase/operacao/08-remover-lote-b-sem-dados.sql`,
+**Voltar só o Lote B, preservando o Lote A** (`supabase/operacao/08-remover-lote-b-sem-dados.sql`; desde o piloto também desfaz a migration `20260912040000`, devolvendo `brain.search_knowledge` ao corpo do Lote A byte a byte —
 exigido pela auditoria pós-publicação, §20): uma transação que remove `public.brain_search`,
 `public.brain_provenance`, as 7 funções da API (inclusive `ingestion_record_failure`),
 `knowledge_queries` e as 4 policies `brain_documents_*`, e devolve `document_chunks` ao formato
@@ -380,3 +382,14 @@ ingestão aberta e pelo conteúdo anterior intacto.
 determinístico, OCR local, porteiro externo, zero pgvector, pontes desligadas, ERP como fonte
 da verdade, autoria `AgroTork <dev@agrotork.local>`, as 5 `FALHA` herdadas da suíte 25 na
 bateria (BR4/5/6/9/16) continuam visíveis e comparadas com a baseline.
+
+
+## 21. Piloto Magnojet V41 e calibração (lote-b.2)
+
+O primeiro documento real (Catálogo Magnojet V41, 172 páginas, 177 MB) expôs defeitos que o
+sintético não mostrava — tabelas de vazão com colunas fundidas, títulos verticais contaminando
+o `heading_path`, códigos não reconhecidos, busca zerando em perguntas naturais e falsos
+positivos por trigram. A calibração (worker `lote-b.2` + migration `20260912040000`) está
+documentada em **`docs/brain/fase-2-piloto-magnojet.md`**: reconstrução espacial de tabelas,
+auditor automático, títulos por página, códigos por padrão, code intent guard, cobertura de
+lexemas e evidência mínima, golden real V2. Produção continua sem conteúdo (V41 em `draft`).
