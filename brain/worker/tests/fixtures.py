@@ -186,3 +186,37 @@ def make_flow_pdf(path: Path) -> Path:
     c.showPage()
     c.save()
     return path
+
+
+def make_degraded_pdf(path: Path) -> Path:
+    """Tabela com UMA linha de dados e sem régua vertical entre as velocidades: o
+    detector padrão funde os números numa célula ("149 120 100 …") e a
+    reconstrução geométrica recusa (menos de duas linhas de dados) — o sinal
+    fatal fica, e a tabela tem que sair marcada `degraded`, sem nenhum número
+    inventado. O código PSDEG55 e o número 4181 só existem nesta tabela."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    c = canvas.Canvas(str(path), pagesize=A4, invariant=1)
+    W, H = A4
+    c.setFont("Helvetica-Bold", 12); c.drawString(60, H - 60, "FILTROS DE LINHA")
+    c.setFont("Helvetica", 9); c.drawString(60, H - 80, "Filtro de linha com elemento M 731 malha 80.")
+    left, top = 120, H - 200
+    col_x = [left, left + 60, left + 84, left + 108]
+    sp_x0 = left + 108; sp_w = 24; n_sp = 6
+    right = sp_x0 + sp_w * n_sp
+    c.setFont("Helvetica-Bold", 5)
+    for x, lab in zip(col_x[:3], ["CÓDIGO", "BAR", "PSI"]):
+        c.drawString(x + 3, top - 12, lab)
+    for i in range(n_sp):
+        c.drawCentredString(sp_x0 + sp_w * i + sp_w / 2, top - 12, f"{4 + i} km/h")
+    row_top = top - 18
+    c.line(left, top, right, top); c.line(left, row_top, right, row_top); c.line(left, row_top - 12, right, row_top - 12)
+    for x in col_x + [right]:
+        c.line(x, top, x, row_top - 12)
+    c.setFont("Helvetica", 5.5)
+    c.drawString(left + 3, row_top - 8, "PSDEG55"); c.drawString(col_x[1] + 3, row_top - 8, "2,76"); c.drawString(col_x[2] + 3, row_top - 8, "40")
+    for i, v in enumerate([4181, 3907, 3200, 2800, 2400, 2100]):
+        c.drawCentredString(sp_x0 + sp_w * i + sp_w / 2, row_top - 8, str(v))
+    c.showPage(); c.save()
+    return path

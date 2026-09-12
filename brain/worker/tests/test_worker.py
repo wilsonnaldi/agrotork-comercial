@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fixtures import FLOW_SPEEDS, TABLE_ROWS, make_catalog_pdf, make_flow_pdf, make_price_xlsx, make_text  # noqa: E402
+from fixtures import FLOW_SPEEDS, TABLE_ROWS, make_catalog_pdf, make_degraded_pdf, make_flow_pdf, make_price_xlsx, make_text  # noqa: E402
 from brain_worker.chunking import CONFIG, MAX, PageInput, chunk_pages, is_heading  # noqa: E402
 from brain_worker.codes import extract_codes, known_profiles, normalize_code  # noqa: E402
 from brain_worker.extract import extract, mime_for, ocr_available, sniff_ok  # noqa: E402
@@ -275,3 +275,57 @@ def test_w12_pipeline_version_and_determinism(tmp_path):
     assert a.sha256 == b.sha256
     assert [(c.ordinal, c.kind, c.content, c.table_data, c.codes, c.heading_path) for c in a.chunks] == \
            [(c.ordinal, c.kind, c.content, c.table_data, c.codes, c.heading_path) for c in b.chunks]
+
+
+# ── W13–W16 estado formal de qualidade (trusted / degraded) ──────────────
+
+def test_w13_degraded_table_is_marked_and_never_invented(tmp_path):
+    """Sinal fatal que a geometria não resolve → audit.quality = degraded,
+    fatal = true; a representação original fica (célula "4181 3907 …" como
+    string, nunca dividida por espaço); o chunk continua rastreável."""
+    p = plan(make_degraded_pdf(tmp_path / "deg.pdf"))
+    assert p.summary()["tables_degraded"] == 1 and p.summary()["tables_trusted"] == 0
+    assert p.summary()["degraded_pages"] == [1]
+    t = [c for c in p.chunks if c.kind == "table"][0]
+    audit = t.table_data["audit"]
+    assert audit["quality"] == "degraded" and audit["fatal"] is True
+    assert any("fundidos" in i for i in audit["issues"])
+    row = t.table_data["rows"][0]
+    assert row[0] == "PSDEG55" and row[1] == 2.76 and row[2] == 40
+    assert row[3] == "4181 3907 3200 2800 2400 2100"          # string ambigua, intacta
+    assert not any(isinstance(v, (int, float)) and v in (4181, 3907) for v in row)
+    assert "PSDEG55" in t.codes and t.page == 1 and t.content.startswith("CÓDIGO")
+    # o texto confiavel da mesma pagina segue normal
+    assert [c.kind for c in p.chunks] == ["heading", "text", "table"]
+
+
+def test_w14_trusted_table_has_formal_state(tmp_path):
+    p = plan(make_flow_pdf(tmp_path / "vazao.pdf"), profile="magnojet_catalog")
+    t = [c for c in p.chunks if c.kind == "table"][0]
+    assert t.table_data["audit"] == {"quality": "trusted", "fatal": False, "issues": []}
+    assert p.summary()["tables_trusted"] == 1 and p.summary()["tables_degraded"] == 0 and p.summary()["degraded_pages"] == []
+    td = t.table_data
+    assert td["rows"][td["rows"].index([r for r in td["rows"] if r[3] == 40 and r[0].startswith("PS981CAP")][0])][td["headers"].index("L_ha@12")] == 77
+
+
+def test_w15_non_fatal_warnings_stay_trusted():
+    from brain_worker.tables import fatal_issues
+    t = TechnicalTable(["CODIGO", "col_1", "col_2"], [["PS1", 40, 77], ["PS1", 50, 88]], {}, 1, [], ["CÓDIGO", "", ""])
+    audit = t.stamp_audit()
+    assert audit["quality"] == "trusted" and audit["fatal"] is False
+    assert audit["issues"] and all(not fatal_issues([i]) for i in audit["issues"])   # so "colunas sem cabecalho"
+    assert t.table_data()["audit"] == audit
+    bad = TechnicalTable(["CODIGO", "PSI", "L_ha@12"], [["PS1", 40, "77 66"]], {}, 1, [], ["CÓDIGO", "PSI", "12 km/h"])
+    assert bad.stamp_audit()["quality"] == "degraded" and bad.audit["fatal"] is True
+
+
+def test_w16_tables_inherit_section_only_when_page_has_one_section():
+    t1 = TechnicalTable(["A", "B"], [["x", 1]], {}, 1, [], ["A", "B"])
+    t2 = TechnicalTable(["C", "D"], [["y", 2]], {}, 1, [], ["C", "D"])
+    one = chunk_pages([PageInput(1, "TITULO\nCorpo.\nSECAO UNICA\nMais corpo.", [t1])])
+    assert [c.heading_path for c in one if c.kind == "table"] == [["TITULO", "SECAO UNICA"]]
+    two = chunk_pages([PageInput(2, "TITULO\nCorpo.\nSECAO UM\nCorpo um.\nSECAO DOIS\nCorpo dois.", [t1, t2])])
+    # duas secoes: nenhuma tabela herda a ultima secao por adivinhacao — so o titulo da pagina
+    assert [c.heading_path for c in two if c.kind == "table"] == [["TITULO"], ["TITULO"]]
+    # (os corpos curtos se agregam num chunk com o caminho do primeiro fragmento — politica de fragmentos)
+    assert [c.heading_path for c in two if c.kind == "text"] == [["TITULO"]]
