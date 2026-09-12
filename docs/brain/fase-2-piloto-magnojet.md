@@ -203,19 +203,66 @@ Provas extras: nome/tipo `ponta cone vazio ultra grossa MUG-CV` → heading + ta
 fuzzy `MJ981CA` → tabela p.20; `filtro de sucção M 714 malha 50` → p.101/100/109 (antes
 p.102/6/7, sem código).
 
+## 4b. Hardening final: tabela degradada nunca é evidência
+
+Auditoria do código publicado (`1c6cdde`) apontou o que faltava: quando a reconstrução não
+resolvia um sinal fatal, a tabela original continuava no pipeline só com os sinais em
+`notes`, e a busca não sabia que ela era ruim — as 8 células fundidas residuais podiam
+virar "evidência técnica". Correção (commit normal sobre a migration 040000, que **ainda não
+tinha sido aplicada em produção**; por isso não há 050000):
+
+- **Estado formal** em `table_data.audit = {"quality": "trusted" | "degraded", "fatal": bool,
+  "issues": [...]}`, calculado por `TechnicalTable.stamp_audit()` (auditor, não string de
+  `notes`) para PDF, XLSX e CSV. `degraded` = sobrou sinal fatal (número fundido, cabeçalho
+  caído, linha engolida) depois da reconstrução; sinal não fatal (coluna sem nome, rótulo não
+  propagado) fica em `issues` e a tabela continua `trusted`. Métricas `tables_trusted`,
+  `tables_degraded`, `degraded_pages` no plano/ingestão.
+- **Nada inventado, nada descartado**: a tabela degradada segue gravada como chunk `table`
+  com a representação original ("4181 3907" continua string), página, códigos e sinais;
+  `brain.chunk_provenance(id)` continua funcionando para diagnóstico.
+- **Busca fail-closed**: em `brain.search_knowledge`, a CTE `visiveis` aplica acesso, vigência
+  e filtros; `candidatos` = `visiveis` sem `degradada` (`audit.quality = 'degraded'` ou
+  `audit.fatal = true`, só para `table`/`price_table`) — **antes do ranking**; nenhum filtro
+  (`version_id`, `source_key`, `kind`, `p_limit`, `superseded`) reabre. Tabela sem `audit`
+  (conteúdo anterior ao lote-b.2) conta como trusted: o estado é declarado pelo worker.
+  E o fuzzy de código só vale para código que **não existe exato em nada visível**: se o
+  código da pergunta existe só numa tabela degradada, a resposta é zero — não o dado de um
+  código parecido (na V41 real: `M506/10` existe só em tabela degradada da p.102 e devolvia
+  `M506/1`; agora zero).
+- Tabelas herdam a seção da página só quando a página tem uma única seção; com várias, só
+  o título da página (atribuir a última seção a todas seria adivinhar) — W16.
+
+V41 real com o hardening: **270 tabelas → 202 trusted, 68 degraded**; as **55 tabelas de
+vazão são trusted** e a **p.20 é trusted** (`{"quality": "trusted", "fatal": false,
+"issues": []}`). Páginas com tabela degradada: 10–15 (matrizes de propriedades: cabeçalho
+caído), 57, 90, 152, 153 (linha engolida como cabeçalho), 93, 94, 96, 97, 102, 110 (célula
+fundida), 158–161 (45 grades de recomendação de pressão: cabeçalho caído + colunas sem
+nome). Varredura: para cada um dos 105 códigos das tabelas degradadas, a busca pelo próprio
+código **nunca** devolve a tabela degradada (0 vazamentos); o texto confiável das mesmas
+páginas continua sendo achado (p.102: "filtro de linha M 506" → texto da p.102).
+
+Testes: W13 (fixture adversarial `make_degraded_pdf`: célula "4181 3907 3200 …" fundida,
+reconstrução recusada, `degraded/fatal`, string intacta, chunk rastreável), W14 (p.20-like
+`trusted`, `L_ha@12 = 77`), W15 (sinal não fatal não degrada; fundido degrada), W16
+(tabela × seção); suíte 36 C11 (zero por código, frase, número, `version_id`, `source_key`,
+`kind`, limite 100, `superseded`; fuzzy não resgata `PSDEG99` exato-degradado e ainda acha
+`PSDEG9 → PSDEG98`; texto da página segue; `chunk_provenance` do degradado funciona) e C12
+(warning não fatal → trusted e pesquisável). `codes.py`/`query_codes`: unidade seguida de
+série ("PSI DDC 01") deixou de virar código.
+
 ## 5. Testes e regressão
 
 | Onde | O quê | Qtde |
 |---|---|---|
-| `brain/worker/tests/test_worker.py` | W1–W6 (anteriores) + W7 tabela por geometria com fixture `make_flow_pdf` (cabeçalho de dois níveis, sem régua vertical entre velocidades, régua de grupo na coluna de código, título vertical, títulos consecutivos, rótulos de desenho, "valoriza"), W7b auditor, W8 títulos, W9 códigos, W10 `price_table`, W11 fragmentos, W12 `lote-b.2` determinístico | 18 |
+| `brain/worker/tests/test_worker.py` | W1–W6 (anteriores) + W7 tabela por geometria com fixture `make_flow_pdf` (cabeçalho de dois níveis, sem régua vertical entre velocidades, régua de grupo na coluna de código, título vertical, títulos consecutivos, rótulos de desenho, "valoriza"), W7b auditor, W8 títulos, W9 códigos, W10 `price_table`, W11 fragmentos, W12 `lote-b.2` determinístico, W13–W16 trusted/degraded e tabela × seção | 22 |
 | `brain/worker/tests/test_pipeline_db.py` | D1–D9 (pipeline_version `lote-b.2`) | 9 |
-| `supabase/db-tests/36_brain_busca_calibracao.sql` | C1–C10 (item 3) | 10 |
+| `supabase/db-tests/36_brain_busca_calibracao.sql` | C1–C10 (item 3) + C11/C12 (item 4b) | 12 |
 | `supabase/db-tests/34_brain_memoria_hardening.sql` | RAG-H11 adaptado (md5 condicional; controle do limiar com palavra "glyfox" 0,40) | = |
-| `supabase/db-tests/ensaiar-ingestao.sh` | I1 (35+36 = 40), I3 (27 pytest), I4 (06 remove A+B+calibração; reaplicação 69), I7 (08 devolve o retrato do Lote A com a 040000 aplicada), I8 | 8 |
-| `run.mjs` | suíte 36 na bateria | +10 |
+| `supabase/db-tests/ensaiar-ingestao.sh` | I1 (35+36 = 42), I3 (31 pytest), I4 (06 remove A+B+calibração; reaplicação 71), I7 (08 devolve o retrato do Lote A com a 040000 aplicada), I8 | 8 |
+| `run.mjs` | suíte 36 na bateria | +12 |
 
 Rodado em PG16 (16.13), PG17.6 e PG18.6: `ensaiar-memoria` 6/6 e `ensaiar-ingestao` 8/8 nos
-três; bateria completa 455 OK, 5 `FALHA` herdadas (BR4/5/6/9/16, suíte 25) mantidas na
+três; bateria completa 457 OK, 5 `FALHA` herdadas (BR4/5/6/9/16, suíte 25) mantidas na
 comparação de baseline, 0 ERROR; `conferir-operacao`, `ensaiar-deploy` 17/17,
 `ensaiar-reconciliacao` 10/10, `pontes-concorrentes` verdes; `tsc` limpo; tipos gerados sem
 diff (nada novo em `public`). O PDF Magnojet não está no Git (I5).
@@ -240,11 +287,12 @@ Recomendação: **A** — é o fluxo já auditado (T1/T2/T3), sem código novo e
 
 ## 7. Riscos residuais
 
-- 8 células fundidas restam em 8 tabelas de acessórios (p.93, 94, 96, 97, 102 e três na p.110 —
-  roscas/dimensões, uma célula cada), originais mantidas e marcadas em `notes`; 33 páginas com warning de
-  estrutura (tabelas de recomendação de pressão p.158–161, matrizes de propriedades
-  p.10–15, dimensões p.84–111). Não são tabelas de vazão; ficam visíveis ao ChatGPT pelos
-  `warnings` da ingestão.
+- 68 tabelas degradadas (item 4b) ficam fora da busca por desenho — recomendação de pressão
+  (p.158–161), matrizes de propriedades (p.10–15), roscas/dimensões com célula fundida
+  (p.93, 94, 96, 97, 102, 110) e linha engolida (p.90, 97, 152, 153) — até que uma
+  reconstrução própria para esses layouts exista; o texto dessas páginas continua
+  pesquisável. Pseudo-códigos gerados dentro delas ("MUGPSI30") só existem em chunks
+  degradados e não alcançam a busca.
 - p.48 (MJC): reconstrução aceita com 1 aviso (coluna de rótulo fragmentada); valores
   numéricos corretos.
 - Fuzzy de código não cobre letra faltando no meio de código curto (0,50 < 0,6) — zero por
