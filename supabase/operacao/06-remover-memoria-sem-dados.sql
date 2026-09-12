@@ -2,7 +2,7 @@
 -- REMOVER OS LOTES A e B DA FASE 2 (memória corporativa) — só sem dados
 -- ============================================================
 -- Caminho de volta da memória: desfaz as migrations 20260912010000,
--- 20260912020000 e 20260912030000 (se aplicada) e nada mais. A Fase 1 (CRM, eventos, pontes, cron) fica
+-- 20260912020000, 20260912030000 e 20260912040000 (se aplicadas) e nada mais. A Fase 1 (CRM, eventos, pontes, cron) fica
 -- exatamente como está — este roteiro confere isso antes e depois.
 --
 -- Recusa-se a rodar se QUALQUER linha existir nas sete tabelas da
@@ -69,6 +69,8 @@ $$;
 
 -- ── Remoção, na ordem inversa da criação ────────────────────
 -- Lote B (inerte se nunca foi aplicado)
+drop function if exists brain.query_codes(text);
+drop function if exists brain.query_terms(text);
 drop function if exists public.brain_search(text, jsonb, integer, boolean);
 drop function if exists public.brain_provenance(bigint);
 drop function if exists brain.ingestion_record_failure(uuid, text, text, text, text, text, jsonb, boolean, timestamptz);
@@ -128,7 +130,7 @@ drop type if exists brain.document_type;
 drop type if exists brain.access_level;
 
 delete from supabase_migrations.schema_migrations
- where version in ('20260912010000', '20260912020000', '20260912030000');
+ where version in ('20260912010000', '20260912020000', '20260912030000', '20260912040000');
 
 -- ── Pós-condições ───────────────────────────────────────────
 do $$
@@ -144,9 +146,9 @@ begin
    where n.nspname = 'brain' and t.typname in ('access_level','document_type','version_status','ingestion_status','chunk_kind','link_origin','external_processing','knowledge_role','knowledge_hit');
   if v_n <> 0 then raise exception 'Sobrou tipo da memoria — PARADO.'; end if;
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'brain' and p.proname in ('search_knowledge','chunk_provenance','current_version','external_processing_for','caller_access_level','can_read_level','normalize_text','normalize_code','stamp_version','stamp_chunk','stamp_page','stamp_ingestion','stamp_chunk_product','cascade_document_access','cascade_version_access','cascade_chunk_access','register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure');
+   where n.nspname = 'brain' and p.proname in ('search_knowledge','chunk_provenance','current_version','external_processing_for','caller_access_level','can_read_level','normalize_text','normalize_code','stamp_version','stamp_chunk','stamp_page','stamp_ingestion','stamp_chunk_product','cascade_document_access','cascade_version_access','cascade_chunk_access','register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure','query_codes','query_terms');
   if v_n <> 0 then raise exception 'Sobrou funcao da memoria — PARADO.'; end if;
-  if exists (select 1 from supabase_migrations.schema_migrations where version in ('20260912010000','20260912020000','20260912030000')) then
+  if exists (select 1 from supabase_migrations.schema_migrations where version in ('20260912010000','20260912020000','20260912030000','20260912040000')) then
     raise exception 'Registro do Lote A nao saiu — PARADO.';
   end if;
 

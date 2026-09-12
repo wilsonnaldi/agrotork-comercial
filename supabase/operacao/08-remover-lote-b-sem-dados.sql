@@ -2,7 +2,7 @@
 -- REMOVER SÓ O LOTE B (ingestão) — voltando ao Lote A aprovado
 -- ============================================================
 -- Caminho de volta do Lote B, sem tocar no Lote A (já em produção e aprovado
--- separadamente) nem na Fase 1. Desfaz a migration 20260912030000 e nada
+-- separadamente) nem na Fase 1. Desfaz as migrations 20260912030000 e 20260912040000 (calibração da busca) e nada
 -- mais: ao final, os objetos que o Lote B alterou em brain.document_chunks
 -- (`heading_norm`, `fts`, `idx_chunks_fts`, `uq_chunk_content`,
 -- `stamp_chunk()`) ficam no formato exato do Lote A, e o ledger volta a ter
@@ -62,6 +62,10 @@ end
 $$;
 
 -- ── Remoção do que só o Lote B criou ─────────────────────────
+-- Calibração da busca (20260912040000): funções auxiliares saem; a
+-- brain.search_knowledge volta ao corpo do Lote A mais abaixo.
+drop function if exists brain.query_codes(text);
+drop function if exists brain.query_terms(text);
 drop function if exists public.brain_search(text, jsonb, integer, boolean);
 drop function if exists public.brain_provenance(bigint);
 drop function if exists brain.ingestion_record_failure(uuid, text, text, text, text, text, jsonb, boolean, timestamptz);
@@ -114,7 +118,147 @@ $$;
 
 revoke execute on function brain.stamp_chunk() from public, anon, authenticated;
 
-delete from supabase_migrations.schema_migrations where version = '20260912030000';
+-- ── brain.search_knowledge volta ao Lote A ───────────────────
+-- Corpo copiado byte a byte da migration 20260912020000 (md5 do
+-- pg_get_functiondef em producao: 3b54175bfd5a335ff737b799ca3eb3b6).
+create or replace function brain.search_knowledge(
+  p_query               text,
+  p_filters             jsonb   default '{}'::jsonb,
+  p_limit               integer default 10,
+  p_include_superseded  boolean default false
+)
+returns setof brain.knowledge_hit
+language plpgsql security invoker
+set search_path = ''
+as $$
+declare
+  v_level brain.access_level := brain.caller_access_level();
+  v_q text;
+  v_codes text[];
+  v_tsq tsquery;
+  v_limit integer;
+  v_today date := current_date;
+  v_f jsonb := coalesce(p_filters, '{}'::jsonb);
+  v_key text;
+  v_version_id uuid; v_document_id uuid; v_brand_id uuid; v_category_id uuid; v_product_id uuid;
+  v_doc_type brain.document_type; v_kind brain.chunk_kind;
+  v_source_key text; v_version_label text;
+begin
+  if v_level is null then return; end if;
+  v_limit := coalesce(p_limit, 10);
+  if v_limit <= 0 then return; end if;
+  v_limit := least(v_limit, 100);
+  v_q := left(brain.normalize_text(p_query), 1000);
+  if v_q is null then return; end if;
+
+  perform set_config('pg_trgm.word_similarity_threshold', '0.35', true);
+
+  if jsonb_typeof(v_f) <> 'object' then
+    raise exception 'p_filters deve ser um objeto JSON' using errcode = 'invalid_parameter_value';
+  end if;
+  for v_key in select jsonb_object_keys(v_f) loop
+    if v_key not in ('source_key','document_id','document_type','brand_id','category_id','version_label','version_id','kind','product_id') then
+      raise exception 'Filtro desconhecido: %', v_key using errcode = 'invalid_parameter_value';
+    end if;
+  end loop;
+  begin
+    v_version_id := (v_f ->> 'version_id')::uuid;
+    v_document_id := (v_f ->> 'document_id')::uuid;
+    v_brand_id := (v_f ->> 'brand_id')::uuid;
+    v_category_id := (v_f ->> 'category_id')::uuid;
+    v_product_id := (v_f ->> 'product_id')::uuid;
+    v_doc_type := (v_f ->> 'document_type')::brain.document_type;
+    v_kind := (v_f ->> 'kind')::brain.chunk_kind;
+  exception when invalid_text_representation or invalid_parameter_value then
+    raise exception 'Filtro com valor invalido' using errcode = 'invalid_parameter_value';
+  end;
+  v_source_key := v_f ->> 'source_key';
+  v_version_label := v_f ->> 'version_label';
+  if (v_f ? 'version_id' and v_version_id is null) or (v_f ? 'document_id' and v_document_id is null)
+  or (v_f ? 'brand_id' and v_brand_id is null) or (v_f ? 'category_id' and v_category_id is null)
+  or (v_f ? 'product_id' and v_product_id is null) or (v_f ? 'document_type' and v_doc_type is null)
+  or (v_f ? 'kind' and v_kind is null) or (v_f ? 'source_key' and v_source_key is null)
+  or (v_f ? 'version_label' and v_version_label is null) then
+    raise exception 'Filtro com valor nulo' using errcode = 'invalid_parameter_value';
+  end if;
+
+  select array_agg(distinct c) into v_codes
+    from (select brain.normalize_code(t) as c from unnest(regexp_split_to_array(v_q, '\s+')) t
+          union all select brain.normalize_code(v_q)) s
+   where c is not null and length(c) >= 2;
+
+  v_tsq := websearch_to_tsquery('portuguese'::regconfig, v_q);
+
+  return query
+  with candidatos as not materialized (
+    select c.id, c.kind, c.content, c.content_norm, c.table_data, c.page_from, c.page_to,
+           c.heading_path, c.codes, c.fts, c.access_level,
+           v.id as version_id, v.version_label, v.status as version_status,
+           v.storage_path, v.file_sha256,
+           d.id as document_id, d.title, d.document_type, d.source_key
+      from brain.document_chunks c
+      join brain.document_versions v on v.id = c.version_id
+      join brain.documents d on d.id = v.document_id
+     where c.access_level <= v_level
+       and ((v.status = 'active'
+              and (v.valid_from is null or v.valid_from <= v_today)
+              and (v.valid_to is null or v.valid_to >= v_today))
+          or (p_include_superseded and v.status = 'superseded')
+          or (v_version_id is not null and v.id = v_version_id and v.status <> 'withdrawn'))
+       and (v_version_id is null or v.id = v_version_id)
+       and (v_source_key is null or d.source_key = v_source_key)
+       and (v_document_id is null or d.id = v_document_id)
+       and (v_doc_type is null or d.document_type = v_doc_type)
+       and (v_brand_id is null or d.brand_id = v_brand_id)
+       and (v_category_id is null or d.category_id = v_category_id)
+       and (v_version_label is null or v.version_label = v_version_label)
+       and (v_kind is null or c.kind = v_kind)
+       and (v_product_id is null or exists (select 1 from brain.chunk_products cp where cp.chunk_id = c.id and cp.product_id = v_product_id))
+  ),
+  exato as (
+    select id, row_number() over (order by cardinality(codes_batidos) desc, id) as rk
+      from (select c.id, array(select unnest(c.codes) intersect select unnest(v_codes)) as codes_batidos
+              from candidatos c
+             where v_codes is not null and c.codes && v_codes) s
+  ),
+  trgm as (
+    select id, row_number() over (order by sim desc, id) as rk
+      from (select c.id, extensions.word_similarity(v_q, c.content_norm) as sim
+              from candidatos c
+             where v_q operator(extensions.<%) c.content_norm) s
+     limit 50
+  ),
+  fts as (
+    select id, row_number() over (order by rk_score desc, id) as rk
+      from (select c.id, ts_rank_cd(c.fts, v_tsq) as rk_score
+              from candidatos c
+             where c.fts @@ v_tsq) s
+     limit 50
+  ),
+  fundido as (
+    select coalesce(e.id, t.id, f.id) as id,
+           e.rk as rank_exact, t.rk as rank_trgm, f.rk as rank_fts,
+           (coalesce(1.0 / (60 + e.rk), 0)
+          + coalesce(1.0 / (60 + t.rk), 0)
+          + coalesce(1.0 / (60 + f.rk), 0)
+          + case when e.rk is not null then 1.0 / 60 else 0 end)::numeric(12,8) as score
+      from exato e
+      full join trgm t on t.id = e.id
+      full join fts f on f.id = coalesce(e.id, t.id)
+  )
+  select c.id, fu.score, fu.rank_exact::integer, fu.rank_trgm::integer, fu.rank_fts::integer,
+         c.kind, c.content, c.table_data, c.page_from, c.page_to, c.heading_path, c.codes,
+         c.version_id, c.version_label, c.version_status,
+         c.document_id, c.title, c.document_type, c.source_key, c.access_level,
+         c.storage_path, c.file_sha256
+    from fundido fu
+    join candidatos c on c.id = fu.id
+   order by fu.score desc, c.id
+   limit v_limit;
+end;
+$$;
+
+delete from supabase_migrations.schema_migrations where version in ('20260912030000', '20260912040000');
 
 -- ── Pós-condições ───────────────────────────────────────────
 do $$
@@ -123,7 +267,7 @@ begin
   if to_regclass('brain.knowledge_queries') is not null then raise exception 'knowledge_queries sobrou — PARADO.'; end if;
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
    where (n.nspname = 'public' and p.proname in ('brain_search', 'brain_provenance'))
-      or (n.nspname = 'brain' and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure'));
+      or (n.nspname = 'brain' and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure','query_codes','query_terms'));
   if v_n <> 0 then raise exception 'Sobrou funcao do Lote B — PARADO.'; end if;
   if to_regclass('storage.objects') is not null
      and exists (select 1 from pg_policies where schemaname = 'storage' and policyname like 'brain_documents%') then
@@ -145,7 +289,10 @@ begin
    where c.conrelid = 'brain.document_chunks'::regclass and c.conname = 'uq_chunk_content';
   if v_cols <> 'version_id,content_sha256' then raise exception 'uq_chunk_content = (%) — PARADO.', v_cols; end if;
   if not exists (select 1 from pg_indexes where schemaname = 'brain' and indexname = 'idx_chunks_fts') then raise exception 'idx_chunks_fts nao voltou — PARADO.'; end if;
-  if exists (select 1 from supabase_migrations.schema_migrations where version = '20260912030000') then raise exception 'Registro 20260912030000 nao saiu — PARADO.'; end if;
+  if exists (select 1 from supabase_migrations.schema_migrations where version in ('20260912030000', '20260912040000')) then raise exception 'Registro 20260912030000/040000 nao saiu — PARADO.'; end if;
+  if (select md5(pg_get_functiondef(p.oid)) from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'brain' and p.proname = 'search_knowledge') <> '3b54175bfd5a335ff737b799ca3eb3b6' then
+    raise exception 'brain.search_knowledge nao voltou ao corpo do Lote A — PARADO.';
+  end if;
   if (select count(*) from supabase_migrations.schema_migrations where version in ('20260912010000','20260912020000')) <> 2 then
     raise exception 'Registros do Lote A nao estao os dois — PARADO.';
   end if;

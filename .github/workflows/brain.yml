@@ -50,5 +50,5 @@ jobs:
         run: bash supabase/db-tests/ensaiar-deploy.sh
       - name: Ensaiar memoria corporativa (Fase 2, Lote A) — suites 33/34, regressao 25–32, remocao/reaplicacao, sem pgvector
         run: bash supabase/db-tests/ensaiar-memoria.sh
-      - name: Ensaiar ingestao (Fase 2, Lote B) — suite 35, worker com PDF sintetico, pytest, remocao A+B, bucket so por roteiro
+      - name: Ensaiar ingestao (Fase 2, Lote B) — suites 35/36, worker com PDF sintetico (tabela por geometria), pytest, remocao A+B e B-only, bucket so por roteiro
         run: bash supabase/db-tests/ensaiar-ingestao.sh

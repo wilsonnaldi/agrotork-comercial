@@ -550,10 +550,14 @@ $$;
 -- Em producao o Supabase gerenciado recusou `create function ... set
 -- pg_trgm.word_similarity_threshold = 0.35`; a funcao passou a fixar o
 -- limiar com set_config(..., true) dentro da execucao. Este teste prova que
--- o arquivo versionado e o que esta em producao e que o comportamento e o
--- aprovado no Lote A.
+-- o arquivo versionado e o que deve estar em producao e que o comportamento
+-- e o aprovado no Lote A. Desde a migration 20260912040000 (calibracao do
+-- piloto Magnojet) o corpo e o dessa migration; a busca por codigo com
+-- letra faltando ("kw7710") passou a ser tratada pelo braco de codigo
+-- (codigo x codigo), entao o controle do limiar trigram usa uma PALAVRA
+-- com erro de grafia ("glyfox" → "glifox", similaridade 0,40).
 do $$
-declare v_cfg text[]; v_vol "char"; v_md5 text; v_antes text; v_durante text; v_sim real; r record; v_n int;
+declare v_cfg text[]; v_vol "char"; v_md5 text; v_esperado text; v_antes text; v_durante text; v_sim real; r record; v_n int;
 begin
   reset role;
   select p.proconfig, p.provolatile, md5(pg_get_functiondef(p.oid)) into v_cfg, v_vol, v_md5
@@ -564,29 +568,34 @@ begin
   if v_cfg <> array['search_path=""'] then raise exception 'RAG-H11 FALHOU: proconfig = %', v_cfg; end if;
   -- 2. volatile (altera configuracao de sessao), nao stable
   if v_vol <> 'v' then raise exception 'RAG-H11 FALHOU: volatilidade = %', v_vol; end if;
-  -- 3. corpo byte a byte igual ao aplicado em producao em 12/09/2026
-  if v_md5 <> '3b54175bfd5a335ff737b799ca3eb3b6' then raise exception 'RAG-H11 FALHOU: definicao diverge da producao (md5 %)', v_md5; end if;
+  -- 3. corpo byte a byte igual ao versionado: o da migration 20260912040000
+  --    (calibracao do piloto, presente quando brain.query_codes existe) ou, sem
+  --    ela — Lote A puro, ou depois do 08-remover-lote-b — o aplicado em
+  --    producao em 12/09/2026 (md5 3b54175bfd5a335ff737b799ca3eb3b6)
+  v_esperado := case when to_regprocedure('brain.query_codes(text)') is not null
+                     then '334adb12c49f843b6c4461f1ac778431' else '3b54175bfd5a335ff737b799ca3eb3b6' end;
+  if v_md5 <> v_esperado then raise exception 'RAG-H11 FALHOU: definicao diverge do versionado (md5 %, esperado %)', v_md5, v_esperado; end if;
 
-  -- 4. limiar efetivo 0,35 durante a execucao: 'kw7710' tem similaridade 0,50
-  --    com o chunk KWZ7710 — passa em 0,35 e NAO passaria no default 0,6.
-  v_sim := extensions.word_similarity('kw7710', 'ponta kwz7710 de ceramica para herbicida glifox, vazao calibrada.');
+  -- 4. limiar efetivo 0,35 durante a execucao: 'glyfox' tem similaridade 0,40
+  --    com o chunk "herbicida glifox" — passa em 0,35 e NAO passaria no default 0,6.
+  v_sim := extensions.word_similarity('glyfox', 'ponta kwz7710 de ceramica para herbicida glifox, vazao calibrada.');
   if v_sim < 0.35 or v_sim >= 0.6 then raise exception 'RAG-H11 FALHOU: similaridade de controle = %', v_sim; end if;
   v_antes := current_setting('pg_trgm.word_similarity_threshold', true);
   perform set_config('request.jwt.claim.sub', '34343434-0000-4000-8000-000000000001', true);
   perform set_config('role', 'authenticated', true);
-  select * into r from brain.search_knowledge('kw7710') limit 1;
-  if r.chunk_id is null or r.rank_trgm is null then raise exception 'RAG-H11 FALHOU: trigram a 0,35 nao achou KWZ7710: %', to_jsonb(r); end if;
+  select * into r from brain.search_knowledge('glyfox') limit 1;
+  if r.chunk_id is null or r.rank_trgm is null then raise exception 'RAG-H11 FALHOU: trigram a 0,35 nao achou glifox: %', to_jsonb(r); end if;
   -- e o mesmo termo, com o limiar em 0,6, nao acha por trigram (prova de que e o 0,35 que decide)
   perform set_config('pg_trgm.word_similarity_threshold', '0.6', true);
-  select count(*) into v_n from brain.document_chunks where 'kw7710' operator(extensions.<%) content_norm;
+  select count(*) into v_n from brain.document_chunks where 'glyfox' operator(extensions.<%) content_norm;
   if v_n <> 0 then raise exception 'RAG-H11 FALHOU: controle a 0,6 achou %', v_n; end if;
   -- 5. a funcao (re)fixa 0,35 a cada chamada, mesmo depois de alguem mexer no GUC
-  select * into r from brain.search_knowledge('kw7710') limit 1;
+  select * into r from brain.search_knowledge('glyfox') limit 1;
   if r.rank_trgm is null then raise exception 'RAG-H11 FALHOU: nao refixou o limiar'; end if;
   v_durante := current_setting('pg_trgm.word_similarity_threshold', true);
   if v_durante <> '0.35' then raise exception 'RAG-H11 FALHOU: limiar apos a chamada = %', v_durante; end if;
   perform set_config('role', 'none', true); reset role;
-  raise notice ' RAG-H11) OK: sem SET na declaracao, volatile, corpo = producao (md5 %), limiar 0,35 efetivo (controle: 0,50 passa; a 0,6 nao), refixado a cada chamada; antes da chamada era %', v_md5, coalesce(v_antes, '(default)');
+  raise notice ' RAG-H11) OK: sem SET na declaracao, volatile, corpo = versionado (md5 %), limiar 0,35 efetivo (controle: 0,50 passa; a 0,6 nao), refixado a cada chamada; antes da chamada era %', v_md5, coalesce(v_antes, '(default)');
 end
 $$;
 
