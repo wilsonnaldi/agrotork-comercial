@@ -82,6 +82,24 @@ class TechnicalTable:
     notes: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)   # cabeçalhos como estão no documento
     groups: list[str | None] = field(default_factory=list)   # rótulo de grupo acima de cada coluna (ou None)
+    # Estado formal de qualidade, gravado no table_data (nunca derivado de `notes`):
+    #   {"quality": "trusted" | "degraded", "fatal": bool, "issues": [...]}
+    # `degraded` = ficou pelo menos um sinal FATAL (numero fundido, cabecalho
+    # caido, linha engolida) que a reconstrucao espacial nao resolveu. Sinais
+    # nao fatais (coluna sem nome, rotulo nao propagado) ficam registrados em
+    # `issues`, mas a tabela continua `trusted`.
+    audit: dict[str, Any] = field(default_factory=lambda: {"quality": "trusted", "fatal": False, "issues": []})
+
+    def stamp_audit(self) -> dict[str, Any]:
+        """Recalcula e grava o estado de qualidade a partir do auditor. Determinístico."""
+        issues = audit_table(self)
+        fatal = fatal_issues(issues)
+        self.audit = {"quality": "degraded" if fatal else "trusted", "fatal": bool(fatal), "issues": issues}
+        return self.audit
+
+    @property
+    def is_trusted(self) -> bool:
+        return self.audit.get("quality") == "trusted" and not self.audit.get("fatal")
 
     @property
     def is_meaningful(self) -> bool:
@@ -96,6 +114,8 @@ class TechnicalTable:
             "rows": self.rows,
             "notes": self.notes,
             "groups": self.groups if any(self.groups) else [],
+            "audit": {"quality": self.audit.get("quality", "trusted"), "fatal": bool(self.audit.get("fatal", False)),
+                      "issues": list(self.audit.get("issues", []))},
         }
 
     def render_text(self) -> str:

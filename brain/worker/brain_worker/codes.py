@@ -40,6 +40,9 @@ _PROFILES: dict[str, list[re.Pattern[str]]] = {
 
 # Palavras comuns que casam o padrão mas não são código.
 _STOP = {"COVID19"}
+# Unidade seguida de série/número ("PSI DDC 01", "BAR PSI 4") não é código: a
+# unidade é cabeçalho, não prefixo de peça.
+_UNIT_PREFIX = re.compile(r"^(BAR|PSI|KPA|MPA)(?=[A-Z])")
 
 
 def normalize_code(raw: str) -> str | None:
@@ -61,7 +64,7 @@ def extract_codes(text: str, profile: str | None = None) -> list[str]:
     for rx in code_patterns(profile):
         for m in rx.finditer(up):
             code = normalize_code(m.group(1))
-            if not code or code in _STOP:
+            if not code or code in _STOP or _UNIT_PREFIX.match(code):
                 continue
             found.add(code)
     return sorted(found)

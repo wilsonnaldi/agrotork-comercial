@@ -177,6 +177,7 @@ def chunk_pages(pages: list[PageInput], price_table_hint: bool = False, profile:
         section_run: list[str] = []    # corrida vigente (nível 2)
         run_open = False               # ainda dentro de uma corrida de títulos
         title_closed = False           # a corrida de título da página já terminou
+        section_runs = 0               # quantas corridas de seção a página teve
         body_seen = False
         pending: list[str] = []
         pending_kind = "text"
@@ -212,6 +213,7 @@ def chunk_pages(pages: list[PageInput], price_table_hint: bool = False, profile:
                     flush_pending()
                     if title_closed:
                         section_run = []          # nova secao substitui a anterior
+                        section_runs += 1
                 target = section_run if title_closed else title_run
                 if target and target[-1] == text:
                     continue
@@ -239,7 +241,10 @@ def chunk_pages(pages: list[PageInput], price_table_hint: bool = False, profile:
             close_run()
         flush_pending(force=True)
 
-        heading_path = current_path()
+        # Tabelas nao carregam posicao no texto: com uma unica secao na pagina, herdam
+        # titulo + secao; com varias secoes, so o titulo da pagina — atribuir a ultima
+        # secao a todas as tabelas seria adivinhar.
+        heading_path = title_run[:10] + (section_run[:4] if section_runs <= 1 else [])
         for table in page.tables:
             if not table.is_meaningful:
                 continue

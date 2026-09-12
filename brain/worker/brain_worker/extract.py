@@ -132,6 +132,7 @@ def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
             tables: list[TechnicalTable] = []
             bboxes = []
             reconstructed = 0
+            degraded = 0
             try:
                 for bbox, found in _table_regions(page):
                     t = build_table(found.extract(), page=i) if found is not None else None
@@ -150,6 +151,13 @@ def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
                             warnings.append(f"p.{i}: tabela com {len(issues)} sinal(is) de estrutura ruim nao reconstruida: " + "; ".join(issues))
                     if t is None or not t.is_meaningful:
                         continue
+                    # estado formal: trusted (sem sinal fatal) ou degraded (sinal fatal que
+                    # a geometria nao resolveu). A tabela degradada continua no pipeline —
+                    # rastreavel, com a representacao original — mas a busca normal nao a
+                    # usa como evidencia (migration 20260912040000).
+                    t.stamp_audit()
+                    if not t.is_trusted:
+                        degraded += 1
                     tables.append(t)
                     bboxes.append(bbox)
             except Exception as exc:  # tabela mal formada não derruba a página
@@ -167,7 +175,7 @@ def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
             rotated = [w.text for w in _rotated_words(page.chars, page.bbox[1], page.bbox[3])]
             total_chars += len(text.strip()) + sum(len(t.render_text()) for t in tables)
             layout = {"width": float(page.width), "height": float(page.height), "tables": len(tables),
-                      "tables_reconstructed": reconstructed}
+                      "tables_reconstructed": reconstructed, "tables_degraded": degraded}
             if rotated:
                 layout["rotated_text"] = rotated
             pages.append(ExtractedPage(i, text, "text_layer", False, tables, layout))
@@ -218,6 +226,7 @@ def extract_xlsx(path: Path) -> Extraction:
         if table and table.is_meaningful:
             # A aba inteira e a tabela: nenhum texto solto, o nome da aba vai na nota.
             table.notes.append(f"aba: {ws.title}")
+            table.stamp_audit()
             pages.append(ExtractedPage(i, "", "spreadsheet", False, [table], {"sheet": ws.title, "rows": len(rows)}))
         else:
             text = "\n".join(" ".join(_cell(c) for c in r) for r in rows if any(_cell(c) for c in r))
@@ -229,6 +238,8 @@ def extract_xlsx(path: Path) -> Extraction:
 def extract_csv(path: Path) -> Extraction:
     raw = list(csv.reader(io.StringIO(path.read_text(encoding="utf-8-sig")), delimiter=";" if ";" in path.read_text(encoding="utf-8-sig").splitlines()[0] else ","))
     table = build_table(raw, page=1)
+    if table and table.is_meaningful:
+        table.stamp_audit()
     text = "" if (table and table.is_meaningful) else "\n".join(" ".join(r) for r in raw)
     return Extraction([ExtractedPage(1, text, "spreadsheet", False, [table] if table and table.is_meaningful else [], {"rows": len(raw)})],
                       "other", "csv", False, None, ["csv: uma pagina, uma tabela"])

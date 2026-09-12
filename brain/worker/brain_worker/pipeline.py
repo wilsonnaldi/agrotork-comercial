@@ -63,6 +63,8 @@ class Plan:
             "pipeline_version": PIPELINE_VERSION, "chunk_config": CHUNK_CONFIG,
             "profile": self.metrics.get("profile"), "tables_reconstructed": self.metrics.get("tables_reconstructed"),
             "table_audit_issues": self.metrics.get("table_audit_issues"),
+            "tables_trusted": self.metrics.get("tables_trusted"), "tables_degraded": self.metrics.get("tables_degraded"),
+            "degraded_pages": self.metrics.get("degraded_pages"),
         }
 
 
@@ -82,7 +84,10 @@ def plan(path: Path, ocr: str = "auto", price_table: bool = False, profile: str 
     t2 = time.perf_counter()
     metrics = {"extract_ms": round((t1 - t0) * 1000), "chunk_ms": round((t2 - t1) * 1000), "profile": profile,
                "tables_reconstructed": sum(int(p.layout.get("tables_reconstructed", 0)) for p in ext.pages),
-               "table_audit_issues": sum(len(audit_table(t)) for p in ext.pages for t in p.tables)}
+               "table_audit_issues": sum(len(audit_table(t)) for p in ext.pages for t in p.tables),
+               "tables_trusted": sum(1 for p in ext.pages for t in p.tables if t.is_trusted),
+               "tables_degraded": sum(1 for p in ext.pages for t in p.tables if not t.is_trusted),
+               "degraded_pages": sorted({p.page_no for p in ext.pages for t in p.tables if not t.is_trusted})}
     return Plan(sha256_of(path), mime, path.stat().st_size, ext, chunks, metrics)
 
 
