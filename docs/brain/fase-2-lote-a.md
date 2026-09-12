@@ -49,8 +49,9 @@ ordem de sensibilidade), `document_type`, `version_status`, `ingestion_status`, 
 (`stamp_*`). Reclassificar o documento desce a cadeia inteira (`cascade_*_access`).
 Consequências:
 
-- toda policy de leitura é `using (brain.can_read_level(access_level))` — comparação de
-  coluna, sem junção, sem função `security definer` nova;
+- toda policy de leitura é `using (access_level <= (select brain.caller_access_level()))`
+  — comparação de coluna contra um initPlan (o nível do chamador é calculado uma vez
+  por consulta), sem junção, sem função `security definer` nova;
 - o conjunto candidato da busca já nasce filtrado (§6), antes de qualquer ranking;
 - não existe como um chunk ficar mais aberto que o documento.
 
@@ -58,17 +59,36 @@ Quem é o chamador, em **um** lugar — `brain.caller_access_level()`:
 
 | Chamador | Nível |
 |---|---|
-| administrador (`public.is_admin()`), ou o próprio banco (`postgres`, `service_role`, cron — via `brain.is_privileged()` da Fase 1) | `admin` |
-| usuário ativo (vendedor) | `internal` |
-| `anon`, inativo, sem sessão | `NULL` → não lê nada |
+| o próprio banco: sessão **sem JWT** e fora dos papéis de API (`postgres`, `service_role`, cron, migration) | `admin` |
+| perfil **ativo** com `public.auth_role() = 'admin'` | `admin` |
+| perfil **ativo** com `public.auth_role() = 'salesperson'` | `internal` |
+| `anon`; `authenticated` sem `sub`; `sub` sem perfil; perfil inativo; papel desconhecido | `NULL` → não lê nada |
 
-**Decisão embutida:** `commercial` é hoje só do administrador (tabela subdealer é custo).
-Se o vendedor um dia puder ver preço de revenda, muda-se essa função e nada mais.
+O mapeamento é por **papel explícito**, não por "qualquer usuário ativo": um valor novo em
+`public.user_role` cai no `else` e não enxerga nada até ser mapeado aqui — na dúvida,
+nega. A função **não** usa `brain.is_privileged()` da Fase 1: aquela aceita a marca de
+sessão `brain.internal` (aberta pelas pontes do ERP), e uma marca de sessão pode ser
+ligada por qualquer conexão que execute SQL; a memória não tem ponte e não precisa dessa
+porta (ver §16, achado 1).
+
+**Quem é "usuário ativo"?** `public.auth_role()` (security definer da Fase 0, filtra
+`is_active`) sobre `public.profiles`. Todo usuário criado no Auth nasce `salesperson`
+ativo (migration 20260831002100) — ou seja, **todo usuário que o Auth aceitar é
+`internal`**, exatamente como já é tratado pelo ERP inteiro (clientes, produtos,
+orçamentos próprios). Isso torna a política de cadastro do Auth de produção (*Allow new
+users to sign up*) parte da fronteira de segurança da memória; está registrada como risco
+residual (§16).
+
+**Decisão embutida:** `commercial` não é concedido a papel nenhum hoje (tabela subdealer
+é custo); só o administrador a alcança. Se um papel novo um dia puder ver preço de
+revenda, muda-se essa função e nada mais.
 
 ## 4. RLS
 
 RLS em todas as sete tabelas. Por tabela: `*_select` (leitura por nível — em
-`knowledge_sources`, qualquer usuário ativo), `*_admin_insert` (`with check is_admin`),
+`knowledge_sources`, a fonte aparece se o chamador alcança o `default_access_level` dela
+**ou** já enxerga algum documento dela; uma fonte `admin` sem documento visível não
+aparece nem pelo nome), `*_admin_insert` (`with check is_admin`),
 `*_admin_update` (`using` e `with check` `is_admin`), `*_admin_delete`. Uma policy
 permissiva por (papel, ação) — guarda na própria migration, e o advisor do Supabase
 mede isso. `anon` sem USAGE no schema (herdado da Fase 1) e sem grant em tabela.
@@ -86,7 +106,19 @@ invoker` com `search_path = ''` — se o chamador não pode ler, o resultado é 
   `superseded`, ganha `superseded_by_id` e `valid_to = greatest(nova.valid_from - 1,
   sua valid_from)`; a nova recebe `supersedes_id`. Reativar uma edição reabre a
   vigência (`valid_to = null`) a menos que o mesmo UPDATE fixe outra.
-- `withdrawn` nunca aparece em busca, nem pedindo pelo id.
+- **Estados, sem ambiguidade** (auditoria pré-publicação):
+  - `draft` — nunca vigente, nunca buscável; é como se agenda uma edição futura;
+  - `active` — no máximo **uma** por documento (índice único parcial). Ativar é um ato
+    de hoje: `valid_from` no futuro é recusado (`check_violation`) — deixe `draft` até o
+    dia. `active` com `valid_to < hoje` é uma edição **expirada**: não é vigente
+    (`current_version()` devolve NULL) e não aparece na busca padrão, de propósito —
+    preço vencido sem sucessora não se serve;
+  - `superseded` — sempre com `valid_to` (o gatilho preenche com hoje se faltar);
+    aparece só com `p_include_superseded` ou por `version_id`/`version_label`;
+  - `withdrawn` — nunca aparece em busca, nem pedindo pelo id.
+- `current_version()` é determinística: o índice `uq_document_versions_active` garante
+  no máximo uma linha candidata; datas sobrepostas entre `superseded` e `active` são
+  informativas (histórico), o **status** decide.
 - A busca padrão devolve só `active` e vigente na data. `p_include_superseded = true`
   traz as `superseded`; o filtro `version_label`/`version_id` escolhe uma edição
   específica.
@@ -102,18 +134,41 @@ select * from brain.search_knowledge('núcleo de cerâmica', '{"source_key":"mag
 select * from brain.search_knowledge('T100', '{"product_id":"<uuid>"}', 10, true);
 ```
 
-1. **Candidatos** (CTE): `can_read_level(chunk.access_level)` + vigência + filtros
-   (`source_key`, `document_id`, `document_type`, `brand_id`, `category_id`,
-   `version_label`, `version_id`, `kind`, `product_id`). Tudo isso **antes** dos rankings.
+0. **Entrada**: nível do chamador NULL → conjunto vazio; `p_limit` NULL → 10, ≤ 0 →
+   vazio, teto 100; pergunta normalizada e cortada em 1000 caracteres; `p_filters` NULL
+   → `{}`; chave desconhecida, valor nulo ou mal formado → `invalid_parameter_value`
+   com mensagem curta (nunca um erro do banco arrastando o corpo da função).
+1. **Candidatos** (CTE `not materialized`): `chunk.access_level <= nível` + vigência +
+   filtros (`source_key`, `document_id`, `document_type`, `brand_id`, `category_id`,
+   `version_label`, `version_id`, `kind`, `product_id`). Tudo isso **antes** dos rankings
+   — e o `EXPLAIN` mostra o predicado de acesso (o da função e o do RLS, como initPlan)
+   no **mesmo nó de varredura** de cada braço, com `WindowAgg` (o ranking) acima (§16).
 2. **A1 — código exato**: cada palavra da pergunta e a pergunta inteira viram códigos
    normalizados (`mj 981 cap` → `MJ981CAP`); `codes && v_codes`. Ordena por número de
    códigos batidos.
-3. **A2 — trigram**: `word_similarity(pergunta, content_norm)` e sobre os códigos,
-   corte 0,35 (acha `MJ981CAB` quando o certo é `MJ981CAP`). Índice GIN `gin_trgm_ops`.
+3. **A2 — trigram por palavra**: `pergunta <% content_norm` (operador de
+   `word_similarity`, limiar 0,35 fixado na própria função via
+   `pg_trgm.word_similarity_threshold`), ordenado por `word_similarity`. Acha `MJ981CAB`
+   quando o certo é `MJ981CAP`. O operador é o indexável em `gin_trgm_ops`; a função
+   sozinha não era.
 4. **B — FTS**: `websearch_to_tsquery('portuguese', pergunta)` sobre `fts`, `ts_rank_cd`.
    Índice GIN.
-5. **RRF, k = 60**: `score = Σ 1/(60+rank)`; código exato soma um braço a mais. O
-   braço vetorial do Lote C entra como quarto termo na mesma soma.
+5. **RRF, k = 60** — o que existe hoje: **três braços, nenhum vetorial**:
+   `score = 1/(60+rank_exato) + 1/(60+rank_trgm) + 1/(60+rank_fts) + [1/60 se houve
+   código exato]`. Cada braço contribui só se o chunk apareceu nele. O braço vetorial do
+   Lote C entra como **quarta parcela** da mesma soma; a fórmula não muda de forma. Não há
+   vetor porque não há embedding: nenhuma coluna, extensão, worker ou chamada externa.
+
+**Índices e RLS — o que se mediu.** Os três operadores (`@@`, `&&`, `<%`) têm índice GIN e
+o planejador os usa quando a consulta corre **sem** RLS (`postgres`/`service_role`: ~8 ms
+com 43 mil chunks). Para `authenticated`, o RLS só deixa aplicar no índice operadores
+*leakproof*, e nenhum desses três é — o PostgreSQL varre os candidatos e avalia os
+operadores como filtro. Medido com 43 mil chunks artificiais (PG 17.6): braço exato
+17 ms, FTS 16 ms, trigram 656 ms, busca inteira ~0,7 s. Com o corpus real previsto para a
+Fase 2 (~5–15 mil chunks) isso fica em 0,1–0,3 s, aceitável para o Lote A. Se um dia
+pesar, o caminho é um invólucro `security definer` **com a mesma CTE de candidatos como
+cerca única** (o nível continua vindo do JWT), e as suítes 33/34 já provam essa cerca —
+decisão registrada, não tomada (§16, risco residual).
 
 Retorna `knowledge_hit`: chunk, os três ranks, `content`, `table_data`, páginas,
 `heading_path`, `codes`, versão (id, label, status), documento (id, título, tipo),
@@ -169,9 +224,11 @@ ingestão que os gerou é a trilha (`ingestion_id` em cada um).
 
 ## 12. Testes
 
-`supabase/db-tests/33_brain_memoria.sql` — 17 asserções, com fixtures artificiais no
-formato dos documentos reais (nenhum documento real, nenhum dado do ERP alterado
-permanentemente):
+Duas suítes, ambas com fixtures artificiais no formato dos documentos reais (nenhum
+documento real, nenhum dado do ERP alterado permanentemente). Ambas entram em
+`npm run db:test` (`run.mjs`, que também passou a listar as suítes 31 e 32 da Fase 1).
+
+`supabase/db-tests/33_brain_memoria.sql` — 17 asserções (a memória funciona):
 
 | # | Cobre |
 |---|---|
@@ -190,10 +247,29 @@ permanentemente):
 | RAG-A15 | política externa por nível; reclassificação desce a cadeia e o vendedor perde acesso |
 | RAG-A16 | `anon` não lê nem busca |
 
-`supabase/db-tests/ensaiar-memoria.sh` — 6 cenários: suíte 33; Fase 1 intacta (9
-tabelas, 3 pontes desligadas, suítes 25–32 verdes ao lado do Lote A); `06-remover` para
-com dados e remove sem dados com o retrato da Fase 1 igual antes/depois; reaplicação;
-`03-remover-brain` recusa com o Lote A presente; zero vetor. Roda no CI.
+`supabase/db-tests/34_brain_memoria_hardening.sql` — 10 asserções adversariais (a
+memória **não** funciona para quem não pode):
+
+| # | Cobre |
+|---|---|
+| RAG-H1 | fail-closed: `sub` sem perfil, perfil inativo, `authenticated` sem `sub`, marca `brain.internal` → NULL/zero; banco = admin; vendedor = internal e nada acima |
+| RAG-H2 | vazamento por ranking: termo único de um chunk `commercial` invisível por exato/trigram/FTS/histórico/`version_id`/fonte/produto/proveniência/contagem; resposta idêntica à de um termo inexistente; **score e ranks do resultado público iguais com e sem o chunk commercial** |
+| RAG-H3 | cascata: subir o documento fecha versão/ingestão/página/chunk/vínculo; rebaixar um filho por UPDATE direto é desfeito pelo carimbo; voltar reabre; vizinhos intactos |
+| RAG-H4 | processamento externo: admin nunca (dois overrides); opt-out em public/internal; commercial exige opt-in e respeita parcial; internal nunca abaixo de provedor aprovado; override sem aprovação recusado; apagar o aprovador preserva a decisão |
+| RAG-H5 | versões: futura recusada; draft nunca vigente; uma vigente sempre; superseded sempre com `valid_to`; expirada não é vigente nem buscável; reabertura |
+| RAG-H6 | limites: `p_limit` 0/negativo/NULL/enorme; pergunta NULL/branco/enorme/caracteres especiais/injeção; 6 filtros inválidos → `invalid_parameter_value`; filtros sem casamento → vazio |
+| RAG-H7 | as 16 funções: `security invoker`, `search_path = ''`, `anon` sem EXECUTE, 8 de gatilho fechadas a `authenticated`, 8 de leitura abertas a `authenticated`/`service_role` |
+| RAG-H8 | arquivo: 7 campos imutáveis; metadados editáveis; mesmo sha em outra obra permitido; caminho único global; sha mal formado recusado |
+| RAG-H9 | fontes: vendedor vê as alcançáveis ou com documento visível, não a fonte `admin`; admin vê todas |
+| RAG-H10 | `chunk_products`: FK em `public.products`; sem duplicata; produto inexistente recusado; nenhum gatilho do Lote A no ERP; inativar mantém, apagar leva o vínculo e preserva o chunk |
+
+`supabase/db-tests/ensaiar-memoria.sh` — 6 cenários: suítes 33 e 34 (27 asserções);
+Fase 1 intacta (9 tabelas, 3 pontes desligadas, suítes 27–32 verdes e suíte 25 com
+**exatamente** as 5 falhas herdadas do modo desacoplado — ver §16); `06-remover` para com
+dados e remove sem dados com o retrato da Fase 1 igual antes/depois; reaplicação;
+`03-remover-brain` recusa com o Lote A presente; zero vetor, zero rótulo/objeto
+"embedding". Roda no CI (`.github/workflows/brain.yml`, ex-`brain-fase-1.yml`, renomeado
+com `git mv`).
 
 ## 13. Rollback
 
@@ -211,6 +287,8 @@ agora **para** se o Lote A estiver aplicado e manda rodar o `06` antes.
 - `commercial` = admin até decisão do Wilson.
 - Provedor "aprovado" para `approved_provider_only` ainda não tem lista — Lote B/C.
 - Busca por código exige que a ingestão extraia `codes[]`; o Lote A só normaliza.
+- Sob RLS os índices GIN não são usados para `authenticated` (§6): custo linear no número
+  de chunks visíveis, medido e aceito para o tamanho do corpus da Fase 2.
 
 ## 15. O que fica para os próximos lotes
 
@@ -223,3 +301,76 @@ agora **para** se o Lote A estiver aplicado e manda rodar o `06` antes.
   nível.
 - **D** — avaliação (recall@5, citação correta, latência, custo), comparação de modelos,
   GO/NO-GO da Fase 2.
+
+## 16. Auditoria pré-publicação (12/09/2026)
+
+Revisão adversarial do Lote A antes da primeira publicação, feita localmente sobre
+`8aa4c4f`, com o objetivo de corrigir aqui o que uma auditoria independente devolveria
+como NO-GO. Tudo abaixo está coberto por teste (suíte 34, salvo onde indicado).
+
+| # | Achado | Gravidade | Correção | Prova |
+|---|---|---|---|---|
+| 1 | `caller_access_level()` chamava `brain.is_privileged()`, que aceita a marca de sessão `brain.internal`. Um `authenticated` que executasse `set_config('brain.internal','on')` virava `admin` e a busca devolvia chunks `commercial` (reproduzido). Sem RPC que exponha `set_config`, não é alcançável pela API — mas é uma porta sem função na memória. | **alta** (defesa em profundidade) | A função passou a mapear por papel explícito (`auth_role()` = admin/salesperson) e a tratar sessão sem JWT como banco só fora dos papéis de API; nunca lê a marca de sessão. | RAG-H1 (marca ligada → continua `internal`, busca vazia, RLS fechado) |
+| 2 | "Usuário ativo → internal" aceitava qualquer perfil ativo, inclusive um papel futuro desconhecido. | média | Papel desconhecido/NULL → NULL (nega). | RAG-H1 |
+| 3 | `knowledge_sources` era legível por qualquer usuário ativo, inclusive fontes `admin` (nome, metadata). | baixa | Policy: alcança o `default_access_level` **ou** enxerga um documento da fonte. | RAG-H9 |
+| 4 | Filtro inválido (`version_id` não-uuid, `kind` inexistente, JSON não-objeto, chave desconhecida) levantava erro bruto do PostgreSQL com o **corpo inteiro da função** no `CONTEXT`; `p_filters = NULL` devolvia silenciosamente vazio; `p_limit = 0` devolvia 1 linha. | média | Validação explícita antes da consulta (`invalid_parameter_value`, mensagem curta); NULL → `{}`; limite ≤ 0 → vazio; pergunta cortada em 1000 caracteres (45 KB levava 1,5 s). | RAG-H6 |
+| 5 | Braço trigram usava a função `word_similarity()`, que **não** é indexável; o índice `idx_chunks_trgm` nunca seria usado. | média | Operador `<%` com limiar fixado na função; CTE `not materialized` para o predicado de acesso ir ao nó de varredura de cada braço. Medido: com RLS os GIN continuam fora (operadores não-leakproof) — documentado em §6 como decisão. | `EXPLAIN` (§6); RAG-A11 |
+| 6 | Policies `using (brain.can_read_level(access_level))` chamavam `auth_role()` linha a linha. | baixa (desempenho; advisor `auth_rls_initplan`) | `access_level <= (select brain.caller_access_level())`. | RAG-A12/H1 |
+| 7 | Índices: `idx_document_versions_document (document_id, status)` redundante com `uq_version_file` e `uq_document_versions_active`; `idx_chunks_access` (4 valores) inútil; FKs `ingestion_id` de páginas e chunks (`on delete restrict`) sem índice. | baixa | Dois removidos, dois criados (`idx_pages_ingestion`, `idx_chunks_ingestion`). 28 → 28 índices. | RAG-A1 |
+| 8 | Ativar uma versão com `valid_from` futuro deixava o documento **sem edição vigente** até a data; `superseded` manual podia ficar sem `valid_to`. | média | Gatilho: futura recusada; `superseded` recebe `valid_to`. Estados documentados em §5. | RAG-H5 |
+| 9 | `approved_by` é `on delete set null`, mas `chk_document_approval_pair` exigia os dois nulos ou os dois preenchidos: apagar o perfil de quem aprovou **falharia** na cascata do Auth. | média | A decisão fica pela data (`approved_at`) e pelo `audit_log`; a pessoa pode virar NULL. | RAG-H4 |
+| 10 | `06-remover-memoria` quebrou após o achado 3 (policy de fontes depende de `documents`). | média (rollback) | `drop policy` antes das tabelas. | ensaiar-memoria M3b/M4 |
+| 11 | Enum `ingestion_status` reservava o rótulo `'embedding'`. | baixa (escopo) | Removido; o Lote C acrescenta com `alter type … add value`. M6 confere que nada no schema se chama "embed*". | ensaiar-memoria M6 |
+| 12 | `ensaiar-memoria.sh` (M2) contava só `ERROR`/`FALHOU`; a suíte 25 imprime `FALHA:`. O cenário estava **verde por engano**: a suíte 25 tem 5 falhas em produção desacoplada (BR4, BR5, BR6, BR9, BR16 esperam o evento no mesmo instante do UPDATE; as pontes estão desligadas e quem sincroniza é o cron). Elas já falham em `7973444`, sem o Lote A. | média (harness) | M2 agora exige exatamente essas 5 e nenhuma outra, e zero erro nas demais; `BR10` da suíte 25 contava 9 tabelas no schema e passou a conferir as 9 da Fase 1 por nome (única asserção da Fase 1 que o Lote A quebrava, por contagem). | ensaiar-memoria M2; bateria 7973444 × HEAD (§16.1) |
+| 13 | O relatório anterior citava "2 erros herdados na suíte 15". Na bateria oficial (`run.mjs`, que roda a carga de catálogo antes) a suíte 15 é **verde** em `7973444` e em HEAD; os 2 erros vinham de rodar a suíte fora da ordem da bateria. | — (correção de relato) | Nenhuma. | §16.1 |
+| 14 | `run.mjs` (`npm run db:test`) parava na suíte 30: 31, 32 e 33 não entravam na bateria. | baixa (harness) | 31–34 registradas. | bateria HEAD = base + 38 asserções |
+| 15 | Workflow chamava-se `brain-fase-1.yml` validando a Fase 2. | — | `git mv` para `brain.yml`; passos inalterados (Fase 1: `conferir-operacao`, `ensaiar-deploy`; Fase 2: `ensaiar-memoria`). | CI (após publicação) |
+
+### 16.1 Regressão medida (`run.mjs`, PG 17.6)
+
+| | `7973444` | HEAD |
+|---|---|---|
+| asserções OK | 375 | 413 (= 375 + 7 + 4 + 17 + 10) |
+| `FALHA` | 5 (suíte 25: BR4, BR5, BR6, BR9, BR16) | as mesmas 5 |
+| `ERROR` | 0 | 0 |
+| suíte 15 | verde | verde |
+| `BR10` | OK (9 tabelas) | OK (16 tabelas, 9 da Fase 1 por nome) |
+
+Ensaios da Fase 1 em HEAD: `ensaiar-deploy.sh` 17/17, `ensaiar-reconciliacao.sh`
+10/10, `pontes-concorrentes.sh` OK, `conferir-operacao.sh` OK. `ensaiar-memoria.sh`
+6/6 em PG 16.13, 17.6 e 18.6.
+
+### 16.2 Extensões conferidas em produção (leitura, 12/09/2026)
+
+`pg_trgm 1.6` e `unaccent 1.1` no schema `extensions`, com `gin_trgm_ops`,
+`word_similarity`, o operador `<%` e `unaccent()` lá; USAGE em `extensions` para
+`anon`, `authenticated` e `service_role` (o stub de testes espelha isso); `pgcrypto`
+em `extensions` (o Lote A usa só `sha256()`/`gen_random_uuid()` do núcleo); `vector`
+ausente; servidor PostgreSQL 17.6; 10 migrations do BRAIN registradas, última
+`20260911220000`; nenhuma tabela do Lote A; 3 pontes desligadas.
+
+### 16.3 Matriz de EXECUTE
+
+| Função | `anon` | `authenticated` | `service_role` | Por quê |
+|---|---|---|---|---|
+| `search_knowledge`, `chunk_provenance`, `current_version`, `external_processing_for` | não | sim | sim | leitura; `security invoker`, o RLS filtra por baixo e o resultado é vazio/NULL sem nível |
+| `caller_access_level`, `can_read_level` | não | sim | sim | usadas pelas policies (o chamador precisa poder executá-las) |
+| `normalize_text`, `normalize_code` | não | sim | sim | puras, sem acesso a dado |
+| `stamp_*` (5), `cascade_*` (3) | não | não | não | gatilhos: disparam sem EXECUTE do chamador; ninguém as chama à mão |
+
+### 16.4 Riscos residuais
+
+- **Cadastro no Auth**: todo usuário que o Auth de produção aceitar nasce `salesperson`
+  ativo = `internal`. É a fronteira do ERP inteiro, não só da memória; a configuração
+  *Allow new users to sign up* do projeto precisa estar desligada (ou o convite ser o
+  único caminho). Conferência de painel, fora do escopo deste lote.
+- **`brain.is_privileged()` da Fase 1** continua aceitando a marca de sessão
+  `brain.internal` nas funções do CRM (leads, oportunidades, reconciliação). A memória
+  não depende mais dela; a Fase 1 fica como está (fechada), registrado para auditoria.
+- **Desempenho sob RLS**: custo linear nos chunks visíveis (§6). Aceito para o corpus da
+  Fase 2; mitigação desenhada, não aplicada.
+- **Suíte 25 em modo desacoplado**: 5 asserções da Fase 1 pressupõem pontes ligadas.
+  Pendência da Fase 1; o ensaio da memória só garante que o Lote A não muda esse
+  conjunto.
+- **`brain` fora do PostgREST**: `search_knowledge` só é alcançável do app via schema
+  exposto ou invólucro em `public` — decisão do Lote B, junto com a auditoria de consulta.
