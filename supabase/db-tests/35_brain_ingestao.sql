@@ -26,6 +26,10 @@
 --   B18  RLS: vendedor não vê ingestão/página/chunk commercial; não ingere; trilha de consulta é dele
 --   B19  worker não escreve no ERP; conteúdo repetido em páginas diferentes é aceito
 --   B20  zero pgvector; nenhuma função nova é security definer; anon sem EXECUTE
+--   B21  replace atômico: falha depois da remoção → conteúdo anterior intacto; sucesso → troca inteira
+--   B22  trilha da falha (ingestion_record_failure); primeira ingestão falhada; ingestão aberta bloqueia outra
+--   B23  storage: admin não grava nome órfão; grava o storage_path registrado; rename órfão recusado; vendedor não grava; leitura por nível
+--   B24  brain_search: usuário inativo e sem perfil → vazio, sem linha na trilha, sem erro
 --   BG   golden dataset (perguntas 1, 2, 5, 12, 13, 14) sobre o sintético
 --
 -- Prefixo de UUID = 35. Limpeza no fim.
@@ -439,6 +443,175 @@ begin
   if not (select relrowsecurity from pg_class where oid = 'brain.knowledge_queries'::regclass) then raise exception 'B20 FALHOU: knowledge_queries sem RLS'; end if;
   if exists (select 1 from information_schema.role_table_grants where table_schema = 'brain' and grantee = 'anon') then raise exception 'B20 FALHOU: anon com grant'; end if;
   raise notice ' B20) OK: sem vector/coluna vetorial/rotulo embedding; 8 funcoes do Lote B security invoker, search_path vazio, anon sem EXECUTE; knowledge_queries com RLS';
+end
+$$;
+
+-- ════════════════════════════════════════════════════════════
+-- B21 / B22 — replace atomico e trilha da falha
+-- ════════════════════════════════════════════════════════════
+-- O bloco `begin ... exception` do plpgsql e uma subtransacao: o que
+-- acontece dentro dele e desfeito no `exception`, exatamente como o
+-- rollback da T2 do worker. E assim que se prova, em SQL puro, que a
+-- remocao do conteudo antigo e a escrita do novo sao um ato so.
+do $$
+declare v uuid; i uuid; antes text; depois text; n int; n_ing int; r record; hit_antes bigint;
+begin
+  reset role;
+  -- V2 do catalogo (ativa, ingerida em B16): conteudo A
+  select v2.id into v from brain.document_versions v2 where v2.file_sha256 = repeat('c2', 32);
+  select string_agg(ordinal || ':' || content_sha256 || ':' || page_from || ':' || ingestion_id, '|' order by ordinal) into antes from brain.document_chunks where version_id = v;
+  select count(*) into n_ing from brain.knowledge_ingestions where version_id = v;
+  select chunk_id into hit_antes from brain.search_knowledge('PS981CAP') limit 1;
+
+  -- 1) replace que FALHA depois da remocao do antigo e de escrever parte do novo
+  begin
+    i := brain.ingestion_start(v, 'pdf_text', 'parser-novo', 'lote-b.1', 'suite-35', false, 1, true);
+    -- neste ponto, dentro da subtransacao, o conteudo antigo JA foi removido
+    select count(*) into n from brain.document_chunks where version_id = v;
+    if n <> 0 then raise exception 'B21 FALHOU: replace nao removeu o antigo dentro da transacao (%)', n; end if;
+    perform brain.ingestion_add_page(i, 1, 'CONTEUDO B parcial', 'text_layer');
+    perform brain.ingestion_add_chunk(i, 0, 'text', 1, 1, 'Conteudo B: bico ZETA9000.', '{}', null, '{ZETA9000}');
+    raise exception 'FALHA SIMULADA no meio do replace' using errcode = 'P0001';
+  exception when others then
+    if sqlerrm !~ 'FALHA SIMULADA' then raise; end if;
+  end;
+  select string_agg(ordinal || ':' || content_sha256 || ':' || page_from || ':' || ingestion_id, '|' order by ordinal) into depois from brain.document_chunks where version_id = v;
+  if antes <> depois then raise exception 'B21 FALHOU: conteudo anterior nao voltou'; end if;
+  select count(*) into n from brain.knowledge_ingestions where version_id = v;
+  if n <> n_ing then raise exception 'B21 FALHOU: ingestao parcial ficou registrada'; end if;
+  select count(*) into n from brain.document_chunks where version_id = v and codes @> '{ZETA9000}';
+  if n <> 0 then raise exception 'B21 FALHOU: mistura: chunk de B sobrou'; end if;
+  select count(*) into n from brain.document_pages where version_id = v and text = 'CONTEUDO B parcial';
+  if n <> 0 then raise exception 'B21 FALHOU: pagina de B sobrou'; end if;
+  if (select chunk_id from brain.search_knowledge('PS981CAP') limit 1) <> hit_antes then raise exception 'B21 FALHOU: busca mudou'; end if;
+  if brain.chunk_provenance(hit_antes) ->> 'citation' !~ 'V2, p\. 2$' then raise exception 'B21 FALHOU: proveniencia'; end if;
+
+  -- 2) a tentativa falhada fica auditada, numa transacao propria (aqui: fora do bloco)
+  select * into r from brain.ingestion_record_failure(v, 'pdf_text', 'parser-novo', 'lote-b.1', 'suite-35', 'FALHA SIMULADA no meio do replace', '["parcial"]'::jsonb, true);
+  if r.status <> 'failed' or r.error !~ 'SIMULADA' or (r.metadata ->> 'replace_attempt')::boolean is not true or (r.metadata ->> 'rolled_back')::boolean is not true
+     or r.pages_done <> 0 or r.chunks_created <> 0 or r.finished_at is null then
+    raise exception 'B21 FALHOU: trilha da falha: %', to_jsonb(r);
+  end if;
+  begin perform brain.ingestion_record_failure(v, 'pdf_text', 'x', 'lote-b.1', 'x', ''); raise exception 'B21 FALHOU: falha sem erro aceita';
+  exception when invalid_parameter_value then null; end;
+  -- a falha nao "substitui" nada: as ingestoes completed continuam sem replaced_by novo
+  select count(*) into n from brain.knowledge_ingestions where version_id = v and status = 'completed' and metadata ? 'replaced_by';
+  if n <> 0 then raise exception 'B21 FALHOU: falha marcou replaced_by'; end if;
+
+  -- 3) replace que DA CERTO: A some inteiro, B entra inteiro, contagens certas, historico coerente
+  i := brain.ingestion_start(v, 'pdf_text', 'parser-novo', 'lote-b.1', 'suite-35', false, 1, true);
+  perform brain.ingestion_add_page(i, 1, 'CONTEUDO B', 'text_layer');
+  perform brain.ingestion_add_chunk(i, 0, 'text', 1, 1, 'Conteudo B: bico ZETA9000 de cerâmica.', '{}', null, '{ZETA9000}');
+  select * into r from brain.ingestion_finish(i, 'completed');
+  if r.pages_done <> 1 or r.chunks_created <> 1 or r.status <> 'completed' then raise exception 'B21 FALHOU: contagens do replace: %', to_jsonb(r); end if;
+  select count(*) into n from brain.document_chunks where version_id = v and ingestion_id <> i; if n <> 0 then raise exception 'B21 FALHOU: sobrou chunk de A'; end if;
+  select count(*) into n from brain.document_pages where version_id = v and ingestion_id <> i; if n <> 0 then raise exception 'B21 FALHOU: sobrou pagina de A'; end if;
+  if exists (select 1 from brain.search_knowledge('PS981CAP')) then raise exception 'B21 FALHOU: A ainda buscavel'; end if;
+  if not exists (select 1 from brain.search_knowledge('ZETA9000')) then raise exception 'B21 FALHOU: B nao buscavel'; end if;
+  select count(*) into n from brain.knowledge_ingestions where version_id = v and status = 'completed' and id <> i and not (metadata ? 'replaced_by');
+  if n <> 0 then raise exception 'B21 FALHOU: ingestao anterior sem replaced_by'; end if;
+  -- devolve o conteudo A a V2 (os testes seguintes e o golden dependem dele): mais um replace, determinístico
+  select * into r from pg_temp.ingerir_catalogo('V2', repeat('c2', 32), true);
+  select string_agg(ordinal || ':' || content_sha256 || ':' || page_from, '|' order by ordinal) into depois from brain.document_chunks where version_id = v;
+  if depois <> regexp_replace(antes, ':[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}', '', 'g') then raise exception 'B21 FALHOU: restaurar A nao reproduziu os chunks'; end if;
+  raise notice ' B21) OK: replace que falha depois da remocao devolve paginas/chunks/busca/proveniencia identicos e nao deixa nada de B; a falha e auditada (replace_attempt, rolled_back); replace que da certo troca A por B inteiro, contagens e historico coerentes';
+
+  -- B22: primeira ingestao de uma versao nova que falha → versao draft sem conteudo, trilha failed, reingestao sem replace
+  v := brain.register_version('35353535-0000-4000-8000-0000000000d3', '2026-02', repeat('b7', 32), 'manual3.pdf', 'application/pdf', 500, null, 1);
+  begin
+    i := brain.ingestion_start(v, 'pdf_text', 'pdfplumber', 'lote-b.1', 'suite-35', false, 1);
+    perform brain.ingestion_add_page(i, 1, 'p1', 'text_layer');
+    raise exception 'FALHA SIMULADA na primeira ingestao';
+  exception when others then if sqlerrm !~ 'SIMULADA' then raise; end if; end;
+  perform brain.ingestion_record_failure(v, 'pdf_text', 'pdfplumber', 'lote-b.1', 'suite-35', 'FALHA SIMULADA na primeira ingestao', '[]'::jsonb, false);
+  select count(*) into n from brain.document_pages where version_id = v; if n <> 0 then raise exception 'B22 FALHOU: pagina da primeira falha ficou'; end if;
+  if (select status from brain.document_versions where id = v) <> 'draft' then raise exception 'B22 FALHOU: status'; end if;
+  i := brain.ingestion_start(v, 'pdf_text', 'pdfplumber', 'lote-b.1', 'suite-35', false, 1);   -- sem replace: nao havia conteudo
+  perform brain.ingestion_add_page(i, 1, 'p1', 'text_layer');
+  perform brain.ingestion_add_chunk(i, 0, 'text', 1, 1, 'primeira ingestao agora deu certo');
+  perform brain.ingestion_finish(i, 'completed');
+  -- (na mesma transacao os dois created_at sao iguais: compara-se o conjunto)
+  if (select string_agg(status::text, ',' order by status) from brain.knowledge_ingestions where version_id = v) <> 'completed,failed' then raise exception 'B22 FALHOU: historico'; end if;
+  -- uma ingestao aberta e COMMITADA (SQL a mao) bloqueia outra: object_in_use
+  update brain.knowledge_ingestions set status = 'chunking', finished_at = null where id = i;
+  begin perform brain.ingestion_start(v, 'pdf_text', 'x', 'lote-b.1', null, false, 1, true); raise exception 'B22 FALHOU: abriu por cima de uma aberta';
+  exception when object_in_use then null; end;
+  update brain.knowledge_ingestions set status = 'completed', finished_at = now() where id = i;
+  raise notice ' B22) OK: primeira ingestao falhada deixa a versao draft e vazia, com a falha na trilha; reingerir sem replace funciona; ingestao aberta commitada bloqueia outra (object_in_use)';
+end
+$$;
+
+-- ════════════════════════════════════════════════════════════
+-- B23 — storage: sem objeto orfao
+-- ════════════════════════════════════════════════════════════
+do $$
+declare v_path text; v_com text; n int; v_ok int := 0;
+begin
+  reset role;
+  if to_regclass('storage.objects') is null then
+    raise notice ' B23) (pulado: sem schema storage neste banco)';
+    return;
+  end if;
+  insert into storage.buckets (id, name, public) values ('brain-documents', 'brain-documents', false) on conflict (id) do nothing;
+  select storage_path into v_path from brain.document_versions where file_sha256 = repeat('c2', 32);          -- publica, ativa
+  select storage_path into v_com  from brain.document_versions where file_sha256 = repeat('e2', 32);          -- commercial, ativa
+
+  -- administrador
+  perform set_config('request.jwt.claim.sub', '35353535-0000-4000-8000-000000000001', true);
+  perform set_config('role', 'authenticated', true);
+  begin insert into storage.objects (bucket_id, name) values ('brain-documents', 'qualquer/coisa/orfao.pdf'); raise exception 'x';
+  exception when insufficient_privilege then v_ok := v_ok + 1; end;
+  begin insert into storage.objects (bucket_id, name) values ('brain-documents', 'sol/sol-catalogo/V2/' || repeat('c2', 32) || '.PDF'); raise exception 'x';  -- extensao diferente = outro nome
+  exception when insufficient_privilege then v_ok := v_ok + 1; end;
+  insert into storage.objects (bucket_id, name) values ('brain-documents', v_path);          -- exatamente o storage_path registrado
+  insert into storage.objects (bucket_id, name) values ('brain-documents', v_com);
+  begin update storage.objects set name = 'sol/sol-catalogo/V2/renomeado.pdf' where bucket_id = 'brain-documents' and name = v_path; raise exception 'x';
+  exception when insufficient_privilege then v_ok := v_ok + 1; when check_violation then v_ok := v_ok + 1; end;
+  select count(*) into n from storage.objects where bucket_id = 'brain-documents'; if n <> 2 then raise exception 'B23 FALHOU: admin ve % objetos', n; end if;
+  perform set_config('role', 'none', true); reset role;
+
+  -- vendedor: nao grava; le so o objeto da versao que alcanca
+  perform set_config('request.jwt.claim.sub', '35353535-0000-4000-8000-000000000002', true);
+  perform set_config('role', 'authenticated', true);
+  begin insert into storage.objects (bucket_id, name) values ('brain-documents', v_path || 'x'); raise exception 'x';
+  exception when insufficient_privilege then v_ok := v_ok + 1; end;
+  begin insert into storage.objects (bucket_id, name) values ('brain-documents', v_path); raise exception 'x';   -- nem o caminho registrado
+  exception when insufficient_privilege then v_ok := v_ok + 1; end;
+  select count(*) into n from storage.objects where bucket_id = 'brain-documents'; if n <> 1 then raise exception 'B23 FALHOU: vendedor ve % objetos (esperava 1, o publico)', n; end if;
+  if not exists (select 1 from storage.objects where bucket_id = 'brain-documents' and name = v_path) then raise exception 'B23 FALHOU: vendedor nao ve o objeto publico'; end if;
+  if exists (select 1 from storage.objects where bucket_id = 'brain-documents' and name = v_com) then raise exception 'B23 FALHOU: vendedor ve o objeto commercial'; end if;
+  delete from storage.objects where bucket_id = 'brain-documents'; get diagnostics n = row_count;
+  if n <> 0 then raise exception 'B23 FALHOU: vendedor apagou objeto'; end if;
+  perform set_config('role', 'none', true); reset role;
+  if v_ok <> 5 then raise exception 'B23 FALHOU: % de 5 recusas', v_ok; end if;
+  delete from storage.objects where bucket_id = 'brain-documents';
+  delete from storage.buckets where id = 'brain-documents';
+  raise notice ' B23) OK: admin nao grava nome orfao (nem variante de extensao) nem renomeia para orfao; grava exatamente o storage_path registrado; vendedor nao grava nem apaga e le so o objeto da versao publica';
+end
+$$;
+
+-- ════════════════════════════════════════════════════════════
+-- B24 — brain_search com usuario inativo / sem perfil
+-- ════════════════════════════════════════════════════════════
+do $$
+declare n int; n_trilha int;
+begin
+  reset role;
+  insert into auth.users (id, email, raw_user_meta_data) values ('35353535-0000-4000-8000-000000000003', 'ing.inativo@teste.local', '{"full_name":"Inativo"}');
+  update public.profiles set is_active = false where id = '35353535-0000-4000-8000-000000000003';
+  select count(*) into n_trilha from brain.knowledge_queries;
+  perform set_config('request.jwt.claim.sub', '35353535-0000-4000-8000-000000000003', true);
+  perform set_config('role', 'authenticated', true);
+  select count(*) into n from public.brain_search('ZETA9000'); if n <> 0 then raise exception 'B24 FALHOU: inativo recebeu %', n; end if;
+  if public.brain_provenance((select min(id) from brain.document_chunks)) is not null then raise exception 'B24 FALHOU: proveniencia para inativo'; end if;
+  perform set_config('role', 'none', true); reset role;
+  perform set_config('request.jwt.claim.sub', '35353535-0000-4000-8000-0000000000ff', true);   -- sem perfil
+  perform set_config('role', 'authenticated', true);
+  select count(*) into n from public.brain_search('ZETA9000'); if n <> 0 then raise exception 'B24 FALHOU: sem perfil recebeu %', n; end if;
+  perform set_config('role', 'none', true); reset role;
+  if (select count(*) from brain.knowledge_queries) <> n_trilha then raise exception 'B24 FALHOU: trilha ganhou linha de quem nao tem nivel'; end if;
+  delete from auth.users where id = '35353535-0000-4000-8000-000000000003';
+  raise notice ' B24) OK: inativo e sem perfil recebem vazio de brain_search/brain_provenance, sem erro e sem linha na trilha';
 end
 $$;
 

@@ -5,15 +5,21 @@
 #   PGHOST=/tmp PGPORT=5437 PGUSER=postgres PSQL=/opt/pg176/bin/psql \
 #     bash supabase/db-tests/ensaiar-ingestao.sh
 #
-# I1  todas as migrations → suite 35 passa (26 asserções, 0 erro)
+# I1  todas as migrations → suite 35 passa (30 asserções, 0 erro)
 # I2  worker de verdade: PDF SINTETICO (reportlab) → versao → 3 paginas →
 #     chunks → tabela JSONB; busca acha; proveniencia cita a pagina;
 #     reexecutar e idempotente; --replace reproduz os mesmos chunks
-# I3  testes do worker (pytest, unidade + banco)
+# I3  testes do worker (pytest, unidade + banco): inclui replace atomico com
+#     falha forcada em 4 pontos (D7), primeira ingestao falhada (D8) e
+#     duas conexoes na mesma versao (D9)
 # I4  06-remover-memoria remove A e B juntos; 03 recusa antes disso;
 #     reaplicar as tres migrations → suites 33/34/35 passam de novo
 # I5  nada de vetor; nenhum documento real no repositorio (so sinteticos)
 # I6  o bucket NAO e criado por migration; o roteiro 07 exige as policies
+# I7  rollback SO do Lote B (08): Lote A puro → retrato → aplica B → suite 35
+#     → 08 → retrato igual; 33/34 passam; Fase 1 intacta; ledger 010000/020000
+#     ficam, 030000 sai; pgvector ausente
+# I8  08 recusa com conteudo repetido entre paginas (incompativel com o Lote A)
 #
 # Requer: python3 com pdfplumber, openpyxl, psycopg, reportlab, pytest
 # (brain/worker/requirements.txt). O worker conecta como postgres via
@@ -46,12 +52,13 @@ montar() {
   q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260912010000','brain_memoria_esquema'), ('20260912020000','brain_memoria_busca'), ('20260912030000','brain_ingestao') on conflict do nothing" >/dev/null 2>&1
 }
 suites() { for s in 33_brain_memoria 34_brain_memoria_hardening 35_brain_ingestao; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done; }
+retrato_fase1() { q -q -c "select md5(string_agg(x, ',' order by x)) from (select 'tab:'||tablename as x from pg_tables where schemaname='brain' and tablename in ('channels','attributions','leads','identities','interactions','opportunities','tasks','events','lead_merges') union all select 'trg:'||tgname||'='||tgenabled::text from pg_trigger where tgname like 'trg_brain%') t"; }
 
 echo "▶ I1: migrations + suite 35"
 montar || nok "I1: montagem"
 SAIDA=$(q -q -f supabase/db-tests/35_brain_ingestao.sql 2>&1)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "26" ] && [ "$E" = "0" ]; then ok "I1: suite 35 — 26 asserções, 0 erro"; else nok "I1: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$N" = "30" ] && [ "$E" = "0" ]; then ok "I1: suite 35 — 30 asserções, 0 erro"; else nok "I1: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ I2: worker de ponta a ponta com PDF sintetico"
 TMP=$(mktemp -d)
@@ -102,7 +109,7 @@ for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/m
 done
 SAIDA=$(suites)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "55" ] && [ "$E" = "0" ]; then ok "I4c: reaplicado; suites 33/34/35 passam (55 asserções, 0 erro)"; else nok "I4c: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$N" = "59" ] && [ "$E" = "0" ]; then ok "I4c: reaplicado; suites 33/34/35 passam (59 asserções, 0 erro)"; else nok "I4c: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ I5: nada de vetor; nenhum documento real"
 VEC=$(q -c "select (select count(*) from pg_extension where extname='vector') + (select count(*) from information_schema.columns where table_schema='brain' and udt_name in ('vector','halfvec','sparsevec')) + (select count(*) from pg_indexes where schemaname='brain' and (indexdef ilike '%hnsw%' or indexdef ilike '%ivfflat%')) + (select count(*) from pg_enum e join pg_type t on t.oid=e.enumtypid join pg_namespace n on n.oid=t.typnamespace where n.nspname='brain' and e.enumlabel ilike '%embed%')")
@@ -117,6 +124,49 @@ SAIDA=$(q -f supabase/operacao/07-criar-bucket-brain-documents.sql 2>&1)
 B2=$(q -c "select count(*)||'|'||coalesce(max(file_size_limit)::text,'') from storage.buckets where id='brain-documents'")
 if [ "$B" = "0" ] && [ "$POL" = "4" ] && [ "$B2" = "1|52428800" ]; then ok "I6: sem bucket apos as migrations; 4 policies; roteiro 07 cria o bucket privado (50 MB) so quando rodado"; else nok "I6: bucket_antes=$B policies=$POL depois=$B2"; grep ERROR <<< "$SAIDA" | head -2; fi
 
+echo "▶ I7: rollback so do Lote B (08) devolve exatamente o Lote A"
+montar_ate_a() {
+  adm -c "drop database if exists $DB" -c "create database $DB" >/dev/null
+  q -q -c "create extension if not exists pgcrypto" -f supabase/db-tests/00_supabase_stub.sql >/dev/null 2>&1
+  for f in supabase/migrations/*.sql; do
+    case "$f" in *20260912030000*) continue;; esac
+    q -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1 || { echo "  migration falhou: $f"; return 1; }
+  done
+  q -q -f supabase/db-tests/registro-producao-20260911.sql >/dev/null 2>&1
+  q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260912010000','brain_memoria_esquema'), ('20260912020000','brain_memoria_busca') on conflict do nothing" >/dev/null 2>&1
+}
+retrato() { q -q -f supabase/db-tests/retrato-memoria.sql; }
+montar_ate_a || nok "I7: montar Lote A"
+RA=$(retrato); F1A=$(retrato_fase1)
+q -q -v ON_ERROR_STOP=1 -f supabase/migrations/20260912030000_brain_ingestao.sql >/dev/null 2>&1 || nok "I7: aplicar 030000"
+q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260912030000','brain_ingestao') on conflict do nothing" >/dev/null
+RB=$(retrato)
+SAIDA=$(q -q -f supabase/db-tests/35_brain_ingestao.sql 2>&1); N35=$(grep -c "NOTICE" <<< "$SAIDA"); E35=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
+SAIDA=$(q -f supabase/operacao/08-remover-lote-b-sem-dados.sql 2>&1)
+RA2=$(retrato); F1B=$(retrato_fase1)
+LEDGER=$(q -c "select string_agg(version, ',' order by version) from supabase_migrations.schema_migrations where version like '20260912%'")
+S=$(for s in 33_brain_memoria 34_brain_memoria_hardening; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done); NA=$(grep -c "NOTICE" <<< "$S"); EA=$(grep -cE "ERROR|FALHOU" <<< "$S")
+VEC=$(q -c "select count(*) from pg_extension where extname='vector'")
+LIG=$(q -c "select count(*) from pg_trigger where tgname like 'trg_brain%' and tgenabled <> 'D'")
+if [ "$RA" != "$RB" ] && [ "$RA" = "$RA2" ] && [ "$N35" = "30" ] && [ "$E35" = "0" ] && [ "$LEDGER" = "20260912010000,20260912020000" ] && [ "$NA" = "29" ] && [ "$EA" = "0" ] && [ "$F1A" = "$F1B" ] && [ "$VEC" = "0" ] && [ "$LIG" = "0" ]; then
+  ok "I7: retrato Lote A ($RA) ≠ com B ($RB) e IGUAL apos o 08 ($RA2); suite 35 passou antes (30/0); 33/34 passam depois (29/0); ledger $LEDGER; Fase 1 igual; pontes desligadas; sem vector"
+else nok "I7: RA=$RA RB=$RB RA2=$RA2 n35=$N35 e35=$E35 ledger=$LEDGER na=$NA ea=$EA f1=$([ "$F1A" = "$F1B" ] && echo igual || echo DIFERENTE) vec=$VEC lig=$LIG"; grep ERROR <<< "$SAIDA" | head -3; fi
+
+echo "▶ I8: 08 recusa conteudo repetido entre paginas (incompativel com uq_chunk_content do Lote A)"
+q -q -v ON_ERROR_STOP=1 -f supabase/migrations/20260912030000_brain_ingestao.sql >/dev/null 2>&1
+q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260912030000','brain_ingestao') on conflict do nothing" >/dev/null
+q -q -c "insert into brain.knowledge_sources (key, name) values ('ens_dup','Fonte dup');
+         insert into brain.documents (id, source_key, slug, title, document_type, access_level) values ('ee000000-0000-4000-8000-000000000001','ens_dup','ens-dup','Dup','other','public');
+         select brain.register_version('ee000000-0000-4000-8000-000000000001', 'V1', repeat('dd', 32), 'd.pdf', 'application/pdf', 10, null, 2);" >/dev/null
+q -q -c "do \$\$ declare v uuid; i uuid; begin select id into v from brain.document_versions where file_sha256 = repeat('dd', 32);
+   i := brain.ingestion_start(v, 'pdf_text', 'x', 'lote-b.1', 'ensaio', false, 2);
+   perform brain.ingestion_add_page(i, 1, 'p1', 'text_layer'); perform brain.ingestion_add_page(i, 2, 'p2', 'text_layer');
+   perform brain.ingestion_add_chunk(i, 0, 'text', 1, 1, 'rodape repetido'); perform brain.ingestion_add_chunk(i, 1, 'text', 2, 2, 'rodape repetido');
+   perform brain.ingestion_finish(i, 'completed'); end \$\$;" >/dev/null
+SAIDA=$(q -f supabase/operacao/08-remover-lote-b-sem-dados.sql 2>&1)
+AINDA=$(q -c "select (to_regclass('brain.knowledge_queries') is not null)::int + (select count(*) from supabase_migrations.schema_migrations where version='20260912030000')")
+if grep -q "conteudo repetido em paginas diferentes" <<< "$SAIDA" && [ "$AINDA" = "2" ]; then ok "I8: 08 parou (conteudo repetido entre paginas) e nada foi removido"; else nok "I8: ainda=$AINDA"; tail -3 <<< "$SAIDA"; fi
+
 rm -rf "$TMP"
 adm -c "drop database if exists $DB" >/dev/null
-[ "$FALHAS" = "0" ] && echo "✔ ingestao ensaiada nos 6 cenarios" || { echo "✗ $FALHAS falha(s)"; exit 1; }
+[ "$FALHAS" = "0" ] && echo "✔ ingestao ensaiada nos 8 cenarios" || { echo "✗ $FALHAS falha(s)"; exit 1; }

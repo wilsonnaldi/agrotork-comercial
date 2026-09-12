@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import make_catalog_pdf, make_price_xlsx  # noqa: E402
 from brain_worker.db import BrainDb  # noqa: E402
 from brain_worker.gate import ExternalGate, ExternalProcessingDenied  # noqa: E402
-from brain_worker.pipeline import ingest  # noqa: E402
+from brain_worker.pipeline import InjectedFailure, ingest  # noqa: E402
 
 DSN = os.environ.get("BRAIN_TEST_DB_URL")
 pytestmark = pytest.mark.skipif(not DSN, reason="BRAIN_TEST_DB_URL nao definida")
@@ -171,3 +171,126 @@ def test_d6_failure_is_recorded(db, tmp_path):
     # o ERP nao foi tocado pelo worker: nenhuma linha em products com o codigo sintetico
     (n,) = _q(db, "select count(*) from public.products where code like 'PS98%%' or code like 'S100%%'")[0]
     assert n == 0
+
+
+# ── D7 replace atomico: falha forcada DEPOIS da remocao do antigo ─────
+
+def _snapshot(db, version_id):
+    pages = _q(db, "select page_no, text_sha256, ingestion_id::text from brain.document_pages where version_id = %s order by page_no", version_id)
+    chunks = _q(db, "select id, ordinal, content_sha256, kind::text, page_from, ingestion_id::text from brain.document_chunks where version_id = %s order by ordinal", version_id)
+    ingestions = _q(db, "select id::text, status::text, pages_done, chunks_created, metadata ? 'replaced_by' from brain.knowledge_ingestions where version_id = %s order by created_at", version_id)
+    return pages, chunks, ingestions
+
+
+def test_d7_failed_replace_leaves_previous_content_intact(db, tmp_path):
+    """A (V1 já ingerida) fica exatamente igual quando o replace por B falha em cada ponto da T2."""
+    pdf_a = make_catalog_pdf(tmp_path / "catalogo_sintetico.pdf")
+    pdf_b = make_catalog_pdf(tmp_path / "catalogo_b.pdf", pages_long_text=2)   # conteudo B, sha diferente
+    vid = _q(db, "select v.id from brain.document_versions v join brain.documents d on d.id = v.document_id where d.slug = %s and v.version_label = 'V1'", DOC_PUB)[0][0]
+    before = _snapshot(db, vid)
+    assert before[1], "V1 precisa estar ingerida (d1/d2)"
+    hits_before = _q(db, "select chunk_id, score from brain.search_knowledge('ps981cap')")
+    assert hits_before
+    prov_before = _q(db, "select brain.chunk_provenance(%s)", hits_before[0][0])[0][0]
+
+    for point in ("after_start", "after_pages", "mid_chunks", "before_finish"):
+        # B tem o MESMO sha? nao: e outro arquivo → seria outra versao. Para forcar o replace da V1
+        # com conteudo B usamos o mesmo arquivo A com falha injetada: o que importa e o ponto de falha.
+        r = ingest(db, pdf_a, DOC_PUB, "V1", ocr="never", replace=True, fail_at=point)
+        assert r.status == "failed" and "falha injetada" in (r.error or ""), (point, r)
+        after = _snapshot(db, vid)
+        # paginas, chunks (ids, ordinais, hashes, paginas, ingestion_id) identicos
+        assert after[0] == before[0], point
+        assert after[1] == before[1], point
+        # ingestoes: as anteriores intactas (sem replaced_by novo) + UMA linha failed por tentativa
+        assert [i for i in after[2] if i[1] != "failed"] == [i for i in before[2] if i[1] != "failed"], point
+        failed = [i for i in after[2] if i[1] == "failed"]
+        assert failed and failed[-1][2] == 0 and failed[-1][3] == 0, point
+        # busca e proveniencia continuam iguais
+        assert _q(db, "select chunk_id, score from brain.search_knowledge('ps981cap')") == hits_before, point
+        assert _q(db, "select brain.chunk_provenance(%s)", hits_before[0][0])[0][0] == prov_before, point
+        # nenhuma pagina/chunk pertence a uma ingestao failed (nada parcial ficou)
+        (n_orfaos,) = _q(db, "select count(*) from brain.document_chunks c join brain.knowledge_ingestions i on i.id = c.ingestion_id "
+                             "where c.version_id = %s and i.status = 'failed'", vid)[0]
+        assert n_orfaos == 0, point
+    (n_failed,) = _q(db, "select count(*) from brain.knowledge_ingestions where version_id = %s and status = 'failed' and (metadata->>'replace_attempt')::boolean and (metadata->>'rolled_back')::boolean", vid)[0]
+    assert n_failed >= 4
+
+    # replace bem-sucedido com conteudo B de verdade: A some inteiro, B entra inteiro, sem mistura
+    # (B e outro arquivo; para trocar o conteudo da MESMA versao, ingerimos B "como" V1 forcando o sha:
+    #  aqui o teste usa a API direta para simular um parser novo que produz outros chunks)
+    with db.conn.cursor() as cur:
+        cur.execute("select brain.ingestion_start(%s, 'pdf_text', 'parser-novo', 'lote-b.1', 'teste', false, 1, true)", (vid,))
+        (iid,) = cur.fetchone()
+        cur.execute("select brain.ingestion_add_page(%s, 1, 'CONTEUDO B', 'text_layer')", (iid,))
+        cur.execute("select brain.ingestion_add_chunk(%s, 0, 'text', 1, 1, 'Conteudo B: bico ZETA9000 de cerâmica.', '{}', null, '{ZETA9000}')", (iid,))
+        cur.execute("select brain.ingestion_finish(%s, 'completed')", (iid,))
+    db.commit()
+    after = _snapshot(db, vid)
+    assert [p[0] for p in after[0]] == [1] and len(after[1]) == 1 and after[1][0][2] != before[1][0][2]
+    assert all(c[5] == str(iid) for c in after[1]) and all(p[2] == str(iid) for p in after[0])   # nada de A sobrou
+    assert not _q(db, "select 1 from brain.search_knowledge('ps981cap')")
+    assert _q(db, "select chunk_id from brain.search_knowledge('ZETA9000')")
+    last = [i for i in after[2] if i[0] == str(iid)][0]
+    assert last[1] == "completed" and last[2] == 1 and last[3] == 1
+    # historico coerente: as ingestoes completed anteriores apontam replaced_by; as failed nao
+    assert all(i[4] for i in after[2] if i[1] == "completed" and i[0] != str(iid))
+    # restaura A para os testes seguintes (mesmo arquivo → mesma versao)
+    r = ingest(db, pdf_a, DOC_PUB, "V1", ocr="never", replace=True)
+    assert r.status == "completed"
+    assert _q(db, "select ordinal, content_sha256 from brain.document_chunks where version_id = %s order by ordinal", vid) == [(c[1], c[2]) for c in before[1]]
+
+
+def test_d8_first_ingestion_failure_semantics(db, tmp_path):
+    """Versao nova cuja PRIMEIRA ingestao falha: a versao existe (draft, sem conteudo), a falha esta na
+    trilha, e reexecutar sem --replace ingere normalmente."""
+    pdf = make_catalog_pdf(tmp_path / "catalogo_c.pdf", pages_long_text=3)
+    r = ingest(db, pdf, DOC_PUB, "V3", ocr="never", fail_at="mid_chunks")
+    assert r.status == "failed"
+    (st, n_pages, n_chunks) = _q(db, "select v.status::text, (select count(*) from brain.document_pages p where p.version_id = v.id), "
+                                     "(select count(*) from brain.document_chunks c where c.version_id = v.id) from brain.document_versions v where v.id = %s", r.version_id)[0]
+    assert st == "draft" and n_pages == 0 and n_chunks == 0
+    rows = _q(db, "select status::text, metadata->>'replace_attempt' from brain.knowledge_ingestions where version_id = %s", r.version_id)
+    assert rows == [("failed", "false")]
+    r2 = ingest(db, pdf, DOC_PUB, "V3", ocr="never")          # sem replace: a versao nao tinha conteudo
+    assert r2.status == "completed" and r2.pages == 5
+    rows = _q(db, "select status::text from brain.knowledge_ingestions where version_id = %s order by created_at", r.version_id)
+    assert rows == [("failed",), ("completed",)]
+
+
+def test_d9_concurrent_ingestions_serialize(db, tmp_path):
+    """Duas conexoes na mesma versao: a segunda espera a primeira e e recusada sem replace."""
+    import threading
+    pdf = make_catalog_pdf(tmp_path / "catalogo_sintetico.pdf")
+    vid = _q(db, "select v.id from brain.document_versions v join brain.documents d on d.id = v.document_id where d.slug = %s and v.version_label = 'V1'", DOC_PUB)[0][0]
+    other = BrainDb(DSN)
+    try:
+        # conexao 1 abre um replace e NAO confirma (segura o lock da versao)
+        with db.conn.cursor() as cur:
+            cur.execute("select brain.ingestion_start(%s, 'pdf_text', 'x', 'lote-b.1', 'c1', false, 3, true)", (vid,))
+        result: dict = {}
+
+        def second():
+            try:
+                with other.conn.cursor() as cur:
+                    cur.execute("set local lock_timeout = '3s'")
+                    cur.execute("select brain.ingestion_start(%s, 'pdf_text', 'x', 'lote-b.1', 'c2', false, 3, false)", (vid,))
+                result["ok"] = True
+            except Exception as exc:  # noqa: BLE001
+                result["err"] = exc.__class__.__name__ + ": " + str(exc)
+            finally:
+                other.conn.rollback()
+
+        t = threading.Thread(target=second)
+        t.start()
+        t.join(timeout=2)
+        assert t.is_alive(), "a segunda conexao deveria estar ESPERANDO o lock"
+        db.conn.rollback()      # conexao 1 desiste: o conteudo antigo volta e o lock cai
+        t.join(timeout=10)
+        assert not t.is_alive()
+        # a segunda acordou, viu o conteudo (intacto) e foi recusada por falta de replace
+        assert "err" in result and "ja tem conteudo" in result["err"], result
+    finally:
+        other.close()
+    (n,) = _q(db, "select count(*) from brain.document_chunks where version_id = %s", vid)[0]
+    assert n > 0
