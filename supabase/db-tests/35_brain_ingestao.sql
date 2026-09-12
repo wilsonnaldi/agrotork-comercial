@@ -426,7 +426,7 @@ begin
     select n.nspname, p.proname, p.prosecdef, p.proconfig,
            has_function_privilege('anon', p.oid, 'execute') as anon_x, has_function_privilege('authenticated', p.oid, 'execute') as auth_x
       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-     where (n.nspname = 'brain' and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail'))
+     where (n.nspname = 'brain' and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure'))
         or (n.nspname = 'public' and p.proname in ('brain_search','brain_provenance'))
   loop
     n := coalesce(n, 0);
@@ -436,13 +436,13 @@ begin
     if not r.auth_x then v_bad := v_bad || r.proname || ':sem-authenticated '; end if;
   end loop;
   select count(*) into n from pg_proc p join pg_namespace ns on ns.oid = p.pronamespace
-   where (ns.nspname = 'brain' and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail'))
+   where (ns.nspname = 'brain' and p.proname in ('register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure'))
       or (ns.nspname = 'public' and p.proname in ('brain_search','brain_provenance'));
-  if n <> 8 then raise exception 'B20 FALHOU: % de 8 funcoes', n; end if;
+  if n <> 9 then raise exception 'B20 FALHOU: % de 9 funcoes', n; end if;
   if v_bad <> '' then raise exception 'B20 FALHOU: %', v_bad; end if;
   if not (select relrowsecurity from pg_class where oid = 'brain.knowledge_queries'::regclass) then raise exception 'B20 FALHOU: knowledge_queries sem RLS'; end if;
   if exists (select 1 from information_schema.role_table_grants where table_schema = 'brain' and grantee = 'anon') then raise exception 'B20 FALHOU: anon com grant'; end if;
-  raise notice ' B20) OK: sem vector/coluna vetorial/rotulo embedding; 8 funcoes do Lote B security invoker, search_path vazio, anon sem EXECUTE; knowledge_queries com RLS';
+  raise notice ' B20) OK: sem vector/coluna vetorial/rotulo embedding; 9 funcoes do Lote B security invoker, search_path vazio, anon sem EXECUTE; knowledge_queries com RLS';
 end
 $$;
 
