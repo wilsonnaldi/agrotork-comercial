@@ -126,6 +126,11 @@ def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
             total_chars += len(text.strip()) + sum(len(t.render_text()) for t in tables)
             pages.append(ExtractedPage(i, text, "text_layer", False, tables,
                                        {"width": float(page.width), "height": float(page.height), "tables": len(tables)}))
+            # pdfplumber guarda todos os objetos de cada pagina ja lida; num catalogo
+            # de 170+ paginas cheias de vetores isso passa de 6 GB e o processo morre.
+            # Cada pagina e independente: solta o cache assim que ela foi extraida.
+            page.flush_cache()
+            page.close()
     n = max(len(pages), 1)
     ratio = total_chars / n
     needs_ocr = ratio < OCR_MIN_CHARS_PER_PAGE
