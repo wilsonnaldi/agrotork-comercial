@@ -18,7 +18,7 @@ Três peças novas e uma porta:
 
 1. **API de ingestão em SQL** (migration `20260912030000_brain_ingestao.sql`): `brain.register_version`,
    `brain.ingestion_start`, `brain.ingestion_add_page`, `brain.ingestion_add_chunk`,
-   `brain.ingestion_finish`, `brain.ingestion_fail`. Toda regra — checksum, idempotência, página
+   `brain.ingestion_finish`, `brain.ingestion_fail`, `brain.ingestion_record_failure`. Toda regra — checksum, idempotência, página
    obrigatória, contagens, estado coerente — mora no banco. Qualquer worker (este, ou outro no
    futuro) só chama estas funções.
 2. **Worker de ingestão** (`brain/worker`, Python 3.11+): lê PDF/XLSX/CSV/TXT/MD, calcula sha256,
@@ -60,11 +60,12 @@ continua sendo a autorização de verdade.
 | Função | Faz | Recusa (errcode) |
 |---|---|---|
 | `register_version(document_id, label, sha256, filename, mime, size, date?, page_count?, metadata?) → uuid` | Mesmo documento + mesmo sha → **devolve a versão existente** (idempotente, com qualquer rótulo). Arquivo novo → versão nova em `draft`, `storage_path = <fonte>/<documento>/<rótulo>/<sha>.<ext>`. Ativar é ato separado. | sha inválido, tamanho ≤ 0, rótulo vazio (`invalid_parameter_value`); documento inexistente/invisível (`no_data_found`); **mesmo rótulo com arquivo diferente** (`unique_violation`) |
-| `ingestion_start(version_id, method, parser, pipeline_version, executor?, needs_ocr?, pages_total?, replace?) → uuid` | Abre a ingestão (`extracting`, `started_at`). Versão que já tem conteúdo só reprocessa com `replace = true`: páginas e chunks antigos saem; ingestões anteriores viram histórico (`metadata.replaced_by`). | `pipeline_version` vazio; versão inexistente; ingestão já aberta na versão (`object_in_use`); conteúdo existente sem `replace` (`unique_violation`) |
+| `ingestion_start(version_id, method, parser, pipeline_version, executor?, needs_ocr?, pages_total?, replace?) → uuid` | **Trava a versão (`for update`) até o COMMIT do chamador** e abre a ingestão (`extracting`, `started_at`). Versão que já tem conteúdo só reprocessa com `replace = true`: páginas e chunks antigos saem **dentro da mesma transação** em que o conteúdo novo entra; ingestões anteriores viram histórico (`metadata.replaced_by`). | `pipeline_version` vazio; versão inexistente; ingestão aberta e commitada na versão (`object_in_use`); conteúdo existente sem `replace` (`unique_violation`) |
 | `ingestion_add_page(ingestion_id, page_no, text, extraction, ocr?, layout?, metadata?)` | Grava/atualiza a página (sha do texto pelo gatilho). Reenvio na mesma ingestão substitui; de outra ingestão, nunca. Muda o status para `chunking`. | ingestão fechada (`object_not_in_prerequisite_state`); página de outra ingestão (`unique_violation`) |
 | `ingestion_add_chunk(ingestion_id, ordinal, kind, page_from, page_to, content, heading_path?, table_data?, codes?, token_count?, metadata?) → bigint` | Grava o chunk. Página precisa existir na versão (FK composta); tabela precisa de `table_data` com estrutura (constraint); códigos normalizados pelo gatilho. | página não registrada (`foreign_key_violation`); ingestão fechada; forma da tabela (`check_violation`) |
 | `ingestion_finish(ingestion_id, status = completed, error?, warnings?, metrics?) → knowledge_ingestions` | Fecha: `pages_done`, `chunks_created`, `tables_created` **contados nas tabelas**, não informados; `finished_at`. | `completed` sem página, ou com menos páginas que `pages_total` (`check_violation` — use `partial`); `failed` sem erro; fechar duas vezes; status fora de `completed/failed/partial` |
-| `ingestion_fail(ingestion_id, error, warnings?)` | Atalho para `failed` com erro. | idem |
+| `ingestion_fail(ingestion_id, error, warnings?)` | Atalho para `failed` com erro, para uma ingestão ainda aberta na transação. | idem |
+| `ingestion_record_failure(version_id, method, parser, pipeline_version, executor, error, warnings?, replace_attempt?, started_at?) → knowledge_ingestions` | Trilha de uma tentativa **desfeita por rollback** (a ingestão aberta já não existe): linha `failed`, sem página nem chunk, `metadata = {rolled_back: true, replace_attempt}`. Chamada numa transação própria. | versão inexistente; erro vazio |
 
 Todas: `security invoker`, `search_path = ''`, EXECUTE para `authenticated` e `service_role`,
 nenhum para `anon`. Um `authenticated` só consegue algo se for administrador — o INSERT/UPDATE/
@@ -84,7 +85,7 @@ brain/worker/
     db.py           só as funções da API (psycopg 3)
     pipeline.py     arquivo → plano → transação
     __main__.py     CLI: `python -m brain_worker plan|ingest`
-  tests/            fixtures sintéticas (reportlab/openpyxl) + 17 testes (11 unidade, 6 com banco)
+  tests/            fixtures sintéticas (reportlab/openpyxl) + 20 testes (11 unidade, 9 com banco)
   requirements.txt
 ```
 
@@ -99,10 +100,25 @@ Cada ingestão registra: arquivo (nome, tipo, tamanho), checksum, versão, `meth
 `pipeline_version`, `executor`, páginas totais/processadas, chunks, tabelas, `warnings`, `error`,
 início/fim, `metrics` (tempos e configuração do chunking), `needs_ocr`, `text_ratio`.
 
-**Transação**: `register_version` + `ingestion_start` são confirmados primeiro (a ingestão aberta
-fica visível mesmo se o resto falhar); páginas + chunks + `finish` são uma transação; em erro, tudo
-isso é desfeito e `ingestion_fail` registra o motivo numa transação própria. Reexecutar o mesmo
-arquivo é `skipped` (mesma versão, 1 ingestão); `--replace` reprocessa e reproduz os mesmos chunks.
+**Transações (corrigido na auditoria pós-publicação, §20)** — duas, e só duas:
+
+- **T1** `register_version`: a versão (draft) é confirmada sozinha — "registrada, sem conteúdo" é
+  um estado legítimo e reexecutável;
+- **T2** `ingestion_start` (com ou sem `replace`) + páginas + chunks + `ingestion_finish`. **Nada
+  é confirmado no meio.** Com `replace`, a remoção do conteúdo antigo e o conteúdo novo entram
+  ou saem juntos: se qualquer passo falhar, o rollback devolve páginas e chunks anteriores
+  exatamente como estavam (ids, hashes, `ingestion_id`, busca, proveniência) e nada do novo
+  sobra. A tentativa é então registrada por `ingestion_record_failure` numa transação própria
+  (**T3**, só nesse caso).
+
+Semânticas explícitas: reexecutar o mesmo arquivo é `skipped` (mesma versão, 1 ingestão);
+`--replace` reprocessa e reproduz os mesmos chunks; **primeira ingestão de uma versão nova que
+falha** → a versão fica `draft`, com zero páginas/chunks, uma linha `failed` na trilha
+(`replace_attempt = false`), e reexecutar **sem** `--replace` ingere normalmente (D8, B22);
+**crash do processo** no meio da T2 → o servidor desfaz a transação, o conteúdo anterior fica,
+a trilha não recebe linha (não há quem a escreva) — o operador vê "sem ingestão nova" e
+reexecuta; **duas ingestões concorrentes** na mesma versão → a segunda espera o lock da primeira
+e, ao acordar, vê o conteúdo dela e é recusada sem `replace` (D9).
 
 **Formatos e unidade de proveniência**
 
@@ -199,7 +215,10 @@ existe de verdade: a ingestão registra `pipeline_version`, `parser`, `method`, 
   (`<fonte>/<documento>/<rótulo>/<sha256>.<ext>`);
 - policies em `storage.objects` (na migration, inertes até o bucket existir): leitura se o
   chamador alcança o `access_level` da versão dona do caminho; insert/update/delete só
-  `is_admin()`;
+  `is_admin()`; **insert e rename exigem versão registrada** (§20): o `with check` só aceita
+  objeto cujo `name` seja exatamente o `storage_path` de uma `brain.document_versions` com
+  `storage_bucket = 'brain-documents'` — nem admin consegue subir objeto órfão nem renomear
+  para um caminho não registrado (B23);
 - criação do bucket: `supabase/operacao/07-criar-bucket-brain-documents.sql`, idempotente, exige
   as 4 policies, tipos permitidos PDF/XLSX/CSV/TXT/MD;
 - **limite de tamanho depende do plano** (§16): o projeto está no plano **Free**, cujo teto de
@@ -213,7 +232,7 @@ existe de verdade: a ingestão registra `pipeline_version`, `parser`, `method`, 
 - Signup público do Auth: **desligado** em produção (gate fechado em 12/09); não alterado aqui.
 - RLS: `knowledge_queries` com RLS (insert só do próprio usuário ativo; select só admin; sem
   update/delete — trilha append-only). As 7 tabelas do Lote A inalteradas.
-- Funções: 8 novas, todas `security invoker` + `search_path = ''`, `anon` sem EXECUTE (B20, RAG-H7).
+- Funções: 9 novas (7 da API + 2 em `public`), todas `security invoker` + `search_path = ''`, `anon` sem EXECUTE (B20, RAG-H7).
 - Nenhuma chave, senha ou token em código, fixture, log, documentação ou bundle; a conexão do worker
   vem de `BRAIN_DB_URL` e o ensaio usa socket/porta locais.
 - **Porteiro externo** (`gate.py`): antes de qualquer byte sair do ambiente aprovado, `allow(document_id,
@@ -249,10 +268,10 @@ real e ficam para a ingestão piloto autorizada.
 
 | Onde | O quê | Asserções |
 |---|---|---|
-| `supabase/db-tests/35_brain_ingestao.sql` | B1–B20 + BG1, BG2, BG5, BG12, BG13, BG14 | 26 |
+| `supabase/db-tests/35_brain_ingestao.sql` | B1–B24 + BG1, BG2, BG5, BG12, BG13, BG14 — B21 `--replace` atômico (falha após remoção → conteúdo anterior idêntico, falha auditada, sucesso sem mistura), B22 primeira ingestão falhada (draft vazio, reingestão sem `--replace`, `object_in_use` para ingestão aberta), B23 storage sem objeto órfão, B24 usuário inativo/sem perfil na busca | 30 |
 | `brain/worker/tests/test_worker.py` | W1–W6: sha/mime/assinatura, páginas e tabela, números pt-BR, códigos, determinismo, isolamento de páginas, títulos, XLSX/TXT, OCR | 11 |
-| `brain/worker/tests/test_pipeline_db.py` | D1–D6 contra o banco: ingestão completa, idempotência e `--replace`, arquivo diferente, busca+proveniência após ativar, porteiro externo, falha registrada e ERP intocado | 6 |
-| `supabase/db-tests/ensaiar-ingestao.sh` | I1–I6: suíte 35; worker de ponta a ponta com PDF sintético (CLI); pytest; `06` remove A+B e `03` recusa; reaplicação → 33/34/35 (55); zero vetor e zero documento real versionado; bucket só pelo roteiro 07 | 6 cenários |
+| `brain/worker/tests/test_pipeline_db.py` | D1–D9 contra o banco: ingestão completa, idempotência e `--replace`, arquivo diferente, busca+proveniência após ativar, porteiro externo, falha registrada e ERP intocado; **D7** falha forçada em 4 pontos do `--replace` (após `start`, após páginas, no meio dos chunks, antes de `finish`) com retrato de páginas/chunks/hashes/busca/proveniência idêntico e zero conteúdo parcial; **D8** semântica da primeira ingestão falhada; **D9** duas ingestões concorrentes da mesma versão serializam no lock | 9 |
+| `supabase/db-tests/ensaiar-ingestao.sh` | I1–I8: suíte 35 (30); worker de ponta a ponta com PDF sintético (CLI); pytest (D1–D9); `06` remove A+B e `03` recusa; reaplicação → 33/34/35 (59); zero vetor e zero documento real versionado; bucket só pelo roteiro 07; **I7** `08` remove só o Lote B com retrato estrutural igual ao do Lote A puro; **I8** `08` recusa conteúdo repetido em páginas diferentes | 8 cenários |
 | `supabase/db-tests/34_brain_memoria_hardening.sql` | + RAG-H11/H11b (sincronização pós-deploy do limiar trigram) | +2 |
 
 `npm run db:test` (`run.mjs`) inclui a suíte 35. Documentos usados: **somente sintéticos**, gerados
@@ -267,6 +286,24 @@ então tudo do Lote A; apaga os 3 registros do ledger; confere o retrato da Fase
 depois. Continua recusando se qualquer das sete tabelas de conteúdo tiver linha (a trilha de
 consulta pode ter linhas). O `03-remover-brain` (Fase 1) segue exigindo o `06` antes. Ensaiado em
 I4 e M3/M4.
+
+**Voltar só o Lote B, preservando o Lote A** (`supabase/operacao/08-remover-lote-b-sem-dados.sql`,
+exigido pela auditoria pós-publicação, §20): uma transação que remove `public.brain_search`,
+`public.brain_provenance`, as 7 funções da API (inclusive `ingestion_record_failure`),
+`knowledge_queries` e as 4 policies `brain_documents_*`, e devolve `document_chunks` ao formato
+exato do Lote A — sem `heading_norm`, `fts` gerado só de `content_norm` (`to_tsvector('portuguese',
+content_norm)`), índice `idx_chunks_fts` recriado, `uq_chunk_content (version_id, content_sha256)`,
+`stamp_chunk()` restaurado byte a byte da migration `010000`. Apaga apenas o registro
+`20260912030000` do ledger; `010000` e `020000` ficam. Pré-condições: Lote A presente, Lote B
+presente, e **recusa** se houver chunk com o mesmo conteúdo em páginas diferentes da mesma versão
+(o formato do Lote A não admite; a mensagem manda decidir à mão). Pós-condições: nenhum objeto
+do Lote B, expressão do `fts`, colunas da constraint, índice, ledger, 7 tabelas do Lote A,
+`search_knowledge`/`chunk_provenance` presentes, retrato da Fase 1 igual, pontes desligadas,
+zero `vector`. `supabase/db-tests/retrato-memoria.sql` gera o retrato estrutural (colunas, tipos,
+expressões geradas, constraints, índices, policies, md5 das funções, triggers, enums, ledger) usado
+para provar que **Lote A → +B → 08 = Lote A** (I7). Única diferença invisível ao retrato: a coluna
+`fts` recriada fica na última posição física da tabela (Postgres não reordena colunas sem
+reconstruir a tabela); nenhum código do sistema depende de `select *` em `document_chunks`.
 
 ## 16. Decisões que exigem o Wilson (não tomadas aqui)
 
@@ -316,3 +353,30 @@ indexado porque é o caminho de leitura da trilha.
   do núcleo.
 - Worker: conecta como `postgres` no ensaio; em produção conectará com credencial de serviço,
   configurada fora do repositório.
+
+## 20. Auditoria pós-publicação (NO-GO sobre `66c0353`) — o que foi corrigido
+
+Lote B **não foi publicado**; a auditoria do ChatGPT devolveu dois bloqueadores e um hardening.
+Tudo abaixo está em commits novos sobre `66c0353`, sem push, sem deploy, produção intocada.
+
+| # | Achado | Gravidade | Correção | Prova |
+|---|---|---|---|---|
+| 1 | `--replace` não era atômico: o worker fazia commit logo depois de `ingestion_start` (que já apagara páginas e chunks antigos); uma falha posterior perdia o conteúdo válido anterior | **bloqueador** | `ingestion_start` + páginas + chunks + `ingestion_finish` numa única transação (T2); qualquer erro → `rollback` completo, conteúdo anterior intacto; a tentativa falhada é registrada **depois**, em transação independente, por `brain.ingestion_record_failure` (T3) — §4 | D7 (4 pontos de falha), B21, I3 |
+| 2 | Rollback só de A+B (`06`): não havia caminho para voltar o Lote B preservando o Lote A publicado | **bloqueador** | `08-remover-lote-b-sem-dados.sql` + `retrato-memoria.sql` — §15 | I7 (retrato Lote A puro = retrato após 08; 33/34 verdes depois), I8 (recusa conteúdo repetido entre páginas) |
+| 3 | Storage aceitava objeto órfão: admin podia subir qualquer `name` no bucket, sem versão registrada | hardening | `brain_documents_write` e `brain_documents_update` exigem `storage.objects.name = storage_path` de uma `document_versions` em `brain-documents` — §10 | B23 (órfão e variante `.PDF` recusados, caminho exato aceito, rename para órfão recusado, vendedor não escreve, leitura por nível) |
+| 4 | `public.brain_search` com usuário inativo ou sem perfil: `caller_access_level()` nulo, mas a função ainda gravava trilha em `knowledge_queries` antes de devolver vazio | defeito | retorna vazio **antes** de gravar quando `auth.uid()` ou o nível é nulo | B24 |
+| 5 | Duas ingestões da mesma versão ao mesmo tempo: a verificação de "ingestão aberta" só via linhas commitadas | defeito | `ingestion_start` trava a versão com `select … for update`; a segunda espera e, ao ver conteúdo/ingestão da primeira, é recusada | D9, B22 |
+| 6 | Semântica da **primeira** ingestão falhada de uma versão nova não estava definida | lacuna | versão fica `draft` com 0 páginas/0 chunks e uma `knowledge_ingestions` `failed` (`rolled_back=true`, `replace_attempt=false`); reingestão **sem** `--replace` completa normalmente; histórico `failed → completed` — §4 | D8, B22 |
+
+Ajustes de acompanhamento: `06` também remove `ingestion_record_failure`; `ingestion_fail`
+continua existindo (fecha ingestão aberta na mesma transação) mas o worker não a usa mais; o
+crash do worker no meio de T2 deixa a sessão morrer e o Postgres desfaz tudo — sem registro de
+falha nesse caso (não há quem o escreva), o que a próxima ingestão detecta pela ausência de
+ingestão aberta e pelo conteúdo anterior intacto.
+
+**O que não mudou**: `pg_trgm` sincronizado (RAG-H11), limiar 0,35 por `set_config(..., true)`,
+`search_knowledge` VOLATILE e byte-idêntica à produção, RLS e fail-closed do Lote A, `brain_search`/
+`brain_provenance` (assinaturas), trilha de consulta, tabelas técnicas em JSONB, chunking
+determinístico, OCR local, porteiro externo, zero pgvector, pontes desligadas, ERP como fonte
+da verdade, autoria `AgroTork <dev@agrotork.local>`, as 5 `FALHA` herdadas da suíte 25 na
+bateria (BR4/5/6/9/16) continuam visíveis e comparadas com a baseline.
