@@ -83,7 +83,8 @@ const SUITES = [
   ["BRAIN: policies consolidadas", "32_brain_policies.sql", /NOTICE/],
   // Fase 2, Lote A: a memória corporativa (sem vetores) e sua auditoria adversarial.
   ["BRAIN Fase 2: memória corporativa", "33_brain_memoria.sql", /RAG-A\d+[a-z]?\)|NOTICE/],
-  ["BRAIN Fase 2: hardening (adversarial)", "34_brain_memoria_hardening.sql", /RAG-H\d+\)|NOTICE/],
+  ["BRAIN Fase 2: hardening (adversarial)", "34_brain_memoria_hardening.sql", /RAG-H\d+b?\)|NOTICE/],
+  ["BRAIN Fase 2: ingestão sem vetores (Lote B)", "35_brain_ingestao.sql", /B\d+\)|BG\d+\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {

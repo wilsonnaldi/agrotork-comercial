@@ -1,4 +1,4 @@
-# AGROTORK BRAIN — CI de checkpoint (Fase 1 em modo desacoplado + Fase 2).
+# AGROTORK BRAIN — CI de checkpoint (Fase 1 em modo desacoplado + Fase 2, Lotes A e B).
 # Roda em push nas branches brain/* e em PR que toque o banco. Era
 # brain-fase-1.yml; renomeado quando passou a validar a Fase 2 (historico
 # preservado por `git mv`).
@@ -39,9 +39,16 @@ jobs:
       PGPASSWORD: ci-local-only
     steps:
       - uses: actions/checkout@v5
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencias do worker de ingestao (Lote B)
+        run: pip install --quiet -r brain/worker/requirements.txt
       - name: Conferir arquivos gerados
         run: bash supabase/db-tests/conferir-operacao.sh
       - name: Ensaiar deploy, reversao e ERP previamente povoado
         run: bash supabase/db-tests/ensaiar-deploy.sh
       - name: Ensaiar memoria corporativa (Fase 2, Lote A) — suites 33/34, regressao 25–32, remocao/reaplicacao, sem pgvector
         run: bash supabase/db-tests/ensaiar-memoria.sh
+      - name: Ensaiar ingestao (Fase 2, Lote B) — suite 35, worker com PDF sintetico, pytest, remocao A+B, bucket so por roteiro
+        run: bash supabase/db-tests/ensaiar-ingestao.sh
