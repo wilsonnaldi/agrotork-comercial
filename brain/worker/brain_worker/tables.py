@@ -81,6 +81,7 @@ class TechnicalTable:
     page: int | None = None
     notes: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)   # cabeçalhos como estão no documento
+    groups: list[str | None] = field(default_factory=list)   # rótulo de grupo acima de cada coluna (ou None)
 
     @property
     def is_meaningful(self) -> bool:
@@ -94,13 +95,15 @@ class TechnicalTable:
             "units": self.units,
             "rows": self.rows,
             "notes": self.notes,
+            "groups": self.groups if any(self.groups) else [],
         }
 
     def render_text(self) -> str:
         """Cabecalho como esta no documento, depois uma linha por registro:
         'Código Série ... Vazão (L/min) ...' / 'MJ981CAP MUG-CV 02 UG 2,76 bar 40 psi 0,77 L/min'.
         O cabecalho entra no texto pesquisavel de proposito: "vazao" so existe ali."""
-        lines = [" ".join(h for h in (self.labels or self.headers) if h)]
+        group_line = " ".join(dict.fromkeys(g for g in self.groups if g))
+        lines = ([group_line] if group_line else []) + [" ".join(h for h in (self.labels or self.headers) if h)]
         for row in self.rows:
             parts = []
             for h, v in zip(self.headers, row):
@@ -117,8 +120,8 @@ class TechnicalTable:
             lines.append(" ".join(parts))
         return "\n".join(lines)
 
-    def codes(self) -> list[str]:
-        return extract_codes(self.render_text())
+    def codes(self, profile: str | None = None) -> list[str]:
+        return extract_codes(self.render_text(), profile)
 
 
 def build_table(raw: list[list[Any]], page: int | None = None) -> TechnicalTable | None:
@@ -151,3 +154,68 @@ def build_table(raw: list[list[Any]], page: int | None = None) -> TechnicalTable
             conv.append(n if n is not None else (c if c != "" else None))
         body.append(conv)
     return TechnicalTable(headers=headers, rows=body, units=units, page=page, labels=raw_headers)
+
+
+# ── Auditor automático ─────────────────────────────────────────
+_MULTI_NUM = re.compile(r"^\s*[\d.,]+(?:\s+[\d.,]+)+\s*$")
+_UNIT_TOKEN = re.compile(r"^(km/h|bar|psi|kpa|l/min|l/ha|mm|cm|ml|%)$", re.I)
+
+
+def audit_table(t: TechnicalTable) -> list[str]:
+    """Sinais de que a tabela NÃO virou dado confiável. Lista vazia = passou.
+
+    - célula com dois ou mais números onde deveria haver um valor;
+    - linha de dados feita só de unidades/cabeçalho ("km/h km/h …");
+    - coluna sem cabeçalho (col_N) quando a maioria das colunas não tem nome;
+    - linhas com largura diferente do cabeçalho;
+    - coluna de rótulo (texto) com valor só na primeira linha de um grupo
+      (código não propagado).
+    """
+    issues: list[str] = []
+    width = len(t.headers)
+    multi = 0
+    header_rows = 0
+    bad_width = 0
+    for r in t.rows:
+        if len(r) != width:
+            bad_width += 1
+        strs = [c for c in r if isinstance(c, str)]
+        multi += sum(1 for c in strs if _MULTI_NUM.match(c))
+        tokens = [tok for c in strs for tok in c.split()]
+        # linha sem nenhuma celula numerica, mas com unidade escrita ("km/h", "psi"):
+        # e um cabecalho que o detector deixou cair no corpo
+        if tokens and sum(1 for c in r if isinstance(c, (int, float))) == 0 \
+                and any(_UNIT_TOKEN.match(tok) for tok in tokens):
+            header_rows += 1
+    if multi:
+        issues.append(f"{multi} celula(s) com numeros fundidos")
+    if header_rows:
+        issues.append(f"{header_rows} linha(s) de cabecalho caida(s) como dados")
+    # cabecalho feito de numeros: a primeira linha de dados foi engolida como cabecalho
+    numeric_labels = sum(1 for h in (t.labels or t.headers) if parse_number(h) is not None)
+    if width and numeric_labels >= width / 2:
+        issues.append(f"{numeric_labels} de {width} cabecalhos sao numeros (linha de dados engolida)")
+    generic = sum(1 for h in t.headers if re.fullmatch(r"col_\d+(?:_\d+)?", h))
+    if width and generic > width / 2:
+        issues.append(f"{generic} de {width} colunas sem cabecalho")
+    if bad_width:
+        issues.append(f"{bad_width} linha(s) com largura diferente do cabecalho")
+    # propagação de rótulo: coluna de texto onde valores aparecem e somem
+    for j in range(width):
+        col = [r[j] if j < len(r) else None for r in t.rows]
+        texts = [c for c in col if isinstance(c, str)]
+        if len(texts) >= 1 and all(isinstance(c, str) or c is None for c in col) and any(c is None for c in col) \
+                and len(texts) < len(col) and len(col) >= 2 and any(isinstance(c, (int, float)) for r in t.rows for c in r):
+            # so e problema quando a mesma coluna carrega texto identificador (contem letra+digito)
+            if any(re.search(r"[A-Za-z]", x) and re.search(r"\d", x) for x in texts):
+                issues.append(f"coluna '{t.headers[j]}' com rotulo nao propagado ({len(col) - len(texts)} linha(s) sem valor)")
+    return issues
+
+
+FATAL_MARKERS = ("fundidos", "caida", "engolida")
+
+
+def fatal_issues(issues: list[str]) -> list[str]:
+    """Sinais que significam dado errado (nao so incompleto): numeros fundidos,
+    cabecalho caido como dados, linha de dados engolida como cabecalho."""
+    return [i for i in issues if any(m in i for m in FATAL_MARKERS)]

@@ -23,7 +23,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .tables import TechnicalTable, build_table
+from .spatial import _rotated_words, reconstruct_table
+from .tables import TechnicalTable, audit_table, build_table, fatal_issues
 
 SUPPORTED = {
     ".pdf": "application/pdf",
@@ -96,6 +97,29 @@ def _pdf_ocr_page(page) -> str:
     return pytesseract.image_to_string(img, lang=langs)
 
 
+def _table_regions(page):
+    """Regiões de tabela da página: o que `find_tables` achou, com regiões
+    verticalmente adjacentes e alinhadas (cabeçalho numa caixa, corpo na outra)
+    fundidas numa só. Devolve [(bbox, tabela_ou_None)] — None quando a região
+    é a fusão de duas (só a reconstrução geométrica a lê)."""
+    found = list(page.find_tables() or [])
+    found.sort(key=lambda t: (t.bbox[1], t.bbox[0]))
+    regions: list[tuple[tuple[float, float, float, float], object | None]] = []
+    for t in found:
+        x0, top, x1, bottom = t.bbox
+        merged = False
+        for k, ((px0, ptop, px1, pbottom), _) in enumerate(regions):
+            overlap = min(x1, px1) - max(x0, px0)
+            width = min(x1 - x0, px1 - px0)
+            if width > 0 and overlap / width >= 0.8 and 0 <= top - pbottom <= 6:
+                regions[k] = ((min(x0, px0), ptop, max(x1, px1), bottom), None)
+                merged = True
+                break
+        if not merged:
+            regions.append(((x0, top, x1, bottom), t))
+    return regions
+
+
 def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
     """ocr: 'auto' (só páginas sem camada textual), 'never', 'force'."""
     import pdfplumber
@@ -107,25 +131,46 @@ def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
         for i, page in enumerate(pdf.pages, start=1):
             tables: list[TechnicalTable] = []
             bboxes = []
+            reconstructed = 0
             try:
-                for found in page.find_tables() or []:
-                    t = build_table(found.extract(), page=i)
-                    if t and t.is_meaningful:
-                        tables.append(t)
-                        bboxes.append(found.bbox)
+                for bbox, found in _table_regions(page):
+                    t = build_table(found.extract(), page=i) if found is not None else None
+                    issues = audit_table(t) if (t and t.is_meaningful) else ["regiao sem tabela pelo detector padrao"]
+                    if issues:
+                        # O detector por régua não virou dado confiável: refaz pela geometria.
+                        rec, _w = reconstruct_table(page, bbox, page_no=i)
+                        rec_issues = audit_table(rec) if (rec is not None and rec.is_meaningful) else None
+                        # entra se nao tem sinal FATAL e (a original tinha, ou ficou com menos sinais)
+                        if rec_issues is not None and not fatal_issues(rec_issues) \
+                                and (fatal_issues(issues) or len(rec_issues) < len(issues)):
+                            t = rec
+                            reconstructed += 1
+                        elif t is not None:
+                            t.notes.extend(issues)
+                            warnings.append(f"p.{i}: tabela com {len(issues)} sinal(is) de estrutura ruim nao reconstruida: " + "; ".join(issues))
+                    if t is None or not t.is_meaningful:
+                        continue
+                    tables.append(t)
+                    bboxes.append(bbox)
             except Exception as exc:  # tabela mal formada não derruba a página
                 warnings.append(f"p.{i}: tabela ignorada ({exc.__class__.__name__})")
             # O texto da página NÃO inclui o que está dentro das tabelas: a tabela
             # é chunk próprio, e o mesmo dado não pode aparecer duas vezes.
-            body = page
+            # Texto rotacionado (arte lateral, títulos verticais) também fica fora
+            # do corpo: vai para o layout como `rotated_text`, legível.
+            body = page.filter(lambda obj: obj.get("upright", True))
             for (x0, top, x1, bottom) in bboxes:
                 body = body.filter(lambda obj, x0=x0, top=top, x1=x1, bottom=bottom:
                                    not (obj.get("x0", 0) >= x0 - 1 and obj.get("x1", 0) <= x1 + 1
                                         and obj.get("top", 0) >= top - 1 and obj.get("bottom", 0) <= bottom + 1))
             text = body.extract_text() or ""
+            rotated = [w.text for w in _rotated_words(page.chars, page.bbox[1], page.bbox[3])]
             total_chars += len(text.strip()) + sum(len(t.render_text()) for t in tables)
-            pages.append(ExtractedPage(i, text, "text_layer", False, tables,
-                                       {"width": float(page.width), "height": float(page.height), "tables": len(tables)}))
+            layout = {"width": float(page.width), "height": float(page.height), "tables": len(tables),
+                      "tables_reconstructed": reconstructed}
+            if rotated:
+                layout["rotated_text"] = rotated
+            pages.append(ExtractedPage(i, text, "text_layer", False, tables, layout))
             # pdfplumber guarda todos os objetos de cada pagina ja lida; num catalogo
             # de 170+ paginas cheias de vetores isso passa de 6 GB e o processo morre.
             # Cada pagina e independente: solta o cache assim que ela foi extraida.
