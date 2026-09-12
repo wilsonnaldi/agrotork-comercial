@@ -441,8 +441,12 @@ begin
   select count(*) into n_anon from pg_class c
    where c.relnamespace = 'brain'::regnamespace and c.relkind in ('r', 'v')
      and has_table_privilege('anon', c.oid, 'select');
-  if n_tabelas = 9 and n_sem_rls = 0 and n_sp = 0 and n_anon = 0
-    then raise notice 'BR10) OK: % tabelas com RLS; toda funcao com search_path vazio; anon sem SELECT em nada', n_tabelas;
+  -- A higiene vale para TODA tabela do schema (a Fase 2 acrescenta as suas);
+  -- as 9 da Fase 1 sao conferidas por nome, nao por contagem total.
+  if n_tabelas >= 9 and n_sem_rls = 0 and n_sp = 0 and n_anon = 0
+     and (select count(*) from pg_tables where schemaname = 'brain'
+            and tablename in ('channels','attributions','leads','identities','interactions','opportunities','tasks','events','lead_merges')) = 9
+    then raise notice 'BR10) OK: % tabelas com RLS (9 da Fase 1 presentes); toda funcao com search_path vazio; anon sem SELECT em nada', n_tabelas;
     else raise notice 'BR10) FALHA: tabelas=% sem_rls=% funcoes_sem_sp=% anon=%', n_tabelas, n_sem_rls, n_sp, n_anon; end if;
 end $$;
 
