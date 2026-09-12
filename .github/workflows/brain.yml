@@ -1,3 +1,7 @@
+# AGROTORK BRAIN — CI de checkpoint (Fase 1 em modo desacoplado + Fase 2).
+# Roda em push nas branches brain/* e em PR que toque o banco. Era
+# brain-fase-1.yml; renomeado quando passou a validar a Fase 2 (historico
+# preservado por `git mv`).
 name: BRAIN
 
 on:
@@ -6,7 +10,7 @@ on:
   pull_request:
     paths:
       - 'supabase/**'
-      - '.github/workflows/brain-fase-1.yml'
+      - '.github/workflows/brain.yml'
   workflow_dispatch:
 
 permissions:
@@ -39,5 +43,5 @@ jobs:
         run: bash supabase/db-tests/conferir-operacao.sh
       - name: Ensaiar deploy, reversao e ERP previamente povoado
         run: bash supabase/db-tests/ensaiar-deploy.sh
-      - name: Ensaiar memoria corporativa (Fase 2, Lote A) e regressao das suites do BRAIN
+      - name: Ensaiar memoria corporativa (Fase 2, Lote A) — suites 33/34, regressao 25–32, remocao/reaplicacao, sem pgvector
         run: bash supabase/db-tests/ensaiar-memoria.sh
