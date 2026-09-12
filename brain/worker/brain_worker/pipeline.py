@@ -31,6 +31,7 @@ from .chunking import CONFIG as CHUNK_CONFIG
 from .chunking import Chunk, PageInput, chunk_pages
 from .db import BrainDb
 from .extract import Extraction, extract, mime_for, sniff_ok
+from .tables import audit_table
 
 
 def sha256_of(path: Path) -> str:
@@ -60,10 +61,15 @@ class Plan:
             "tables": sum(1 for c in self.chunks if c.kind in ("table", "price_table")),
             "warnings": list(self.extraction.warnings) + [w for p in self.extraction.pages for w in p.warnings],
             "pipeline_version": PIPELINE_VERSION, "chunk_config": CHUNK_CONFIG,
+            "profile": self.metrics.get("profile"), "tables_reconstructed": self.metrics.get("tables_reconstructed"),
+            "table_audit_issues": self.metrics.get("table_audit_issues"),
         }
 
 
-def plan(path: Path, ocr: str = "auto", price_table: bool = False) -> Plan:
+PROFILE_BY_SOURCE = {"magnojet": "magnojet_catalog"}   # perfil de codigos por fonte (particularidades isoladas em codes.py)
+
+
+def plan(path: Path, ocr: str = "auto", price_table: bool = False, profile: str | None = None) -> Plan:
     if not path.is_file():
         raise FileNotFoundError(str(path))
     mime = mime_for(path)
@@ -72,10 +78,12 @@ def plan(path: Path, ocr: str = "auto", price_table: bool = False) -> Plan:
     t0 = time.perf_counter()
     ext = extract(path, ocr=ocr)
     t1 = time.perf_counter()
-    chunks = chunk_pages([PageInput(p.page_no, p.text, p.tables) for p in ext.pages], price_table_hint=price_table)
+    chunks = chunk_pages([PageInput(p.page_no, p.text, p.tables) for p in ext.pages], price_table_hint=price_table, profile=profile)
     t2 = time.perf_counter()
-    return Plan(sha256_of(path), mime, path.stat().st_size, ext, chunks,
-                {"extract_ms": round((t1 - t0) * 1000), "chunk_ms": round((t2 - t1) * 1000)})
+    metrics = {"extract_ms": round((t1 - t0) * 1000), "chunk_ms": round((t2 - t1) * 1000), "profile": profile,
+               "tables_reconstructed": sum(int(p.layout.get("tables_reconstructed", 0)) for p in ext.pages),
+               "table_audit_issues": sum(len(audit_table(t)) for p in ext.pages for t in p.tables)}
+    return Plan(sha256_of(path), mime, path.stat().st_size, ext, chunks, metrics)
 
 
 @dataclass
@@ -97,14 +105,15 @@ class InjectedFailure(RuntimeError):
 def ingest(db: BrainDb, path: Path, document_slug: str, version_label: str, *,
            ocr: str = "auto", replace: bool = False, price_table: bool = False,
            document_date=None, executor: str | None = None, dry_run: bool = False,
-           fail_at: str | None = None) -> Result:
+           fail_at: str | None = None, profile: str | None = None) -> Result:
     """`fail_at` (so testes): 'after_start' | 'after_pages' | 'mid_chunks' | 'before_finish' —
     levanta InjectedFailure naquele ponto da T2, DEPOIS de o conteudo antigo ter sido removido
     dentro da transacao. Serve para provar que o rollback devolve tudo."""
     doc = db.document_by_slug(document_slug)
     if doc is None:
         raise LookupError(f"documento '{document_slug}' nao existe ou nao e visivel para esta conexao")
-    p = plan(path, ocr=ocr, price_table=price_table)
+    profile = profile or PROFILE_BY_SOURCE.get(doc["source_key"])
+    p = plan(path, ocr=ocr, price_table=price_table, profile=profile)
     if dry_run:
         return Result(None, None, "dry-run", p.extraction.pages_total, len(p.chunks),
                       sum(1 for c in p.chunks if c.kind in ("table", "price_table")))

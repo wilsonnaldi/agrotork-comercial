@@ -8,4 +8,4 @@ transforma bytes em linhas e chama a API SQL (`brain.register_version`,
 e estado são conferidos pelo banco.
 """
 
-PIPELINE_VERSION = "lote-b.1"
+PIPELINE_VERSION = "lote-b.2"

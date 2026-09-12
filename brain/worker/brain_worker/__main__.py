@@ -25,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan.add_argument("--ocr", choices=["auto", "never", "force"], default="auto")
     p_plan.add_argument("--price-table", action="store_true")
     p_plan.add_argument("--json", action="store_true")
+    p_plan.add_argument("--profile", default=None, help="perfil de codigos (ex.: magnojet_catalog)")
 
     p_ing = sub.add_parser("ingest", help="grava versao, paginas e chunks")
     p_ing.add_argument("file", type=Path)
@@ -35,10 +36,11 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--price-table", action="store_true")
     p_ing.add_argument("--replace", action="store_true", help="reprocessar versao que ja tem conteudo")
     p_ing.add_argument("--dry-run", action="store_true")
+    p_ing.add_argument("--profile", default=None, help="perfil de codigos; padrao: pela fonte do documento")
 
     a = ap.parse_args(argv)
     if a.cmd == "plan":
-        p = plan(a.file, ocr=a.ocr, price_table=a.price_table)
+        p = plan(a.file, ocr=a.ocr, price_table=a.price_table, profile=a.profile)
         print(plan_to_json(p) if a.json else _fmt(p.summary()))
         return 0
 
@@ -49,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     db = BrainDb(dsn)
     try:
         r = ingest(db, a.file, a.document, a.label, ocr=a.ocr, replace=a.replace,
-                   price_table=a.price_table, document_date=a.date, dry_run=a.dry_run)
+                   price_table=a.price_table, document_date=a.date, dry_run=a.dry_run, profile=a.profile)
     finally:
         db.close()
     print(_fmt({"version_id": str(r.version_id), "ingestion_id": str(r.ingestion_id), "status": r.status,

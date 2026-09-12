@@ -30,7 +30,8 @@ TARGET = 900      # tamanho alvo de um chunk de texto (caracteres)
 MAX = 1400        # acima disto, fatiar
 MIN_MERGE = 200   # parágrafo menor que isto se junta ao próximo
 OVERLAP = 120     # repetição entre fatias de um parágrafo longo
-CONFIG = {"target": TARGET, "max": MAX, "min_merge": MIN_MERGE, "overlap": OVERLAP, "unit": "page"}
+CONFIG = {"target": TARGET, "max": MAX, "min_merge": MIN_MERGE, "overlap": OVERLAP, "unit": "page",
+          "headings": "page-reset+runs", "fragments": "aggregate<min_merge"}
 
 _HEADING = re.compile(r"^(?:\d+(?:\.\d+)*\s*[-–.)]?\s+)?[A-ZÁÉÍÓÚÂÊÔÃÕÇ0-9][A-ZÁÉÍÓÚÂÊÔÃÕÇ0-9 \-–/·,()]{2,78}$")
 _SENTENCE = re.compile(r"(?<=[.!?;])\s+")
@@ -68,6 +69,11 @@ def is_heading(line: str) -> bool:
     letters = [c for c in s if c.isalpha()]
     digits = [c for c in s if c.isdigit()]
     if len(letters) < 3:
+        return False
+    # arte lateral / texto em curva chega como letras soltas ("Õ E S", "O S C U"):
+    # nao e titulo, e nao pode contaminar o heading_path
+    tokens = s.split()
+    if len(tokens) >= 2 and sum(1 for t in tokens if len(t) == 1) > 0.5 * len(tokens):
         return False
     # linha de tabela ("PS983CAP SOL-CV 03 UG 2,76 40 1,15 115") nao e titulo
     if len(digits) > 0.25 * (len(letters) + len(digits)):
@@ -131,15 +137,25 @@ def _split_long(text: str) -> list[str]:
     return final
 
 
-def chunk_pages(pages: list[PageInput], price_table_hint: bool = False) -> list[Chunk]:
-    """Páginas → chunks, determinístico."""
+def chunk_pages(pages: list[PageInput], price_table_hint: bool = False, profile: str | None = None) -> list[Chunk]:
+    """Páginas → chunks, determinístico.
+
+    Títulos: a pilha é zerada a cada página (catálogo: cada página é uma
+    unidade; um título só atravessaria página por adivinhação). Títulos
+    consecutivos formam uma CORRIDA e entram inteiros na pilha — "MAGNO ULTRA
+    GROSSA" + "CONE VAZIO" não se apagam um ao outro. A primeira corrida da
+    página é o título da página (nível 1) e vira um chunk `heading` próprio;
+    as corridas seguintes são a seção vigente (nível 2), substituída pela
+    próxima. Fragmentos curtos (cotas, rótulos de desenho) se acumulam até
+    MIN_MERGE caracteres antes de virar chunk, mesmo atravessando títulos.
+    """
     chunks: list[Chunk] = []
     ordinal = 0
     heading_path: list[str] = []
 
     seen_in_page: set[tuple[int, str]] = set()
 
-    def emit(kind: str, page: int, content: str, table_data=None, codes=None):
+    def emit(kind: str, page: int, content: str, table_data=None, codes=None, path=None):
         nonlocal ordinal
         content = content.strip()
         if not content:
@@ -151,58 +167,97 @@ def chunk_pages(pages: list[PageInput], price_table_hint: bool = False) -> list[
         if key in seen_in_page:
             return
         seen_in_page.add(key)
-        chunks.append(Chunk(ordinal, kind, page, list(heading_path), content, table_data,
-                            codes if codes is not None else extract_codes(content)))
+        chunks.append(Chunk(ordinal, kind, page, list(path if path is not None else heading_path), content, table_data,
+                            codes if codes is not None else extract_codes(content, profile)))
         ordinal += 1
 
     for page in sorted(pages, key=lambda p: p.page_no):
+        heading_path = []
+        title_run: list[str] = []      # primeira corrida de títulos da página (nível 1)
+        section_run: list[str] = []    # corrida vigente (nível 2)
+        run_open = False               # ainda dentro de uma corrida de títulos
+        title_closed = False           # a corrida de título da página já terminou
+        body_seen = False
         pending: list[str] = []
         pending_kind = "text"
+        pending_path: list[str] = []
 
-        def flush_pending():
-            nonlocal pending, pending_kind
-            if pending:
-                emit(pending_kind, page.page_no, "\n".join(pending))
-                pending = []
-                pending_kind = "text"
+        def current_path() -> list[str]:
+            return title_run[:10] + section_run[:4]
+
+        def flush_pending(force: bool = False):
+            nonlocal pending, pending_kind, pending_path
+            if not pending:
+                return
+            if not force and sum(len(p) for p in pending) < MIN_MERGE:
+                return                  # fragmento curto: espera juntar com o proximo
+            emit(pending_kind, page.page_no, "\n".join(pending), path=pending_path)
+            pending = []
+            pending_kind = "text"
+            pending_path = []
+
+        def close_run():
+            nonlocal run_open, title_closed
+            if run_open and not title_closed:
+                # a primeira corrida da pagina e o titulo da pagina: fica pesquisavel por si
+                if title_run:
+                    emit("heading", page.page_no, "\n".join(title_run), path=list(title_run))
+                title_closed = True
+            run_open = False
 
         for kind, text in _blocks(page.text):
             if kind == "heading":
-                flush_pending()
-                # título de nível único por página: substitui o último se já houver um nesta página,
-                # empilha se for o primeiro (profundidade máxima 3)
-                if heading_path and heading_path[-1] == text:
+                if not run_open:
+                    run_open = True
+                    flush_pending()
+                    if title_closed:
+                        section_run = []          # nova secao substitui a anterior
+                target = section_run if title_closed else title_run
+                if target and target[-1] == text:
                     continue
-                if len(heading_path) >= 3:
-                    heading_path.pop()
-                heading_path.append(text)
+                if len(target) < (10 if target is title_run else 4):
+                    target.append(text)
                 continue
+            if run_open:
+                close_run()
+            body_seen = True
+            heading_path = current_path()
             if kind == "list":
-                flush_pending()
+                flush_pending(force=True)
                 for piece in _split_long(text):
                     emit("list", page.page_no, piece)
                 continue
             for piece in _split_long(text):
                 if pending and sum(len(p) for p in pending) + len(piece) > TARGET:
-                    flush_pending()
+                    flush_pending(force=True)
+                if not pending:
+                    pending_path = list(heading_path)
                 pending.append(piece)
                 if sum(len(p) for p in pending) >= MIN_MERGE and len(piece) >= TARGET:
-                    flush_pending()
-        flush_pending()
+                    flush_pending(force=True)
+        if run_open:
+            close_run()
+        flush_pending(force=True)
 
+        heading_path = current_path()
         for table in page.tables:
             if not table.is_meaningful:
                 continue
             text = table.render_text()
             kind = "price_table" if (price_table_hint or _looks_like_prices(table)) else "table"
-            emit(kind, page.page_no, text, table.table_data(), table.codes())
-
-        # a pilha de títulos não atravessa páginas além do primeiro nível
-        heading_path = heading_path[:1]
+            emit(kind, page.page_no, text, table.table_data(), table.codes(profile))
     return chunks
 
 
+_PRICE_HEADER = re.compile(r"(?<![a-z0-9])(preco|preço|precos|preços|valor|valores|a vista|à vista|faturado|r\$|brl)(?![a-z0-9])", re.I)
+
+
 def _looks_like_prices(table: TechnicalTable) -> bool:
-    return "BRL" in table.units.values() or any(
-        re.search(r"preco|preço|valor|vista|faturado|r\$", h, re.I) for h in table.headers
-    )
+    """So com evidencia real de preco: unidade BRL, R$ ou coluna cujo nome e a
+    PALAVRA INTEIRA preco/valor/a vista/faturado. "valoriza" nao e "valor"."""
+    if "BRL" in table.units.values():
+        return True
+    for h in (table.labels or table.headers):
+        if _PRICE_HEADER.search(h.replace("_", " ")):
+            return True
+    return False
