@@ -94,3 +94,95 @@ def make_text(path: Path) -> Path:
     path.write_text("PROCEDIMENTO\nPasso 1: zerar o sensor.\nPasso 2: aplicar pressão de referência.\f"
                     "ANEXO\nCódigo do sensor: 466113200, faixa 0-20 bar.", encoding="utf-8")
     return path
+
+
+# ── Catálogo com tabela de vazão "à Magnojet" (cabeçalho de dois níveis, sem régua vertical
+#    entre as velocidades, código de grupo numa coluna com régua só nas fronteiras de grupo,
+#    título vertical na margem, títulos consecutivos). Reproduz, em sintético, o que o piloto
+#    real encontrou. Só desenho com coordenadas: reportlab canvas, invariant=1.
+FLOW_SPEEDS = [4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 20, 25]
+FLOW_GROUPS = [
+    # (código, série, malha, [(bar, psi, kpa, l/min, [l/ha por velocidade])])
+    ("PS980CAP", "SOL-CV 015", "MALHA 50", [
+        ("2,07", "30", "207", "0,50", [149, 120, 100, 85, 75, 66, 60, 50, 43, 37, 33, 30, 24]),
+        ("2,76", "40", "276", "0,58", [173, 138, 115, 99, 86, 77, 69, 58, 49, 43, 38, 35, 28]),
+        ("3,45", "50", "345", "0,64", [193, 154, 129, 110, 96, 86, 77, 64, 55, 48, 43, 39, 31]),
+    ]),
+    ("PS981CAP", "SOL-CV 02", "MALHA 50", [
+        ("2,07", "30", "207", "0,66", [199, 159, 133, 114, 100, 89, 80, 66, 57, 50, 44, 40, 32]),
+        ("2,76", "40", "276", "0,77", [230, 184, 153, 131, 115, 102, 92, 77, 66, 58, 51, 46, 37]),
+        ("3,45", "50", "345", "0,86", [257, 206, 172, 147, 129, 114, 103, 86, 73, 64, 57, 51, 41]),
+    ]),
+]
+
+
+def make_flow_pdf(path: Path) -> Path:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    c = canvas.Canvas(str(path), pagesize=A4, invariant=1)
+    W, H = A4
+    # titulo vertical na margem (como "SOLUÇÕES" no catalogo real): letras soltas se lidas no corpo
+    c.saveState(); c.translate(30, 300); c.rotate(90); c.setFont("Helvetica-Bold", 14); c.drawString(0, 0, "SOLUÇÕES"); c.restoreState()
+    # titulos consecutivos (sem paragrafo entre eles) + corpo
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(60, H - 60, "APLICAÇÕES DE HERBICIDAS SISTÊMICOS")
+    c.drawString(60, H - 76, "SOL ULTRA GROSSA")
+    c.drawString(60, H - 92, "CONE VAZIO")
+    c.setFont("Helvetica", 9)
+    c.drawString(60, H - 110, "Ponta de cerâmica com alta durabilidade. Recomendado para herbicidas sistêmicos.")
+    # rotulos curtos de desenho (microchunks) e um paragrafo que "valoriza" (nao e tabela de preco)
+    c.setFont("Helvetica", 8)
+    for i, lab in enumerate(["Ø 108,00", "R 1/2", "100", "M 714", "M 691/1A"]):
+        c.drawString(60, H - 130 - 10 * i, lab)
+    c.drawString(60, H - 190, "O programa valoriza o atendimento do revendedor e traz recomendações assertivas ao produtor.")
+
+    # ── tabela ─────────────────────────────────────────────
+    left, top = 120, H - 230         # abaixo da prosa; y cresce para cima no PDF
+    col_x = [left, left + 60, left + 78, left + 100, left + 122, left + 146, left + 170]   # bordas: codigo|gotas|bar|psi|kpa|lmin|velocidades...
+    sp_x0 = left + 170
+    sp_w = 22
+    right = sp_x0 + sp_w * len(FLOW_SPEEDS)
+    row_h = 9
+    hdr_h = 30
+    # cabecalho de grupo com caixa embaixo (so a regua horizontal), sobre as velocidades
+    c.setFont("Helvetica-Bold", 6)
+    c.drawCentredString((sp_x0 + right) / 2, top - 8, "LITROS POR HECTARE (ESPAÇAMENTO 50CM)")
+    c.line(sp_x0, top - 11, right, top - 11)
+    for i, s in enumerate(FLOW_SPEEDS):
+        c.setFont("Helvetica-Bold", 6); c.drawCentredString(sp_x0 + sp_w * i + sp_w / 2, top - 19, str(s))
+        c.setFont("Helvetica", 5); c.drawCentredString(sp_x0 + sp_w * i + sp_w / 2, top - 26, "km/h")
+    c.setFont("Helvetica-Bold", 5)
+    c.drawString(left + 3, top - 12, "CÓDIGO"); c.drawString(left + 3, top - 19, "PONTAS")
+    for x, lab in zip(col_x[2:6], ["BAR", "PSI", "kPa", "L/min"]):
+        c.drawString(x + 3, top - 26, lab)
+    # "GOTAS" vertical (girado) sobre a coluna de gotas
+    c.saveState(); c.translate(col_x[1] + 12, top - 27); c.rotate(90); c.setFont("Helvetica-Bold", 4); c.drawString(0, 0, "GOTAS"); c.restoreState()
+    data_top = top - hdr_h
+    # reguas verticais so nas primeiras colunas (entre as velocidades nao ha)
+    n_rows = sum(len(g[3]) for g in FLOW_GROUPS)
+    bottom = data_top - row_h * n_rows
+    for x in col_x + [right]:
+        c.line(x, top, x, bottom)
+    c.line(left, top, right, top)
+    y = data_top
+    for code, serie, malha, rows in FLOW_GROUPS:
+        g_top = y
+        g_bottom = y - row_h * len(rows)
+        # regua de grupo cruza a coluna de codigo; reguas de linha so na area numerica
+        c.line(left, g_top, right, g_top)
+        c.setFont("Helvetica-Bold", 5); c.drawString(left + 3, g_top - 8, code)
+        c.setFont("Helvetica", 4.5); c.drawString(left + 3, g_top - 15, serie); c.drawString(left + 3, g_top - 22, malha)
+        for bar, psi, kpa, lmin, lha in rows:
+            c.setFont("Helvetica", 5.5)
+            c.drawString(col_x[1] + 4, y - 7, "UG")
+            for x, v in zip(col_x[2:6], (bar, psi, kpa, lmin)):
+                c.drawString(x + 3, y - 7, v)
+            for i, v in enumerate(lha):
+                c.drawCentredString(sp_x0 + sp_w * i + sp_w / 2, y - 7, str(v))
+            y -= row_h
+            c.line(col_x[1], y, right, y)
+    c.line(left, bottom, right, bottom)
+    c.showPage()
+    c.save()
+    return path

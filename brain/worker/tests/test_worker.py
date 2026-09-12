@@ -13,12 +13,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fixtures import TABLE_ROWS, make_catalog_pdf, make_price_xlsx, make_text  # noqa: E402
+from fixtures import FLOW_SPEEDS, TABLE_ROWS, make_catalog_pdf, make_flow_pdf, make_price_xlsx, make_text  # noqa: E402
 from brain_worker.chunking import CONFIG, MAX, PageInput, chunk_pages, is_heading  # noqa: E402
-from brain_worker.codes import extract_codes, normalize_code  # noqa: E402
+from brain_worker.codes import extract_codes, known_profiles, normalize_code  # noqa: E402
 from brain_worker.extract import extract, mime_for, ocr_available, sniff_ok  # noqa: E402
 from brain_worker.pipeline import plan, sha256_of  # noqa: E402
-from brain_worker.tables import build_table, parse_number  # noqa: E402
+from brain_worker.tables import TechnicalTable, build_table, parse_number  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -121,10 +121,12 @@ def test_w4c_heading_detection():
 def test_w4d_pages_are_isolated():
     pages = [PageInput(2, "TITULO B\nTexto da pagina dois."), PageInput(1, "TITULO A\nTexto da pagina um.")]
     chunks = chunk_pages(pages)
-    assert [c.page for c in chunks] == [1, 2]                  # ordenado por pagina, nao pela lista
-    assert [c.ordinal for c in chunks] == [0, 1]
-    assert chunks[0].heading_path == ["TITULO A"] and chunks[1].heading_path == ["TITULO A", "TITULO B"]
-    assert "dois" not in chunks[0].content and "um" not in chunks[1].content
+    # ordenado por pagina, nao pela lista; o titulo da pagina vira chunk `heading` proprio
+    assert [(c.page, c.kind) for c in chunks] == [(1, "heading"), (1, "text"), (2, "heading"), (2, "text")]
+    assert [c.ordinal for c in chunks] == [0, 1, 2, 3]
+    # a pilha de titulos NAO atravessa pagina (reset por pagina, lote-b.2)
+    assert chunks[1].heading_path == ["TITULO A"] and chunks[3].heading_path == ["TITULO B"]
+    assert "dois" not in chunks[1].content and "um" not in chunks[3].content
 
 
 # ── W5 planilha e texto ─────────────────────────────────────
@@ -142,7 +144,7 @@ def test_w5_xlsx_each_sheet_is_a_page(tmp_path):
 def test_w5b_text_form_feed_pages(tmp_path):
     p = plan(make_text(tmp_path / "proc.txt"))
     assert p.extraction.pages_total == 2
-    assert [c.page for c in p.chunks] == [1, 2] and "466113200" in p.chunks[1].codes
+    assert [c.page for c in p.chunks] == [1, 1, 2, 2] and "466113200" in p.chunks[3].codes
 
 
 # ── W6 OCR ──────────────────────────────────────────────────
@@ -159,3 +161,117 @@ def test_w6_scanned_pdf_needs_ocr(tmp_path):
     # com camada textual confiavel, OCR nao roda mesmo em 'auto'
     ext3 = extract(make_catalog_pdf(tmp_path / "texto.pdf"), ocr="auto")
     assert ext3.method == "pdf_text" and all(p.extraction == "text_layer" for p in ext3.pages)
+
+
+# ── W7 tabela técnica por geometria (piloto Magnojet, em sintético) ──────────
+
+def test_w7_spatial_reconstruction_fixes_merged_columns(tmp_path):
+    """O detector por régua funde as 13 velocidades numa célula, deixa o cabeçalho
+    km/h como linha e não propaga o código do grupo; a reconstrução espacial
+    devolve uma coluna por velocidade, cabeçalho de dois níveis e código em
+    todas as linhas do grupo — sem inventar nenhuma célula."""
+    import pdfplumber
+    from brain_worker.tables import audit_table, build_table
+    pdf = make_flow_pdf(tmp_path / "vazao.pdf")
+    with pdfplumber.open(str(pdf)) as doc:
+        found = doc.pages[0].find_tables()[0]
+        raw = build_table(found.extract(), page=1)
+    issues = audit_table(raw)
+    assert any("fundidos" in i for i in issues) and any("cabecalho" in i for i in issues)
+
+    p = plan(pdf, profile="magnojet_catalog")
+    assert p.summary()["tables_reconstructed"] == 1 and p.summary()["table_audit_issues"] == 0
+    t = [c for c in p.chunks if c.kind == "table"][0]
+    td = t.table_data
+    assert td["headers"][:6] == ["CODIGO_PONTAS", "GOTAS", "BAR", "PSI", "kPa", "L/min"]
+    assert td["headers"][6:] == [f"L_ha@{s}" for s in FLOW_SPEEDS]
+    assert td["labels"][6:] == [f"{s} km/h" for s in FLOW_SPEEDS]
+    assert set(g for g in td["groups"] if g) == {"LITROS POR HECTARE (ESPAÇAMENTO 50CM)"}
+    assert td["units"]["L_ha@12"] == "L/ha" and td["units"]["L/min"] == "L/min" and td["units"]["PSI"] == "psi"
+    # a linha PS981CAP a 40 psi: numeros em colunas individuais, valor a 12 km/h = 77
+    row = [r for r in td["rows"] if r[0] == "PS981CAP SOL-CV 02 MALHA 50" and r[3] == 40][0]
+    assert row[2:6] == [2.76, 40, 276, 0.77] and row[td["headers"].index("L_ha@12")] == 77
+    assert all(isinstance(v, (int, float)) for v in row[2:])
+    # codigo propagado a todas as linhas do grupo (pela regua do grupo, nao por chute)
+    assert [r[0] for r in td["rows"]] == ["PS980CAP SOL-CV 015 MALHA 50"] * 3 + ["PS981CAP SOL-CV 02 MALHA 50"] * 3
+    assert "reconstruction: spatial" in td["notes"] and not audit_table(TechnicalTable(td["headers"], td["rows"], td["units"], 1, [], td["labels"]))
+    assert {"PS980CAP", "PS981CAP", "SOL-CV02", "SOL-CV015"} <= set(t.codes)
+    # cabecalho vertical "GOTAS" lido pela rotacao; "SOLUÇÕES" da margem fora do corpo
+    assert p.extraction.pages[0].layout["rotated_text"] == ["SOLUÇÕES", "GOTAS"]
+
+
+def test_w7b_audit_never_passes_ambiguous_cells():
+    from brain_worker.tables import audit_table
+    t = TechnicalTable(["CODIGO", "PSI", "L_ha@12"], [["PS1", 40, "77 66 5"], [None, 50, 88]], {}, 1, [], ["CÓDIGO", "PSI", "12 km/h"])
+    issues = audit_table(t)
+    assert any("fundidos" in i for i in issues) and any("nao propagado" in i for i in issues)
+    ok = TechnicalTable(["CODIGO", "PSI", "L_ha@12"], [["PS1", 40, 77], ["PS1", 50, 88]], {}, 1, [], ["CÓDIGO", "PSI", "12 km/h"])
+    assert audit_table(ok) == []
+
+
+# ── W8 títulos ───────────────────────────────────────────────
+
+def test_w8_headings_page_reset_runs_and_vertical_art(tmp_path):
+    p = plan(make_flow_pdf(tmp_path / "vazao.pdf"))
+    kinds = [c.kind for c in p.chunks]
+    assert kinds[0] == "heading"
+    # titulos consecutivos entram inteiros: nenhum apaga o outro
+    assert p.chunks[0].content == "APLICAÇÕES DE HERBICIDAS SISTÊMICOS\nSOL ULTRA GROSSA\nCONE VAZIO"
+    assert p.chunks[1].heading_path == ["APLICAÇÕES DE HERBICIDAS SISTÊMICOS", "SOL ULTRA GROSSA", "CONE VAZIO"]
+    # arte lateral ("SOLUÇÕES" girado) nao vira titulo nem entra no corpo
+    assert not any("Õ E S" in h or h == "SOLUÇÕES" for c in p.chunks for h in c.heading_path)
+    assert "SOLUÇÕES" not in p.chunks[1].content
+    assert not is_heading("Õ E S") and not is_heading("O S C U")
+    # reset por pagina: a segunda pagina nao herda titulo da primeira
+    pages = [PageInput(1, "TITULO UM\nCorpo um."), PageInput(2, "Corpo dois sem titulo.")]
+    chunks = chunk_pages(pages)
+    assert [c.heading_path for c in chunks if c.page == 2] == [[]]
+
+
+# ── W9 códigos ───────────────────────────────────────────────
+
+def test_w9_codes_with_punctuation_slash_space_and_profile():
+    assert extract_codes("catálogo da MJ983CAP?") == ["MJ983CAP"]
+    assert extract_codes("vazão do MJ981CAP,") == ["MJ981CAP"]
+    assert extract_codes("MJ059/1 MAG CH 0.5 MALHA 100") == ["MAGCH0.5", "MJ059/1"]
+    assert extract_codes("MUG-CV 02 e SOL-CV 03") == ["MUG-CV02", "SOL-CV03"]
+    assert extract_codes("M 714") == [] and extract_codes("M 714", "magnojet_catalog") == ["M714"]
+    assert extract_codes("elemento M 691/1A malha 50", "magnojet_catalog") == ["M691/1A"]
+    assert extract_codes("A 100 metros de distância", "magnojet_catalog") == []      # so a letra M
+    assert extract_codes("R$ 165.500,00 em 2026 a 40 psi") == []
+    assert extract_codes("sensor 466113200 e 4626215") == ["4626215", "466113200"]
+    assert "magnojet_catalog" in known_profiles()
+
+
+# ── W10 price_table só com evidência real de preço ───────────
+
+def test_w10_price_table_needs_real_price_evidence():
+    from brain_worker.chunking import _looks_like_prices
+    prosa = TechnicalTable(["col_0", "demonstrar"], [["x", "y"]], {}, 5, [], ["", "o programa valoriza o atendimento"])
+    assert not _looks_like_prices(prosa)
+    valor = TechnicalTable(["Item", "Valor"], [["x", 10]], {}, 1, [], ["Item", "Valor"])
+    assert _looks_like_prices(valor)
+    vista = TechnicalTable(["Item", "A_vista"], [["x", 10]], {}, 1, [], ["Item", "Preço à vista"])
+    assert _looks_like_prices(vista)
+    brl = TechnicalTable(["Item", "Total"], [["x", 10]], {"Total": "BRL"}, 1, [], ["Item", "Total (R$)"])
+    assert _looks_like_prices(brl)
+
+
+# ── W11 microchunks agregados; W12 versão do pipeline e determinismo ─────────
+
+def test_w11_short_fragments_are_aggregated():
+    txt = "FILTRANTE\nØ 108,00\nESPECIFICAÇÕES\n100\nCONTÉM\n1 un\nDE SUCÇÃO\nR 3.\nM X8\n"
+    chunks = chunk_pages([PageInput(100, txt)])
+    texts = [c for c in chunks if c.kind == "text"]
+    assert len(texts) == 1 and texts[0].content == "Ø 108,00\n100\n1 un\nR 3. M X8"
+    assert [c.kind for c in chunks][0] == "heading"
+
+
+def test_w12_pipeline_version_and_determinism(tmp_path):
+    from brain_worker import PIPELINE_VERSION
+    assert PIPELINE_VERSION == "lote-b.2"
+    a = plan(make_flow_pdf(tmp_path / "a.pdf"), profile="magnojet_catalog")
+    b = plan(make_flow_pdf(tmp_path / "b.pdf"), profile="magnojet_catalog")
+    assert a.sha256 == b.sha256
+    assert [(c.ordinal, c.kind, c.content, c.table_data, c.codes, c.heading_path) for c in a.chunks] == \
+           [(c.ordinal, c.kind, c.content, c.table_data, c.codes, c.heading_path) for c in b.chunks]

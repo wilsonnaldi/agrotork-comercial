@@ -70,7 +70,7 @@ def test_d1_full_ingestion(db, tmp_path):
     assert r.status == "completed" and r.pages == 3 and r.tables == 1 and r.chunks >= 6, r
     (row,) = _q(db, "select status::text, method, parser, pipeline_version, pages_total, pages_done, chunks_created, tables_created, "
                     "started_at is not null, finished_at is not null, error from brain.knowledge_ingestions where id = %s", r.ingestion_id)
-    assert row[0] == "completed" and row[1] == "pdf_text" and row[2].startswith("pdfplumber") and row[3] == "lote-b.1"
+    assert row[0] == "completed" and row[1] == "pdf_text" and row[2].startswith("pdfplumber") and row[3] == "lote-b.2"
     assert row[4] == 3 and row[5] == 3 and row[6] == r.chunks and row[7] == 1 and row[8] and row[9] and row[10] is None
     # versao: draft, sha correto, caminho canonico
     (v,) = _q(db, "select status::text, file_sha256, storage_path, page_count from brain.document_versions where id = %s", r.version_id)
@@ -127,7 +127,7 @@ def test_d4_search_and_provenance_after_activation(db):
     (prov,) = _q(db, "select brain.chunk_provenance(%s)", hits[0][0])[0]
     assert prov["citation"] == "Pontas Sol (teste) — Catálogo Sol (teste) V1, p. 2"
     assert prov["file"]["sha256"] == prov["file"]["path"].split("/")[-1].split(".")[0]
-    assert prov["ingestion"]["pipeline_version"] == "lote-b.1" and prov["page"]["extraction"] == "text_layer"
+    assert prov["ingestion"]["pipeline_version"] == "lote-b.2" and prov["page"]["extraction"] == "text_layer"
     # pergunta em portugues acha a pagina institucional
     hits = _q(db, "select page_from from brain.search_knowledge('núcleo de cerâmica')")
     assert hits and hits[0][0] == 1
