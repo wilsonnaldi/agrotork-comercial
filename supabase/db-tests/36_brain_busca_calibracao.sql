@@ -20,6 +20,11 @@
 --   C9  segurança: novas funções security invoker, search_path vazio, anon sem EXECUTE;
 --       vendedor ativo vê público; usuário inativo → vazio; anon não executa brain_search
 --   C10 filtros continuam valendo (source_key errado → zero) e superseded só sob pedido
+--   C11 tabela DEGRADADA (audit.fatal) nunca é evidência: zero por código exclusivo, por
+--       número exclusivo, com version_id, source_key, kind ou p_limit alto; o texto/heading
+--       confiável da mesma página continua sendo achado; chunk_provenance segue funcionando
+--   C12 sinais NÃO fatais (coluna sem nome, rótulo não propagado) não degradam: tabela
+--       trusted com warnings continua sendo achada
 --
 -- Prefixo de UUID = 36. Limpeza no fim.
 -- ============================================================
@@ -64,9 +69,35 @@ begin
                    jsonb_build_array('PS981CAP SOL-CV 02 MALHA 50','UG',2.76,40,276,0.77,92,77,66),
                    jsonb_build_array('PS982CAP SOL-CV 025 MALHA 50','UG',2.07,30,207,0.83,100,83,71),
                    jsonb_build_array('PS983CAP SOL-CV 03 MALHA 50','UG',2.76,40,276,1.15,138,115,99)),
-      'notes', jsonb_build_array('reconstruction: spatial')),
+      'notes', jsonb_build_array('reconstruction: spatial'),
+      'audit', jsonb_build_object('quality', 'trusted', 'fatal', false, 'issues', jsonb_build_array())),
     '{"PS981CAP","PS982CAP","PS983CAP","SOL-CV02","SOL-CV025","SOL-CV03"}');
   perform brain.ingestion_add_chunk(i, 5, 'text', 3, 3, 'Filtro de sucção M 714 com elemento M 691/1 malha 50. Manômetro: a faixa de operação deve ser adequada à pressão de trabalho do pulverizador.', '{"FILTROS"}', null, '{"M714","M691/1"}');
+  -- tabela DEGRADADA: numeros fundidos que a geometria nao resolveu; codigo e numero exclusivos dela
+  perform brain.ingestion_add_chunk(i, 6, 'table', 3, 3,
+    E'CÓDIGO ROSCA VAZÃO\nPSDEG99 R 1 1/2 4181 3907',
+    '{"FILTROS"}',
+    jsonb_build_object('page', 3,
+      'headers', jsonb_build_array('CODIGO','ROSCA','VAZAO'), 'labels', jsonb_build_array('CÓDIGO','ROSCA','VAZÃO'),
+      'units', jsonb_build_object(), 'groups', jsonb_build_array(),
+      'rows', jsonb_build_array(jsonb_build_array('PSDEG99', 'R 1 1/2', '4181 3907')),
+      'notes', jsonb_build_array('1 celula(s) com numeros fundidos'),
+      'audit', jsonb_build_object('quality', 'degraded', 'fatal', true, 'issues', jsonb_build_array('1 celula(s) com numeros fundidos'))),
+    '{"PSDEG99"}');
+  -- texto confiavel com codigo PARECIDO com o da degradada (PSDEG98 ~ PSDEG99): o fuzzy
+  -- nao pode servir de atalho para um codigo que existe exato so na degradada
+  perform brain.ingestion_add_chunk(i, 8, 'text', 3, 3, 'Filtro auxiliar PSDEG98 com rosca de 1 polegada.', '{"FILTROS"}', null, '{"PSDEG98"}');
+  -- tabela com sinal NAO fatal (coluna sem nome): trusted com warning; codigo exclusivo PSWARN7
+  perform brain.ingestion_add_chunk(i, 9, 'table', 3, 3,
+    E'CÓDIGO col_1\nPSWARN7 6262',
+    '{"FILTROS"}',
+    jsonb_build_object('page', 3,
+      'headers', jsonb_build_array('CODIGO','col_1'), 'labels', jsonb_build_array('CÓDIGO',''),
+      'units', jsonb_build_object(), 'groups', jsonb_build_array(),
+      'rows', jsonb_build_array(jsonb_build_array('PSWARN7', 6262)),
+      'notes', jsonb_build_array(),
+      'audit', jsonb_build_object('quality', 'trusted', 'fatal', false, 'issues', jsonb_build_array('1 de 2 colunas sem cabecalho'))),
+    '{"PSWARN7"}');
   perform brain.ingestion_finish(i, 'completed', null, '[]'::jsonb, jsonb_build_object('extract_ms', 10, 'chunk_ms', 1));
   update brain.document_versions set status = 'active' where id = v;
 end $$;
@@ -217,6 +248,48 @@ begin
   begin perform brain.search_knowledge('x', '{"nada":1}'); raise exception 'C10 FALHOU: filtro desconhecido aceito';
   exception when invalid_parameter_value then null; end;
   raise notice ' C10) OK: filtros (source_key, kind) e validacao de filtro continuam valendo na funcao calibrada';
+end $$;
+
+-- ════════════════════════════════════════════════════════════
+-- C11 / C12 — tabela degradada nunca e evidencia; warning nao fatal nao degrada
+-- ════════════════════════════════════════════════════════════
+do $$
+declare n int; r record; v uuid; c_id bigint; prov jsonb;
+begin
+  reset role;
+  select id into v from brain.document_versions where version_label = 'V41' and document_id = '36363636-0000-4000-8000-0000000000d1';
+  select id into c_id from brain.document_chunks where version_id = v and ordinal = 6;
+  if (select table_data -> 'audit' ->> 'quality' from brain.document_chunks where id = c_id) <> 'degraded' then raise exception 'C11 FALHOU: fixture sem audit degraded'; end if;
+  -- nenhum caminho da busca normal devolve a tabela degradada
+  select count(*) into n from brain.search_knowledge('PSDEG99'); if n <> 0 then raise exception 'C11 FALHOU: codigo exclusivo da degradada devolveu %', n; end if;
+  select count(*) into n from brain.search_knowledge('qual a vazão do filtro PSDEG99?'); if n <> 0 then raise exception 'C11 FALHOU: frase com codigo da degradada devolveu %', n; end if;
+  select count(*) into n from brain.search_knowledge('4181 3907'); if n <> 0 then raise exception 'C11 FALHOU: numero exclusivo da degradada devolveu %', n; end if;
+  select count(*) into n from brain.search_knowledge('PSDEG99', jsonb_build_object('version_id', v)); if n <> 0 then raise exception 'C11 FALHOU: version_id reabriu a degradada (%)', n; end if;
+  select count(*) into n from brain.search_knowledge('PSDEG99', '{"source_key":"solcal"}'); if n <> 0 then raise exception 'C11 FALHOU: source_key reabriu a degradada (%)', n; end if;
+  select count(*) into n from brain.search_knowledge('PSDEG99', '{"kind":"table"}', 100); if n <> 0 then raise exception 'C11 FALHOU: kind=table + limite 100 reabriu a degradada (%)', n; end if;
+  select count(*) into n from brain.search_knowledge('PSDEG99', '{}', 100, true); if n <> 0 then raise exception 'C11 FALHOU: include_superseded reabriu a degradada (%)', n; end if;
+  select count(*) into n from brain.search_knowledge('rosca vazão', jsonb_build_object('document_id', '36363636-0000-4000-8000-0000000000d1'))
+   where kind = 'table' and table_data -> 'audit' ->> 'quality' = 'degraded';
+  if n <> 0 then raise exception 'C11 FALHOU: busca natural devolveu a degradada'; end if;
+  -- codigo que existe EXATO so na degradada: o fuzzy nao pode devolver o parecido PSDEG98
+  if extensions.similarity('PSDEG99', 'PSDEG98') < 0.6 then raise exception 'C11 FALHOU: fixture — PSDEG98 deveria ser fuzzy-compativel com PSDEG99 (%)', extensions.similarity('PSDEG99', 'PSDEG98'); end if;
+  select count(*) into n from brain.search_knowledge('PSDEG99'); if n <> 0 then raise exception 'C11 FALHOU: fuzzy devolveu PSDEG98 no lugar da degradada PSDEG99 (%)', n; end if;
+  -- e um codigo que nao existe exato em lugar nenhum continua achando por fuzzy
+  select * into r from brain.search_knowledge('PSDEG9') limit 1;
+  if r.chunk_id is null or not ('PSDEG98' = any(r.codes)) then raise exception 'C11 FALHOU: fuzzy legitimo (PSDEG9 → PSDEG98) parou de funcionar: %', to_jsonb(r); end if;
+  -- o texto confiavel da mesma pagina continua sendo achado
+  select * into r from brain.search_knowledge('filtro M 714, qual elemento?') limit 1;
+  if r.chunk_id is null or r.page_from <> 3 or r.kind <> 'text' then raise exception 'C11 FALHOU: texto confiavel da p.3 sumiu: %', to_jsonb(r); end if;
+  -- rastreabilidade: o chunk existe, com a representacao original e os sinais; proveniencia por id funciona
+  prov := brain.chunk_provenance(c_id);
+  if prov is null or (prov -> 'chunk' ->> 'kind') <> 'table' or (prov -> 'page' ->> 'page_no') <> '3' then raise exception 'C11 FALHOU: proveniencia da degradada: %', prov; end if;
+  if (select table_data -> 'rows' -> 0 ->> 2 from brain.document_chunks where id = c_id) <> '4181 3907' then raise exception 'C11 FALHOU: valor ambiguo foi alterado'; end if;
+  raise notice ' C11) OK: tabela degradada (audit.fatal) e invisivel a busca normal por codigo, frase, numero, version_id, source_key, kind, limite 100 e superseded; codigo exato so na degradada nao vira fuzzy para PSDEG98 (PSDEG9 sem exato ainda acha); texto confiavel da mesma pagina segue; chunk rastreavel por chunk_provenance com o valor ambiguo intacto';
+
+  select * into r from brain.search_knowledge('PSWARN7') limit 1;
+  if r.chunk_id is null or r.kind <> 'table' or (r.table_data -> 'audit' ->> 'quality') <> 'trusted' then raise exception 'C12 FALHOU: tabela com warning nao fatal nao foi achada: %', to_jsonb(r); end if;
+  if jsonb_array_length(r.table_data -> 'audit' -> 'issues') <> 1 then raise exception 'C12 FALHOU: warning nao ficou registrado'; end if;
+  raise notice ' C12) OK: sinal nao fatal (coluna sem nome) fica registrado em audit.issues e a tabela continua trusted e pesquisavel';
 end $$;
 
 -- ── limpeza ─────────────────────────────────────────────────

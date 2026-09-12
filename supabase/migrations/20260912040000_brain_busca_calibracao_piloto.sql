@@ -33,9 +33,26 @@
 --     pelo menos 2 termos, OU trigram ≥ 0,35 sobre as palavras de conteúdo.
 --     Um rank isolado num braço fraco deixa de ser "evidência".
 --
+--   · FAIL-CLOSED PARA TABELA DEGRADADA (hardening final do piloto): chunk
+--     `table`/`price_table` cujo `table_data.audit.quality = 'degraded'` ou
+--     `audit.fatal = true` — o próprio worker sabe que a estrutura está errada
+--     (número fundido, cabeçalho caído, linha engolida) e a geometria não
+--     resolveu — sai dos candidatos ANTES do ranking, junto com o filtro de
+--     acesso e de vigência. Nenhum filtro (version_id, source_key, kind…)
+--     reabre a porta. O chunk continua gravado e rastreável
+--     (`brain.chunk_provenance` por id, para diagnóstico); só não vira
+--     evidência. Tabela sem `audit` (conteúdo anterior ao lote-b.2) conta
+--     como trusted: o estado é declarado pelo worker, não adivinhado aqui.
+--     E se o código da pergunta existe EXATO só numa tabela degradada, o
+--     fuzzy não entra em ação: zero, e não o dado de um código parecido.
+--
 -- A migration 20260912020000 (já aplicada) não é editada: esta redefine a
 -- função por cima. `supabase/operacao/08-remover-lote-b-sem-dados.sql`
 -- devolve a versão do Lote A byte a byte.
+--
+-- Histórico do arquivo: o hardening de tabela degradada entrou por commit
+-- normal enquanto esta migration AINDA NÃO tinha sido aplicada em produção
+-- (ledger de produção em 20260912030000 na data), por isso não há 050000.
 -- ============================================================
 
 -- ── Códigos reconhecidos numa pergunta ───────────────────────
@@ -63,6 +80,8 @@ returns text[] language sql stable security invoker set search_path = '' as $$
   select coalesce(array_agg(distinct c order by c), '{}'::text[])
     from hits
    where c is not null and c <> 'COVID19'
+     -- unidade seguida de série ("PSI DDC 01") não é código (espelha codes.py)
+     and c !~ '^(BAR|PSI|KPA|MPA)[A-Z]'
      -- rótulo de versão não é código de peça (V41, V16.2)
      and c not in (select upper(brain.normalize_code(v.version_label)) from brain.document_versions v);
 $$;
@@ -183,13 +202,18 @@ begin
                    else null end;
 
   return query
-  with candidatos as not materialized (
+  with visiveis as not materialized (
+    -- tudo que o chamador pode ver, vigente e dentro dos filtros — INCLUINDO
+    -- tabelas degradadas (so para saber que um codigo existe)
     select c.id, c.kind, c.content, c.content_norm, c.table_data, c.page_from, c.page_to,
            c.heading_path, c.codes, c.fts, c.access_level,
            v.id as version_id, v.version_label, v.status as version_status,
            v.storage_path, v.file_sha256,
            d.id as document_id, d.title, d.document_type, d.source_key,
-           to_tsvector('portuguese'::regconfig, brain.normalize_text(d.title || ' ' || s.name)) as doc_fts
+           to_tsvector('portuguese'::regconfig, brain.normalize_text(d.title || ' ' || s.name)) as doc_fts,
+           (c.kind in ('table', 'price_table')
+            and (coalesce(c.table_data -> 'audit' ->> 'quality', 'trusted') = 'degraded'
+                 or coalesce((c.table_data -> 'audit' ->> 'fatal')::boolean, false))) as degradada
       from brain.document_chunks c
       join brain.document_versions v on v.id = c.version_id
       join brain.documents d on d.id = v.document_id
@@ -210,16 +234,31 @@ begin
        and (v_kind is null or c.kind = v_kind)
        and (v_product_id is null or exists (select 1 from brain.chunk_products cp where cp.chunk_id = c.id and cp.product_id = v_product_id))
   ),
-  -- braco de codigo: exato primeiro, depois fuzzy CODIGO x CODIGO (>= 0,6)
+  -- tabela que o worker marcou como degradada nunca e evidencia (fail-closed,
+  -- antes do ranking; nenhum filtro reabre)
+  candidatos as not materialized (
+    select * from visiveis where not degradada
+  ),
+  -- codigos da pergunta que existem EXATOS em algo visivel (mesmo degradado):
+  -- para esses nao ha fuzzy — se a unica evidencia e degradada, a resposta e zero,
+  -- nao o dado de um codigo parecido
+  exatos_presentes as (
+    select qc from unnest(v_codes) qc where exists (select 1 from visiveis a where qc = any(a.codes))
+  ),
+  -- braco de codigo: exato primeiro, depois fuzzy CODIGO x CODIGO (>= 0,6) so para
+  -- codigo da pergunta que nao existe exato em lugar nenhum
   codigo as (
     select id, row_number() over (order by exatos desc, sim desc, id) as rk
       from (select c.id,
                    cardinality(array(select unnest(c.codes) intersect select unnest(v_codes))) as exatos,
-                   coalesce((select max(extensions.similarity(cc, qc)) from unnest(c.codes) cc, unnest(v_codes) qc), 0) as sim
+                   coalesce((select max(extensions.similarity(cc, qc)) from unnest(c.codes) cc, unnest(v_codes) qc
+                              where qc not in (select qc from exatos_presentes)), 0) as sim
               from candidatos c
              where v_code_intent
                and (c.codes && v_codes
-                    or exists (select 1 from unnest(c.codes) cc, unnest(v_codes) qc where extensions.similarity(cc, qc) >= 0.6))) s
+                    or exists (select 1 from unnest(c.codes) cc, unnest(v_codes) qc
+                                where qc not in (select qc from exatos_presentes)
+                                  and extensions.similarity(cc, qc) >= 0.6))) s
   ),
   -- com intencao de codigo, so os chunks do braco de codigo seguem; sem codigo compativel, nada segue
   base as not materialized (
@@ -277,4 +316,4 @@ revoke execute on function brain.search_knowledge(text, jsonb, integer, boolean)
 grant  execute on function brain.search_knowledge(text, jsonb, integer, boolean) to authenticated, service_role;
 
 comment on function brain.search_knowledge(text, jsonb, integer, boolean) is
-  'Busca hibrida sem vetor, calibrada no piloto Magnojet: codigo por padrao (exato ou fuzzy codigo x codigo; com codigo na pergunta, so codigo compativel responde), trigram sobre palavras de conteudo, FTS estrito + cobertura de lexemas; fundidos por RRF (k=60). O filtro de acesso e vigencia roda ANTES do ranking.';
+  'Busca hibrida sem vetor, calibrada no piloto Magnojet: codigo por padrao (exato ou fuzzy codigo x codigo; com codigo na pergunta, so codigo compativel responde), trigram sobre palavras de conteudo, FTS estrito + cobertura de lexemas; fundidos por RRF (k=60). Acesso, vigencia e tabela degradada (table_data.audit) sao filtrados ANTES do ranking.';

@@ -573,7 +573,7 @@ begin
   --    ela — Lote A puro, ou depois do 08-remover-lote-b — o aplicado em
   --    producao em 12/09/2026 (md5 3b54175bfd5a335ff737b799ca3eb3b6)
   v_esperado := case when to_regprocedure('brain.query_codes(text)') is not null
-                     then '334adb12c49f843b6c4461f1ac778431' else '3b54175bfd5a335ff737b799ca3eb3b6' end;
+                     then '21b2f43731ab0d17f8f781845aa52830' else '3b54175bfd5a335ff737b799ca3eb3b6' end;
   if v_md5 <> v_esperado then raise exception 'RAG-H11 FALHOU: definicao diverge do versionado (md5 %, esperado %)', v_md5, v_esperado; end if;
 
   -- 4. limiar efetivo 0,35 durante a execucao: 'glyfox' tem similaridade 0,40

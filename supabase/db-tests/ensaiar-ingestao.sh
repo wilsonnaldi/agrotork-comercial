@@ -5,7 +5,7 @@
 #   PGHOST=/tmp PGPORT=5437 PGUSER=postgres PSQL=/opt/pg176/bin/psql \
 #     bash supabase/db-tests/ensaiar-ingestao.sh
 #
-# I1  todas as migrations → suites 35 e 36 passam (30 + 10 asserções, 0 erro)
+# I1  todas as migrations → suites 35 e 36 passam (30 + 12 asserções, 0 erro)
 # I2  worker de verdade: PDF SINTETICO (reportlab) → versao → 3 paginas →
 #     chunks → tabela JSONB; busca acha; proveniencia cita a pagina;
 #     reexecutar e idempotente; --replace reproduz os mesmos chunks
@@ -58,7 +58,7 @@ echo "▶ I1: migrations + suites 35 e 36"
 montar || nok "I1: montagem"
 SAIDA=$(for s in 35_brain_ingestao 36_brain_busca_calibracao; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "40" ] && [ "$E" = "0" ]; then ok "I1: suites 35 e 36 — 40 asserções, 0 erro"; else nok "I1: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$N" = "42" ] && [ "$E" = "0" ]; then ok "I1: suites 35 e 36 — 42 asserções, 0 erro"; else nok "I1: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ I2: worker de ponta a ponta com PDF sintetico"
 TMP=$(mktemp -d)
@@ -109,7 +109,7 @@ for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/m
 done
 SAIDA=$(suites)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "69" ] && [ "$E" = "0" ]; then ok "I4c: reaplicado; suites 33/34/35/36 passam (69 asserções, 0 erro)"; else nok "I4c: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$N" = "71" ] && [ "$E" = "0" ]; then ok "I4c: reaplicado; suites 33/34/35/36 passam (71 asserções, 0 erro)"; else nok "I4c: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ I5: nada de vetor; nenhum documento real"
 VEC=$(q -c "select (select count(*) from pg_extension where extname='vector') + (select count(*) from information_schema.columns where table_schema='brain' and udt_name in ('vector','halfvec','sparsevec')) + (select count(*) from pg_indexes where schemaname='brain' and (indexdef ilike '%hnsw%' or indexdef ilike '%ivfflat%')) + (select count(*) from pg_enum e join pg_type t on t.oid=e.enumtypid join pg_namespace n on n.oid=t.typnamespace where n.nspname='brain' and e.enumlabel ilike '%embed%')")
@@ -149,8 +149,8 @@ LEDGER=$(q -c "select string_agg(version, ',' order by version) from supabase_mi
 S=$(for s in 33_brain_memoria 34_brain_memoria_hardening; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done); NA=$(grep -c "NOTICE" <<< "$S"); EA=$(grep -cE "ERROR|FALHOU" <<< "$S")
 VEC=$(q -c "select count(*) from pg_extension where extname='vector'")
 LIG=$(q -c "select count(*) from pg_trigger where tgname like 'trg_brain%' and tgenabled <> 'D'")
-if [ "$RA" != "$RB" ] && [ "$RA" = "$RA2" ] && [ "$N35" = "40" ] && [ "$E35" = "0" ] && [ "$LEDGER" = "20260912010000,20260912020000" ] && [ "$NA" = "29" ] && [ "$EA" = "0" ] && [ "$F1A" = "$F1B" ] && [ "$VEC" = "0" ] && [ "$LIG" = "0" ]; then
-  ok "I7: retrato Lote A ($RA) ≠ com B+calibracao ($RB) e IGUAL apos o 08 ($RA2); suites 35/36 passaram antes (40/0); 33/34 passam depois (29/0, busca de volta ao corpo do Lote A); ledger $LEDGER; Fase 1 igual; pontes desligadas; sem vector"
+if [ "$RA" != "$RB" ] && [ "$RA" = "$RA2" ] && [ "$N35" = "42" ] && [ "$E35" = "0" ] && [ "$LEDGER" = "20260912010000,20260912020000" ] && [ "$NA" = "29" ] && [ "$EA" = "0" ] && [ "$F1A" = "$F1B" ] && [ "$VEC" = "0" ] && [ "$LIG" = "0" ]; then
+  ok "I7: retrato Lote A ($RA) ≠ com B+calibracao ($RB) e IGUAL apos o 08 ($RA2); suites 35/36 passaram antes (42/0); 33/34 passam depois (29/0, busca de volta ao corpo do Lote A); ledger $LEDGER; Fase 1 igual; pontes desligadas; sem vector"
 else nok "I7: RA=$RA RB=$RB RA2=$RA2 n35=$N35 e35=$E35 ledger=$LEDGER na=$NA ea=$EA f1=$([ "$F1A" = "$F1B" ] && echo igual || echo DIFERENTE) vec=$VEC lig=$LIG"; grep ERROR <<< "$SAIDA" | head -3; fi
 
 echo "▶ I8: 08 recusa conteudo repetido entre paginas (incompativel com uq_chunk_content do Lote A)"
