@@ -64,8 +64,10 @@ create type brain.document_type as enum
 
 create type brain.version_status as enum ('draft', 'active', 'superseded', 'withdrawn');
 
+-- Sem etapa de embedding: quando o Lote C existir, ele acrescenta o rótulo
+-- (`alter type ... add value`). Este lote não reserva nem nome para vetor.
 create type brain.ingestion_status as enum
-  ('pending', 'extracting', 'chunking', 'embedding', 'completed', 'failed', 'partial');
+  ('pending', 'extracting', 'chunking', 'completed', 'failed', 'partial');
 
 create type brain.chunk_kind as enum
   ('text', 'table', 'price_table', 'spec', 'heading', 'list', 'caption');
@@ -80,26 +82,43 @@ create type brain.knowledge_role as enum ('admin', 'commercial', 'technical', 'm
 -- ════════════════════════════════════════════════════════════
 -- Quem está perguntando, e até onde enxerga
 -- ════════════════════════════════════════════════════════════
--- Mapeamento em UM lugar. Hoje:
---   administrador, ou o próprio banco (postgres/service_role/cron) → admin
---   usuário ativo (vendedor)                                        → internal
---   anon, inativo, ou sem sessão                                    → NULL (nada)
--- `commercial` é hoje só do administrador — a tabela subdealer é custo.
--- Se um dia o vendedor puder ver preço de revenda, muda-se AQUI e em mais
--- lugar nenhum. `security invoker`: não abre nada; só lê o que
--- `public.is_admin()` / `public.is_active_user()` já respondem.
+-- Mapeamento em UM lugar, por PAPEL explícito — nunca por "qualquer
+-- usuário ativo". Hoje:
+--   sessão do próprio banco (postgres, service_role, cron, migration:
+--     sem JWT e fora dos papéis de API)                        → admin
+--   perfil ATIVO com papel `admin`                             → admin
+--   perfil ATIVO com papel `salesperson`                       → internal
+--   anon, sem JWT em papel de API, inativo, sem perfil, papel
+--     desconhecido                                             → NULL (nada)
+-- `commercial` não é concedido a ninguém hoje: a tabela subdealer é custo,
+-- e só o administrador a enxerga. Se um dia um papel novo puder ver preço
+-- de revenda, muda-se AQUI e em mais lugar nenhum; até lá, um valor novo em
+-- `public.user_role` cai no `else` e não enxerga nada — na dúvida, nega.
+--
+-- De propósito NÃO usa `brain.is_privileged()`: aquela função aceita a
+-- marca de sessão `brain.internal` (aberta pelas pontes do ERP), e uma marca
+-- de sessão pode ser ligada por qualquer conexão que execute SQL. A memória
+-- corporativa não tem ponte nenhuma, então não precisa dessa porta.
+-- `security invoker`: não abre nada; só lê o que `public.auth_role()`
+-- (definer, filtra `is_active`) já responde.
 create or replace function brain.caller_access_level()
 returns brain.access_level language sql stable security invoker set search_path = '' as $$
   select case
-    when brain.is_privileged() then 'admin'::brain.access_level
-    when (select auth.uid()) is not null and (select public.is_active_user()) then 'internal'::brain.access_level
+    when (select auth.uid()) is null then
+      case when coalesce(nullif(pg_catalog.current_setting('role', true), 'none'), session_user::text)
+                not in ('anon', 'authenticated')
+           then 'admin'::brain.access_level
+      end
+    when (select public.auth_role()) = 'admin'       then 'admin'::brain.access_level
+    when (select public.auth_role()) = 'salesperson' then 'internal'::brain.access_level
     else null
   end;
 $$;
 
+-- NULL de nível nunca vira true: `null >= x` é null, e coalesce fecha.
 create or replace function brain.can_read_level(p_level brain.access_level)
 returns boolean language sql stable security invoker set search_path = '' as $$
-  select coalesce(brain.caller_access_level() >= p_level, false);
+  select coalesce((select brain.caller_access_level()) >= p_level, false);
 $$;
 
 revoke execute on function brain.caller_access_level()                from public, anon;
@@ -185,10 +204,13 @@ create table brain.documents (
   created_at                   timestamptz not null default now(),
   updated_at                   timestamptz not null default now(),
 
+  -- A decisao fica registrada pela DATA (e pelo audit_log); a pessoa e
+  -- `on delete set null`, entao apagar o perfil de quem aprovou nao pode
+  -- derrubar a aprovacao nem travar a exclusao do usuario.
   constraint chk_document_override_approved
-    check (external_processing_override is null or (approved_by is not null and approved_at is not null)),
+    check (external_processing_override is null or approved_at is not null),
   constraint chk_document_approval_pair
-    check ((approved_by is null) = (approved_at is null))
+    check (approved_by is null or approved_at is not null)
 );
 
 create index idx_documents_source on brain.documents (source_key);
@@ -241,9 +263,11 @@ create table brain.document_versions (
   constraint uq_version_label unique (document_id, version_label)
 );
 
--- Uma unica versao vigente por documento.
+-- Uma unica versao vigente por documento. E tambem o indice de
+-- `current_version()`: (document_id) where status = 'active'.
 create unique index uq_document_versions_active on brain.document_versions (document_id) where status = 'active';
-create index idx_document_versions_document on brain.document_versions (document_id, status);
+-- A FK document_id ja e coberta por uq_version_file (document_id, file_sha256).
+-- Mesmo arquivo registrado em outro documento? Busca por sha256.
 create index idx_document_versions_sha on brain.document_versions (file_sha256);
 
 create trigger trg_document_versions_updated_at before update on brain.document_versions
@@ -295,6 +319,20 @@ begin
       new.valid_to := null;
     end if;
   end if;
+
+  -- Estados sem ambiguidade (auditoria pre-publicacao):
+  --   · ativar e um ato de HOJE: `valid_from` no futuro nao existe — a edicao
+  --     que ainda nao vale fica `draft` ate o dia, e so entao e ativada. Sem
+  --     isso, o documento ficaria sem edicao vigente entre a ativacao e a data;
+  --   · `superseded` sempre tem fim de vigencia: sem `valid_to` seria uma
+  --     "antiga" que nunca terminou.
+  if new.status = 'active' and new.valid_from > current_date then
+    raise exception 'Nao se ativa uma versao com valid_from no futuro (%). Deixe em draft ate la.', new.valid_from
+      using errcode = 'check_violation';
+  end if;
+  if new.status = 'superseded' then
+    new.valid_to := coalesce(new.valid_to, current_date);
+  end if;
   return new;
 end;
 $$;
@@ -335,7 +373,7 @@ create table brain.knowledge_ingestions (
 );
 
 create index idx_ingestions_version on brain.knowledge_ingestions (version_id, created_at desc);
-create index idx_ingestions_status  on brain.knowledge_ingestions (status) where status in ('pending', 'extracting', 'chunking', 'embedding');
+create index idx_ingestions_status  on brain.knowledge_ingestions (status) where status in ('pending', 'extracting', 'chunking');
 
 -- ════════════════════════════════════════════════════════════
 -- Paginas — a unidade de proveniencia
@@ -354,6 +392,10 @@ create table brain.document_pages (
   created_at    timestamptz not null default now(),
   primary key (version_id, page_no)
 );
+
+-- FK ingestion_id (on delete restrict): sem indice, apagar uma ingestao
+-- varreria as paginas inteiras.
+create index idx_pages_ingestion on brain.document_pages (ingestion_id);
 
 comment on table brain.document_pages is
   'Texto por pagina. E aqui que a resposta futura encontra "p. 20". sha256 do texto permite saber se a extracao mudou.';
@@ -401,12 +443,19 @@ create table brain.document_chunks (
   constraint uq_chunk_content unique (version_id, content_sha256)
 );
 
-create index idx_chunks_fts     on brain.document_chunks using gin (fts);
-create index idx_chunks_trgm    on brain.document_chunks using gin (content_norm extensions.gin_trgm_ops);
-create index idx_chunks_codes   on brain.document_chunks using gin (codes);
-create index idx_chunks_version on brain.document_chunks (version_id, page_from);
-create index idx_chunks_kind    on brain.document_chunks (kind) where kind in ('table', 'price_table');
-create index idx_chunks_access  on brain.document_chunks (access_level);
+-- Os tres bracos da busca, cada um com o SEU operador indexavel:
+--   fts   @@   (tsvector)      idx_chunks_fts
+--   <%    trigram por palavra  idx_chunks_trgm   (word_similarity via operador)
+--   &&    codigos              idx_chunks_codes
+create index idx_chunks_fts       on brain.document_chunks using gin (fts);
+create index idx_chunks_trgm      on brain.document_chunks using gin (content_norm extensions.gin_trgm_ops);
+create index idx_chunks_codes     on brain.document_chunks using gin (codes);
+-- Cobre a FK version_id e a FK composta (version_id, page_from).
+create index idx_chunks_version   on brain.document_chunks (version_id, page_from);
+create index idx_chunks_ingestion on brain.document_chunks (ingestion_id);
+create index idx_chunks_kind      on brain.document_chunks (kind) where kind in ('table', 'price_table');
+-- Sem indice em access_level: quatro valores, o planejador nao o usaria; o
+-- filtro de acesso e avaliado no mesmo no de varredura que os bracos acima.
 
 comment on table brain.document_chunks is
   'Unidade pesquisavel. content para FTS/trigram; table_data para tabela tecnica com numeros; codes para busca exata de codigo/modelo. Nunca cruza uma tabela.';
@@ -582,6 +631,9 @@ grant  execute on function brain.external_processing_for(uuid) to authenticated,
 -- RLS por natureza; `anon` nao tem USAGE no schema. As policies abaixo sao
 -- para `authenticated`, e a leitura e uma comparacao de coluna: o conjunto
 -- candidato de qualquer busca ja nasce sem o que o chamador nao pode ver.
+-- `(select brain.caller_access_level())` vira initPlan: o nivel do chamador
+-- e calculado UMA vez por consulta, nao uma vez por linha (advisor
+-- auth_rls_initplan). Nivel NULL: `x <= null` e null → linha negada.
 alter table brain.knowledge_sources    enable row level security;
 alter table brain.documents            enable row level security;
 alter table brain.document_versions    enable row level security;
@@ -590,8 +642,12 @@ alter table brain.document_pages       enable row level security;
 alter table brain.document_chunks      enable row level security;
 alter table brain.chunk_products       enable row level security;
 
+-- Fonte e visivel se o chamador alcanca o nivel padrao dela OU ja enxerga
+-- algum documento dela (a subconsulta em documents corre sob o RLS de
+-- documents). Uma fonte `admin` sem documento publico nao aparece nem por nome.
 create policy knowledge_sources_select on brain.knowledge_sources for select to authenticated
-  using ((select public.is_active_user()));
+  using (default_access_level <= (select brain.caller_access_level())
+         or exists (select 1 from brain.documents d where d.source_key = knowledge_sources.key));
 create policy knowledge_sources_admin_insert on brain.knowledge_sources for insert to authenticated
   with check ((select public.is_admin()));
 create policy knowledge_sources_admin_update on brain.knowledge_sources for update to authenticated
@@ -600,7 +656,7 @@ create policy knowledge_sources_admin_delete on brain.knowledge_sources for dele
   using ((select public.is_admin()));
 
 create policy documents_select on brain.documents for select to authenticated
-  using (brain.can_read_level(access_level));
+  using (access_level <= (select brain.caller_access_level()));
 create policy documents_admin_insert on brain.documents for insert to authenticated
   with check ((select public.is_admin()));
 create policy documents_admin_update on brain.documents for update to authenticated
@@ -609,7 +665,7 @@ create policy documents_admin_delete on brain.documents for delete to authentica
   using ((select public.is_admin()));
 
 create policy document_versions_select on brain.document_versions for select to authenticated
-  using (brain.can_read_level(access_level));
+  using (access_level <= (select brain.caller_access_level()));
 create policy document_versions_admin_insert on brain.document_versions for insert to authenticated
   with check ((select public.is_admin()));
 create policy document_versions_admin_update on brain.document_versions for update to authenticated
@@ -618,7 +674,7 @@ create policy document_versions_admin_delete on brain.document_versions for dele
   using ((select public.is_admin()));
 
 create policy knowledge_ingestions_select on brain.knowledge_ingestions for select to authenticated
-  using (brain.can_read_level(access_level));
+  using (access_level <= (select brain.caller_access_level()));
 create policy knowledge_ingestions_admin_insert on brain.knowledge_ingestions for insert to authenticated
   with check ((select public.is_admin()));
 create policy knowledge_ingestions_admin_update on brain.knowledge_ingestions for update to authenticated
@@ -627,7 +683,7 @@ create policy knowledge_ingestions_admin_delete on brain.knowledge_ingestions fo
   using ((select public.is_admin()));
 
 create policy document_pages_select on brain.document_pages for select to authenticated
-  using (brain.can_read_level(access_level));
+  using (access_level <= (select brain.caller_access_level()));
 create policy document_pages_admin_insert on brain.document_pages for insert to authenticated
   with check ((select public.is_admin()));
 create policy document_pages_admin_update on brain.document_pages for update to authenticated
@@ -636,7 +692,7 @@ create policy document_pages_admin_delete on brain.document_pages for delete to 
   using ((select public.is_admin()));
 
 create policy document_chunks_select on brain.document_chunks for select to authenticated
-  using (brain.can_read_level(access_level));
+  using (access_level <= (select brain.caller_access_level()));
 create policy document_chunks_admin_insert on brain.document_chunks for insert to authenticated
   with check ((select public.is_admin()));
 create policy document_chunks_admin_update on brain.document_chunks for update to authenticated
@@ -645,7 +701,7 @@ create policy document_chunks_admin_delete on brain.document_chunks for delete t
   using ((select public.is_admin()));
 
 create policy chunk_products_select on brain.chunk_products for select to authenticated
-  using (brain.can_read_level(access_level));
+  using (access_level <= (select brain.caller_access_level()));
 create policy chunk_products_admin_insert on brain.chunk_products for insert to authenticated
   with check ((select public.is_admin()));
 create policy chunk_products_admin_update on brain.chunk_products for update to authenticated

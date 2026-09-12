@@ -72,6 +72,8 @@ drop function if exists brain.chunk_provenance(bigint);
 drop function if exists brain.search_knowledge(text, jsonb, integer, boolean);
 drop type if exists brain.knowledge_hit;
 
+-- A policy de leitura das fontes consulta documents: sai antes da tabela.
+drop policy if exists knowledge_sources_select on brain.knowledge_sources;
 drop table if exists brain.chunk_products;
 drop table if exists brain.document_chunks;
 drop table if exists brain.document_pages;
