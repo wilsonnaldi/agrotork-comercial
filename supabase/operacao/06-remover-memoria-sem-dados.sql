@@ -71,6 +71,7 @@ $$;
 -- Lote B (inerte se nunca foi aplicado)
 drop function if exists public.brain_search(text, jsonb, integer, boolean);
 drop function if exists public.brain_provenance(bigint);
+drop function if exists brain.ingestion_record_failure(uuid, text, text, text, text, text, jsonb, boolean, timestamptz);
 drop function if exists brain.ingestion_fail(uuid, text, jsonb);
 drop function if exists brain.ingestion_finish(uuid, brain.ingestion_status, text, jsonb, jsonb);
 drop function if exists brain.ingestion_add_chunk(uuid, integer, brain.chunk_kind, integer, integer, text, text[], jsonb, text[], integer, jsonb);
@@ -143,7 +144,7 @@ begin
    where n.nspname = 'brain' and t.typname in ('access_level','document_type','version_status','ingestion_status','chunk_kind','link_origin','external_processing','knowledge_role','knowledge_hit');
   if v_n <> 0 then raise exception 'Sobrou tipo da memoria — PARADO.'; end if;
   select count(*) into v_n from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'brain' and p.proname in ('search_knowledge','chunk_provenance','current_version','external_processing_for','caller_access_level','can_read_level','normalize_text','normalize_code','stamp_version','stamp_chunk','stamp_page','stamp_ingestion','stamp_chunk_product','cascade_document_access','cascade_version_access','cascade_chunk_access','register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail');
+   where n.nspname = 'brain' and p.proname in ('search_knowledge','chunk_provenance','current_version','external_processing_for','caller_access_level','can_read_level','normalize_text','normalize_code','stamp_version','stamp_chunk','stamp_page','stamp_ingestion','stamp_chunk_product','cascade_document_access','cascade_version_access','cascade_chunk_access','register_version','ingestion_start','ingestion_add_page','ingestion_add_chunk','ingestion_finish','ingestion_fail','ingestion_record_failure');
   if v_n <> 0 then raise exception 'Sobrou funcao da memoria — PARADO.'; end if;
   if exists (select 1 from supabase_migrations.schema_migrations where version in ('20260912010000','20260912020000','20260912030000')) then
     raise exception 'Registro do Lote A nao saiu — PARADO.';
