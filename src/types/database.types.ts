@@ -2172,6 +2172,21 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      brain_provenance: {
+        Args: {
+          p_chunk_id: number
+        }
+        Returns: Json
+      }
+      brain_search: {
+        Args: {
+          p_query: string
+          p_filters?: Json
+          p_limit?: number
+          p_include_superseded?: boolean
+        }
+        Returns: unknown[]
+      }
       cancel_financial_entry: {
         Args: {
           p_entry_id: string

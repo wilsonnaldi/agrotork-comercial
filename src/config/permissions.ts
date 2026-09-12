@@ -73,6 +73,15 @@ export const PERMISSIONS = {
 
   "users.manage": ["admin"],
   "settings.manage": ["admin"],
+
+  /**
+   * Memória corporativa (AGROTORK BRAIN, Fase 2). Perguntar é dos dois
+   * papéis; o que cada um recebe de volta é decidido pelo nível de acesso
+   * do documento, no banco (`brain.caller_access_level()` + RLS), nunca
+   * aqui. Ingerir documento é operação de administrador/worker.
+   */
+  "knowledge.query": ["admin", "salesperson"],
+  "knowledge.ingest": ["admin"],
 } as const satisfies Record<string, readonly UserRole[]>;
 
 export type Permission = keyof typeof PERMISSIONS;
