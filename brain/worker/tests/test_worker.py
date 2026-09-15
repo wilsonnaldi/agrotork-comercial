@@ -13,12 +13,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fixtures import COMMERCIAL_BLOCKS, FLOW_SPEEDS, TABLE_ROWS, make_catalog_pdf, make_commercial_pdf, make_degraded_pdf, make_flow_pdf, make_price_xlsx, make_text  # noqa: E402
+from fixtures import COMMERCIAL_BLOCKS, FLOW_SPEEDS, SHEET_CODES, TABLE_ROWS, make_catalog_pdf, make_commercial_pdf, make_degraded_pdf, make_flow_pdf, make_price_xlsx, make_quote_xlsx, make_text  # noqa: E402
 from brain_worker.chunking import CONFIG, MAX, PageInput, chunk_pages, is_heading  # noqa: E402
 from brain_worker.codes import extract_codes, known_profiles, normalize_code  # noqa: E402
 from brain_worker.extract import extract, mime_for, ocr_available, sniff_ok  # noqa: E402
 from brain_worker.pipeline import plan, sha256_of  # noqa: E402
-from brain_worker.tables import TechnicalTable, build_table, is_money, parse_number, split_side_by_side  # noqa: E402
+from brain_worker.tables import TechnicalTable, build_table, is_money, parse_number, split_side_by_side, split_stacked  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -137,7 +137,9 @@ def test_w5_xlsx_each_sheet_is_a_page(tmp_path):
     assert [c.kind for c in p.chunks] == ["price_table", "price_table"]
     assert p.chunks[0].page == 1 and p.chunks[1].page == 2
     td = p.chunks[0].table_data
-    assert td["units"]["Faturado_R"] == "BRL" and td["rows"][0][1] == 165500 and "aba: Revenda" in td["notes"]
+    assert td["units"]["Faturado_R"] == "BRL" and td["rows"][0][1] == 165500
+    # proveniencia de planilha e aba + intervalo de linhas, nao numero de pagina
+    assert any(n.startswith("aba: Revenda, linhas ") for n in td["notes"]), td["notes"]
     assert "C12000" in p.chunks[0].codes and "SB1580" in p.chunks[1].codes
 
 
@@ -437,3 +439,89 @@ def test_w24_split_only_when_unambiguous():
     assert len(split_side_by_side(lado_de_uma_coluna)) == 2
     um_lado_magro = [["a", "b", "c", "", "d"], ["1", "2", "3", "", "4"]]
     assert len(split_side_by_side(um_lado_magro)) == 1
+
+
+# ── W25–W31 planilha comercial: blocos empilhados, coluna de código, adversariais ──
+#
+# Códigos inventados (519220100, 5192201, 519220101, 77T310X) de propósito:
+# o teste tem que provar que o pipeline LÊ a estrutura, não que decorou uma
+# planilha de fornecedor.
+
+@pytest.fixture(scope="module")
+def quote_xlsx(tmp_path_factory):
+    return make_quote_xlsx(tmp_path_factory.mktemp("q") / "orcamento_sintetico.xlsx")
+
+
+def _tables(pdf_or_xlsx):
+    return [c for c in plan(pdf_or_xlsx).chunks if c.kind in ("table", "price_table")]
+
+
+def test_w25_stacked_blocks_are_separate_tables(quote_xlsx):
+    """Dois blocos empilhados na mesma aba, separados por linha vazia, são duas
+    tabelas. Juntos, o título do primeiro passa a valer para as linhas do
+    segundo — e o cabeçalho repetido vira linha de dados."""
+    tabelas = _tables(quote_xlsx)
+    titulos = [t.table_data.get("title") for t in tabelas]
+    assert "SISTEMA DE TESTE ALFA" in titulos and "SISTEMA DE TESTE BETA" in titulos
+    for t in tabelas:
+        # nenhuma linha repete o cabeçalho
+        rotulos = {str(h).strip().lower() for h in t.table_data["labels"] if h}
+        for row in t.table_data["rows"]:
+            texto = {str(c).strip().lower() for c in row if isinstance(c, str)}
+            assert len(texto & rotulos) < 2, (t.table_data["title"], row)
+
+
+def test_w26_spreadsheet_provenance_is_sheet_and_rows(quote_xlsx):
+    """Planilha não tem página; a proveniência é aba + intervalo de linhas."""
+    for t in _tables(quote_xlsx):
+        assert any(n.startswith("aba: ") and ", linhas " in n for n in t.table_data["notes"]), t.table_data["notes"]
+
+
+def test_w27_declared_code_column_is_read_as_code(quote_xlsx):
+    """Coluna que se declara "COD" é código por declaração — não precisa que o
+    valor caiba num padrão. É o que resgata código que começa por dígito."""
+    por_titulo = {t.table_data["title"]: set(t.codes) for t in _tables(quote_xlsx)}
+    assert set(SHEET_CODES["bloco1"]) <= por_titulo["SISTEMA DE TESTE ALFA"]
+    assert set(SHEET_CODES["bloco2"]) <= por_titulo["SISTEMA DE TESTE BETA"]
+
+
+def test_w28_similar_codes_never_collapse(quote_xlsx):
+    """519220100 ≠ 519220101 ≠ 5192201: um bloco não empresta código ao outro."""
+    por_titulo = {t.table_data["title"]: set(t.codes) for t in _tables(quote_xlsx)}
+    alfa, beta = por_titulo["SISTEMA DE TESTE ALFA"], por_titulo["SISTEMA DE TESTE BETA"]
+    assert "519220100" in alfa and "519220101" not in alfa
+    assert "519220101" in beta and "519220100" not in beta
+    assert "5192201" in alfa and "5192201" not in beta
+
+
+def test_w29_price_phone_and_document_are_not_codes(quote_xlsx):
+    """Preço, telefone e CNPJ não viram código de produto."""
+    for t in _tables(quote_xlsx):
+        for c in t.codes:
+            assert c not in {"1234", "1098", "1099", "540", "123456780001", "4333334444"}
+    contatos = [t for t in _tables(quote_xlsx) if "Contatos" in " ".join(t.table_data["notes"])]
+    assert contatos and contatos[0].codes == []
+    assert extract_codes("(43) 3333-4444 12.345.678/0001-90 R$ 1.234,56") == []
+
+
+def test_w30_formula_without_value_never_leaks_as_text(quote_xlsx):
+    """Célula de fórmula sem valor calculado fica vazia — nunca vira "=E3*A3"
+    como se fosse dado."""
+    for t in _tables(quote_xlsx):
+        for row in t.table_data["rows"]:
+            for c in row:
+                assert not (isinstance(c, str) and c.startswith("=")), row
+
+
+def test_w31_stacked_split_is_conservative():
+    """Separação por linha vazia só quando é inequívoca: tabela curta, sem
+    linha vazia, ou com um bloco de uma linha só não se divide."""
+    curta = [["a", "b"], [], ["c", "d"]]
+    assert len(split_stacked(curta)) == 1
+    sem_vazia = [["a", "b"], ["1", "2"], ["3", "4"], ["5", "6"]]
+    assert len(split_stacked(sem_vazia)) == 1
+    bloco_de_uma = [["a", "b"], ["1", "2"], ["3", "4"], [], ["5", "6"]]
+    assert len(split_stacked(bloco_de_uma)) == 1
+    dois_blocos = [["a", "b"], ["1", "2"], [], ["c", "d"], ["3", "4"]]
+    partes = split_stacked(dois_blocos)
+    assert len(partes) == 2 and partes[0][0] == 0 and partes[1][0] == 3

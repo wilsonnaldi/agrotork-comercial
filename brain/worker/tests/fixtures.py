@@ -289,3 +289,41 @@ def make_commercial_pdf(path: Path) -> Path:
     c.showPage()
     c.save()
     return path
+
+
+# ── Planilha comercial sintética: dois blocos empilhados numa aba (separados
+#    por linha vazia), título em célula mesclada, cabeçalho próprio de cada
+#    bloco, coluna que se declara de código, célula monetária como texto,
+#    fórmula sem valor calculado, código duplicado em duas linhas, e uma
+#    segunda aba irrelevante. Nada aqui é dado real: os códigos são inventados
+#    (519220100 / 519220101 / 5192201) justamente para exercitar "parecido mas
+#    diferente" sem decorar planilha nenhuma.
+SHEET_CODES = {"bloco1": ["519220100", "5192201", "77T310X"],
+               "bloco2": ["519220101", "77T310X"]}
+
+
+def make_quote_xlsx(path: Path) -> Path:
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Orcamento"
+    ws["A1"] = "SISTEMA DE TESTE ALFA"
+    ws.merge_cells("A1:E1")
+    ws.append(["QUANTIDADE", "DESCRICAO", "COD", "FAIXA OPERACAO", "VALOR UNITARIO"])
+    ws.append([1, "SENSOR SINTETICO", 519220100, "0-20 BAR", 1098])
+    ws.append([1, "SENSOR SINTETICO CURTO", 5192201, "0-10 BAR", 540])
+    ws.append([2, "VALVULA SINTETICA", "77T310X", "0-25 l/min", "R$ 1.234,56"])
+    ws.append([1, "VALVULA SINTETICA (REPOSICAO)", "77T310X", "0-25 l/min", 1234])
+    ws.append(["TOTAL", None, None, None, "=E3*A3"])
+    ws.append([])                                    # linha vazia: separa os blocos
+    ws["A9"] = "SISTEMA DE TESTE BETA"
+    ws.merge_cells("A9:E9")
+    ws.append(["QUANTIDADE", "DESCRICAO", "COD", "FAIXA OPERACAO", "VALOR UNITARIO"])
+    ws.append([1, "SENSOR SINTETICO VIZINHO", 519220101, "0-20 BAR", 1099])
+    ws.append([3, "VALVULA SINTETICA", "77T310X", "0-25 l/min", 1234])
+    ws2 = wb.create_sheet("Contatos")
+    ws2.append(["EMPRESA", "TELEFONE", "CNPJ"])
+    ws2.append(["FORNECEDOR SINTETICO LTDA", "(43) 3333-4444", "12.345.678/0001-90"])
+    wb.save(str(path))
+    return path
