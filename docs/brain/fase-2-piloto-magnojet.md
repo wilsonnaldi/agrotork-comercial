@@ -1,5 +1,12 @@
 # AGROTORK BRAIN — Fase 2, piloto Magnojet V41 e calibração (lote-b.2)
 
+> **Nota de vocabulário (acrescentada em 15/09/2026).** Neste documento, "ERP"
+> significa o **schema `public` desta aplicação** — clientes, produtos,
+> orçamentos, pedidos —, que era como o termo se usava quando ele foi escrito.
+> A partir de setembro/2026 o ERP da AGROTORK é a **Compusystem**, e é dela a
+> verdade operacional (ver `ARCHITECTURE.md` §14). O texto abaixo fica como
+> está, por ser registro do que foi feito; só a palavra mudou de dono.
+
 Data: 12/09/2026 · Branch `brain/fase-2` · Base remota auditada: `f46654a` · Lote B em
 produção (migration `20260912030000`) · Worker calibrado: `lote-b.2` · Busca calibrada:
 migration `20260912040000_brain_busca_calibracao_piloto.sql`.

@@ -105,20 +105,28 @@ teste e autorização de produção; **não entra nesta rodada**, e a ordem impo
 aplicação primeiro, banco depois, nunca o contrário (banco desligado com tela
 oferecendo o botão gera erro feio no lugar de explicação).
 
-## 4. Risco de cada módulo se for usado antes da integração
+## 4. Módulos operacionais congelados até a integração com o ERP
 
-| Módulo | Se alguém usar hoje | Gravidade |
-| --- | --- | --- |
-| Faturamento do pedido | Estoque e contas a receber passam a existir nos dois sistemas, com números diferentes; a diferença só aparece quando alguém procurar | **Alta** |
-| Estoque | Saldo do aplicativo divergente do ERP; decisão de venda tomada sobre saldo errado | **Alta** |
-| Compras / entrada de NF-e | Custo gravado em `product_costs` diferente do custo do ERP; margem e preço sugerido saem errados a partir daí | **Alta** |
-| Financeiro | Título que ninguém concilia; cobrança duplicada ou baixa que não existe no ERP | **Alta** |
-| Custo manual do produto | Mesma contaminação de margem, por um caminho mais curto | Média |
-| Número de série | Registro isolado, sem contrapartida no ERP; recuperável, mas trabalhoso | Média |
-| Fornecedores e de-para de código | Cadastro paralelo leve; útil para a memória do BRAIN, inofensivo enquanto não gerar lançamento | Baixa |
+Esta é a lista oficial. Congelado significa: o código fica, a tabela fica, o
+teste fica — **o uso para**. Para cada um, por que para, qual é a fonte certa,
+o que acontece se for usado assim mesmo, e o que precisa ser verdade para
+voltar a valer.
 
-O padrão: o que grava **custo, saldo ou dinheiro** é alto. O que grava
-**referência** é baixo.
+| Módulo | Risco se usado hoje | Motivo do congelamento | Fonte oficial correta | Condição para reativação |
+| --- | --- | --- | --- | --- |
+| **Faturamento do pedido** (`changeStatusAction` → `trg_orders_write_stock`, `trg_orders_write_receivable`) | **Alto** — estoque e contas a receber passam a existir nos dois sistemas com números diferentes, e a diferença só aparece quando alguém procurar | Faturar é ato do ERP: é ele que emite a nota, baixa o estoque e gera o título | Compusystem | Nunca volta como está. Se um dia o pedido nascer no app, o faturamento continua sendo do ERP e o app só espelha a situação |
+| **Estoque** (`register_stock_movement`, `return_order_stock`, tela `/estoque`) | **Alto** — saldo do aplicativo divergente do ERP, e decisão de venda tomada sobre saldo errado | O saldo real é o que o ERP controla; um segundo livro não vira verdade por ser bem escrito | Compusystem | Só como leitura do espelho. Lançamento manual não volta — ajuste de estoque é no ERP |
+| **Compras / entrada de NF-e** (`receive_purchase`, `confirmImportAction`, tela `/compras`) | **Alto** — grava custo em `product_costs` diferente do custo do ERP, e a partir daí margem e preço sugerido saem errados | A entrada de mercadoria é o que forma custo, e custo é do ERP | Compusystem | Não volta como lançamento. O leitor de XML pode voltar como **conferência** (comparar nota com o que o ERP registrou), nunca como escrita |
+| **Financeiro** (`register_financial_payment`, `split_financial_entry`, `cancel_financial_entry`, tela `/financeiro`) | **Alto** — título que ninguém concilia, cobrança duplicada ou baixa que não existe no ERP | Contas a receber e a pagar são do sistema que emite a nota e recebe o dinheiro | Compusystem | Só como leitura do espelho, para indicador e alerta. Baixa e estorno não voltam |
+| **Custo manual do produto** (`set_product_cost`) | Médio — mesma contaminação de margem, por um caminho mais curto | Custo digitado compete com o custo oficial sem nenhuma trilha que os concilie | Compusystem | Volta só se a Compusystem não expuser custo — e, nesse caso, com marca explícita de que é estimativa da AGROTORK, não custo oficial |
+| **Número de série** (`product_serials`, `assign_serial_to_order`, `release_serial`) | Médio — registro isolado, sem contrapartida no ERP; recuperável, mas trabalhoso | Só faz sentido junto do estoque que o ERP controla | Compusystem, **se** controlar série; caso contrário AGROTORK | Reabre se a resposta ao bloco D confirmar que o ERP **não** controla série — aí é lacuna legítima, não verdade paralela |
+| **Fornecedores e de-para de código** (`suppliers`, `supplier_products`) | Baixo — cadastro paralelo leve, útil à memória do BRAIN, inofensivo enquanto não gerar lançamento | Não gera custo, saldo nem dinheiro | Compusystem para o cadastro; AGROTORK para o de-para | Permanece utilizável como referência; não precisa ser congelado |
+| **Orçamento, kit, PDF, link público** | — | **Não é congelado.** É o que sobra de operação própria: proposta comercial, anterior à venda | AGROTORK | Não se aplica |
+
+O padrão que separa as linhas: o que grava **custo, saldo ou dinheiro** é alto;
+o que grava **referência** é baixo. E a condição comum a todas as reativações é
+a mesma — um espelho funcionando, reconciliado, com a fonte oficial respondendo.
+Reativar antes disso é recriar o problema que o congelamento resolve.
 
 ## 5. Ordem de execução, quando autorizado
 

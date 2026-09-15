@@ -41,10 +41,33 @@ sincronização é chute.
 | Identificador interno estável de cada registro | Chave que não muda nem é reaproveitada — é ela que liga os dois lados |
 | Fuso horário das datas e formato (ISO 8601?) | Evitar erro de um dia inteiro em relatório |
 | Existe webhook/callback de alteração? | Se existir, reduz atraso; não é requisito |
-| Comportamento em erro: códigos HTTP, corpo do erro, repetição segura | Distinguir "falhou" de "não existe" e poder repetir sem duplicar |
-| Versionamento da API e aviso de mudança | Uma alteração de campo não pode chegar como surpresa |
+| Comportamento em erro: códigos HTTP e corpo do erro | Distinguir "falhou" de "não existe", e tratar cada caso como merece |
+| Repetir a mesma requisição é seguro? | Se a rede cair no meio, a nossa rotina repete — e não pode duplicar nem ser bloqueada por isso |
+| Política de nova tentativa recomendada (intervalo, número de tentativas) | Repetir sem incomodar o serviço de vocês |
+| Versionamento da API, changelog e aviso prévio de mudança | Uma alteração de campo não pode chegar como surpresa numa madrugada |
 | Documentação em OpenAPI/Swagger, coleção Postman ou PDF | Acelera o trabalho dos dois lados |
-| Prazo de atendimento e canal de suporte técnico | Quando a sincronização parar, saber a quem perguntar |
+| Prazo de atendimento e canal de suporte técnico (SLA) | Quando a sincronização parar, saber a quem perguntar e em quanto tempo |
+
+---
+
+## O que vale para toda entidade (blocos B a F)
+
+Antes dos campos de cada entidade, oito perguntas que se repetem em todas — e
+que a resposta pode dar uma vez só, se valer para todas:
+
+| Pergunta | Por que |
+| --- | --- |
+| Qual é a **chave primária** do registro no ERP? | É o que identifica a linha do lado de vocês |
+| Ela é **estável e nunca reaproveitada**? | Se um código puder ser reciclado, o vínculo entre os sistemas quebra silenciosamente |
+| Existe um **código "humano"** além dela (código do produto, número do pedido)? | É o que aparece na tela e na conversa; guardamos os dois |
+| Quais são **todos os campos** disponíveis no endpoint? | Preferimos ver a lista inteira e escolher, a descobrir depois que faltou um |
+| Quais são os **valores possíveis de situação/status**, e o que cada um significa? | "Situação 3" não diz nada sem a legenda |
+| Quais **datas** o registro carrega (criação, alteração, e as próprias do documento)? | Sem data de alteração não há sincronização incremental |
+| Como esse registro se **liga aos outros** (cliente ↔ venda ↔ item ↔ produto ↔ filial)? | É o que permite montar a visão completa sem adivinhar |
+| Como aparecem **exclusão, inativação e cancelamento**, e como pedimos **só o que mudou** desde certa data? | Os dois lados do mesmo problema: não perder mudança e não trazer o que não mudou |
+
+Os blocos abaixo listam os campos que interessam a cada entidade. Onde o ERP
+tiver mais do que o listado, queremos saber; onde tiver menos, também.
 
 ---
 

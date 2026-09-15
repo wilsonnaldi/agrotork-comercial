@@ -1,5 +1,12 @@
 # AGROTORK BRAIN — Fase 2, Lote B: ingestão sem vetores
 
+> **Nota de vocabulário (acrescentada em 15/09/2026).** Neste documento, "ERP"
+> significa o **schema `public` desta aplicação** — clientes, produtos,
+> orçamentos, pedidos —, que era como o termo se usava quando ele foi escrito.
+> A partir de setembro/2026 o ERP da AGROTORK é a **Compusystem**, e é dela a
+> verdade operacional (ver `ARCHITECTURE.md` §14). O texto abaixo fica como
+> está, por ser registro do que foi feito; só a palavra mudou de dono.
+
 Data: 12/09/2026 · Branch `brain/fase-2` · Base: Lote A em produção (`1cfc086` + correção
 pós-deploy do limiar trigram, §17 de `fase-2-lote-a.md`)
 

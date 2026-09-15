@@ -1,5 +1,12 @@
 # AGROTORK BRAIN — Fase 2, Etapa 0: memória corporativa (auditoria e projeto)
 
+> **Nota de vocabulário (acrescentada em 15/09/2026).** Neste documento, "ERP"
+> significa o **schema `public` desta aplicação** — clientes, produtos,
+> orçamentos, pedidos —, que era como o termo se usava quando ele foi escrito.
+> A partir de setembro/2026 o ERP da AGROTORK é a **Compusystem**, e é dela a
+> verdade operacional (ver `ARCHITECTURE.md` §14). O texto abaixo fica como
+> está, por ser registro do que foi feito; só a palavra mudou de dono.
+
 11/09/2026 · projeto Supabase `nedmdkdhchkadijtdnja` · PostgreSQL 17.6 · branch `brain/fase-2`.
 Nesta etapa **nada foi criado no banco, nenhum documento foi ingerido, nenhum embedding
 foi gerado, pgvector continua desabilitado**. Tudo o que está aqui é medição (produção e

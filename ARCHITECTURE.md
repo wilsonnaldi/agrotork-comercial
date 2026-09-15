@@ -15,7 +15,12 @@ onde ela não alcança; onde houver conflito, §14 prevalece.
 
 ---
 
-## 1. Situação encontrada
+## 1. Situação encontrada *(estado original — 29/08/2026)*
+
+> Registro histórico do ponto de partida. **Não descreve o estado atual**: o
+> Supabase está provisionado, o sistema está publicado e as fases seguintes
+> foram entregues. Fica aqui porque explica por que o projeto tem a forma que
+> tem. O estado arquitetural de hoje está no cabeçalho e em §14.
 
 Análise do ambiente feita em 29/08/2026:
 
@@ -53,7 +58,7 @@ com o mesmo código — *responsive-first*, sem app nativo nesta fase.
                     │  └─ Storage (imagens/PDF)    │
                     └──────────────────────────────┘
 
-   Hospedagem: Vercel (frontend + funções) · Supabase (dados)
+   Hospedagem: Netlify (aplicação) · Supabase (dados)
 ```
 
 ### Por que esta stack
@@ -64,7 +69,7 @@ com o mesmo código — *responsive-first*, sem app nativo nesta fase.
 | **TypeScript estrito** | Preço, desconto e imposto errados custam dinheiro. Tipagem forte + Zod eliminam uma classe inteira de bugs. |
 | **Tailwind CSS v4** | Produtividade alta, bundle pequeno, responsividade explícita no markup. |
 | **Supabase** | Postgres gerenciado + Auth + Storage + **Row Level Security** no próprio banco. Custo inicial zero, plano pago barato, sem *lock-in* (é Postgres puro; a saída é um `pg_dump`). |
-| **Vercel** | Deploy do Next.js sem configuração, *preview* por branch, HTTPS e CDN inclusos. |
+| **Netlify** | Deploy do Next.js pelo runtime oficial, HTTPS e CDN inclusos. A escolha original era a Vercel, pelo mesmo motivo; a troca aconteceu na publicação de 01/09/2026 e **não exigiu mudança de código** — é a prova prática do que a linha seguinte afirma sobre portabilidade. |
 | **@react-pdf/renderer** | Gera PDF por código, sem Chrome *headless*. Roda em função serverless barata e rápida. Alternativa (Puppeteer) exigiria runtime pesado e custo maior. |
 
 Nenhuma tecnologia experimental foi usada. Todas as bibliotecas escolhidas são
@@ -605,7 +610,7 @@ já prevê: a tabela `quotes` tem `status` e o módulo tem um ponto de extensão
 
 | Camada | Medida |
 | --- | --- |
-| Transporte | HTTPS obrigatório (Vercel), HSTS. |
+| Transporte | HTTPS obrigatório (Netlify), HSTS. |
 | Sessão | Cookies `httpOnly`, `secure` (em produção), `sameSite=lax`, renovados em `src/proxy.ts`. Ver nota abaixo. |
 | Banco | **RLS ativo em todas as tabelas**, sem exceção. Policies por papel. |
 | Segredos | Somente em variáveis de ambiente. Hoje o sistema **não usa nenhum segredo**: as duas variáveis obrigatórias são públicas por natureza (URL e *anon key*, que o RLS limita). Ver a nota sobre a service role. |
@@ -644,7 +649,8 @@ resposta** — assim uma mudança futura no proxy não os apaga em silêncio.
 
 `SUPABASE_SERVICE_ROLE_KEY` ignora o RLS por completo. O cliente que a
 consumiria (`lib/supabase/admin.ts`) existe pronto, mas **nenhum código o
-importa** — foi escrito para o módulo de Usuários, que ainda não chegou.
+importa** — foi escrito para o módulo de Usuários, que hoje existe e resolve
+o que precisa pelo RLS, sem ela.
 
 Enquanto isso, a configuração mais segura é a que não tem o segredo: chave que
 não está no ambiente não vaza em log, em variável de build nem em captura de
@@ -713,7 +719,7 @@ Verificado em `supabase/db-tests/auth-double/e2e-autenticacao.mjs`.
 
 | Camada | Onde |
 | --- | --- |
-| Aplicação | hospedagem com Node 20+. A Vercel é o caminho mais direto por ser a fabricante do Next, mas **nada no código depende dela**: sem Edge Functions, sem KV, sem Blob. A única exigência é Node no servidor, por causa do `pdfkit`. |
+| Aplicação | **Netlify**, com Node 20+. Nada no código depende do provedor — sem Edge Functions, sem KV, sem Blob; a única exigência é Node no servidor, por causa do `pdfkit`. A migração da Vercel para a Netlify em 01/09/2026 não alterou uma linha de código. |
 | Banco, Auth e Storage | Supabase |
 | Desenvolvimento e testes | máquina local, com PostgreSQL descartável (`npm run db:test`) e o duplê em `supabase/db-tests/auth-double` |
 
@@ -724,8 +730,10 @@ alterado "na mão" pelo painel.
 O passo a passo de produção, incluindo Storage, agendamento da expiração e o
 checklist final, está no `SETUP.md` (seções 8 a 11).
 
-Custo estimado inicial: **US$ 0** (planos gratuitos de Vercel e Supabase),
-migrando para ~US$ 45/mês quando o volume justificar.
+Custo estimado inicial: **US$ 0** (planos gratuitos de Netlify e Supabase),
+migrando para ~US$ 45/mês quando o volume justificar. O Supabase segue no plano
+Free, e é ele que impõe os limites hoje conhecidos — 500 MB de banco e 50 MB por
+arquivo no Storage.
 
 ---
 
@@ -793,6 +801,32 @@ corporativa, busca com proveniência, jornada, indicadores, alerta e auditoria.
 3. **O Supabase pode ter espelhos e read models do ERP** — cópias de leitura, atualizadas pela integração, marcadas como tal.
 4. **Escrita no ERP só por contrato explícito.** Hoje não existe, e a integração combinada é somente leitura.
 5. **Nenhuma entidade tem duas fontes oficiais ao mesmo tempo.** Esta é a regra da qual as outras quatro são consequência.
+
+### Matriz de propriedade
+
+Quem manda em cada coisa. "Espelho" é cópia de leitura de uma entidade do ERP,
+atualizada pela integração; "read model" é dado derivado, montado para consulta
+e relatório. Esta tabela é a versão oficial — os documentos em
+`docs/integracoes/` apontam para ela em vez de repeti-la.
+
+| Entidade | Fonte oficial | Papel do Supabase | Papel do BRAIN | Escrita futura no ERP |
+| --- | --- | --- | --- | --- |
+| Clientes | Compusystem | espelho | contexto, jornada, identidade | só por contrato explícito de API |
+| Produtos | Compusystem | espelho | contexto, memória técnica, de-para | só por contrato explícito de API |
+| Preços de venda | Compusystem | espelho | análise, comparação com tabela de fabricante | proibida |
+| Custos | Compusystem | espelho | análise de margem | proibida |
+| Estoque | Compusystem | read model | leitura, alerta, giro e parado | **proibida diretamente** |
+| Compras / entradas | Compusystem | espelho | análise | só por contrato explícito |
+| Financeiro | Compusystem | read model | análise, inadimplência | **proibida diretamente** |
+| Vendas | Compusystem | espelho | jornada, KPI, curva ABC | só por contrato explícito |
+| Faturamento | Compusystem | espelho | evento de negócio, margem realizada | **proibida diretamente** |
+| `orders` (pedido de venda) | Compusystem | espelho / read model | contexto | fluxo pendente → API |
+| Orçamento, kit, PDF, link público | AGROTORK (`public`) | fonte | contexto | não se aplica |
+| Memória corporativa (catálogos, tabelas técnicas) | AGROTORK (`brain`) | fonte | fonte | não se aplica |
+| Curadoria de Instagram | `instagram_curator` | fonte | sem relação | não se aplica |
+
+O orçamento é o único documento comercial que continua nascendo aqui: ele é
+proposta, e proposta é anterior à venda. A venda é do ERP.
 
 ### Verdade paralela: o que é, e por que é o risco principal
 

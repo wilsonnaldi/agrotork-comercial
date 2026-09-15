@@ -11,22 +11,15 @@ Regra que governa o resto: **nenhuma entidade tem duas fontes oficiais.**
 
 ## 1. Matriz de propriedade
 
-Quem manda em cada coisa. "Espelho" é cópia de leitura atualizada pela
-integração; "read model" é dado derivado, montado para consulta e relatório.
+A tabela oficial de quem manda em cada entidade — clientes, produtos, preços,
+custos, estoque, compras, financeiro, vendas, faturamento, `orders`, orçamento,
+memória corporativa — está em **`ARCHITECTURE.md` §14**, e é lá que ela se
+mantém. Repeti-la aqui só criaria duas versões para divergirem.
 
-| Entidade | Fonte oficial | Papel do Supabase | Papel do BRAIN | Escrita futura no ERP |
-| --- | --- | --- | --- | --- |
-| Clientes | Compusystem | espelho | contexto, jornada, identidade | só por contrato explícito de API |
-| Produtos | Compusystem | espelho | contexto, memória técnica, de-para | só por contrato explícito de API |
-| Preço e custo | Compusystem | espelho | análise de margem | proibida |
-| Estoque | Compusystem | read model | leitura e alerta | **proibida diretamente** |
-| Compras / entradas | Compusystem | espelho | análise | só por contrato explícito |
-| Financeiro | Compusystem | read model | análise | **proibida diretamente** |
-| Vendas / faturamento | Compusystem | espelho | jornada, KPI, comissão | só por contrato explícito |
-| `orders` (pedido de venda) | Compusystem | espelho / read model | contexto | fluxo pendente → API |
-| Orçamento, kit, PDF, link público | AGROTORK (`public`) | fonte | contexto | não se aplica |
-| Memória corporativa (catálogos, tabelas técnicas) | AGROTORK (`brain`) | fonte | fonte | não se aplica |
-| Curadoria de Instagram | `instagram_curator` | fonte | sem relação | não se aplica |
+Os dois termos que ela usa, definidos uma vez: **espelho** é cópia de leitura de
+uma entidade do ERP, atualizada pela integração; **read model** é dado derivado,
+montado para consulta e relatório. Nenhum dos dois é fonte oficial, e ambos
+carregam sempre a marca de que não são.
 
 O orçamento é o único documento comercial que continua nascendo na AGROTORK:
 ele é proposta, não transação. A venda é do ERP.
