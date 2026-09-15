@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 from .spatial import _rotated_words, reconstruct_table
-from .tables import TechnicalTable, audit_table, build_table, fatal_issues
+from .tables import TechnicalTable, audit_table, build_table, build_tables, fatal_issues
 
 SUPPORTED = {
     ".pdf": "application/pdf",
@@ -103,6 +103,19 @@ def _table_regions(page):
     fundidas numa só. Devolve [(bbox, tabela_ou_None)] — None quando a região
     é a fusão de duas (só a reconstrução geométrica a lê)."""
     found = list(page.find_tables() or [])
+    # Região que ENGLOBA outras: o detector às vezes devolve a página inteira
+    # como se fosse uma tabela só, por cima das tabelas de verdade (a tabela
+    # DJI V16.2 vem assim, com bbox começando fora da página). A grande é
+    # sempre a pior — funde blocos vizinhos e mistura cabeçalho com dado.
+    # Fica com as internas; o que sobrar fora delas volta a ser texto da
+    # página, que é citável, em vez de virar uma tabela degradada.
+    def _contem(a, b) -> bool:
+        return a[0] <= b[0] + 1 and a[1] <= b[1] + 1 and a[2] >= b[2] - 1 and a[3] >= b[3] - 1
+    if len(found) > 2:
+        englobantes = {id(t) for t in found
+                       if sum(1 for o in found if o is not t and _contem(t.bbox, o.bbox)) >= 2}
+        if englobantes and len(englobantes) < len(found):
+            found = [t for t in found if id(t) not in englobantes]
     found.sort(key=lambda t: (t.bbox[1], t.bbox[0]))
     regions: list[tuple[tuple[float, float, float, float], object | None]] = []
     for t in found:
@@ -135,7 +148,21 @@ def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
             degraded = 0
             try:
                 for bbox, found in _table_regions(page):
-                    t = build_table(found.extract(), page=i) if found is not None else None
+                    blocos = build_tables(found.extract(), page=i) if found is not None else []
+                    if len(blocos) > 1:
+                        # Blocos lado a lado: cada um é uma tabela inteira. A
+                        # reconstrução geométrica trabalha o bbox da região e
+                        # tornaria a juntá-los, então não se aplica aqui.
+                        for b in blocos:
+                            if not b.is_meaningful:
+                                continue
+                            b.stamp_audit()
+                            if not b.is_trusted:
+                                degraded += 1
+                            tables.append(b)
+                            bboxes.append(bbox)
+                        continue
+                    t = blocos[0] if blocos else None
                     issues = audit_table(t) if (t and t.is_meaningful) else ["regiao sem tabela pelo detector padrao"]
                     if issues:
                         # O detector por régua não virou dado confiável: refaz pela geometria.

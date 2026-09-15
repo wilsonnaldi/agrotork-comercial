@@ -17,6 +17,14 @@ from .codes import extract_codes
 # "2,76" → 2.76; "1.234,56" → 1234.56; "40" → 40; "R$ 165.500,00" → 165500.0
 _NUM = re.compile(r"^\s*(?:R\$\s*)?([+-]?\d{1,3}(?:\.\d{3})+|[+-]?\d+)(?:,(\d+))?\s*%?\s*$")
 _NUM_DOT = re.compile(r"^\s*([+-]?\d+)\.(\d+)\s*$")   # já em ponto decimal (xlsx)
+# Célula monetária com traço decorativo dos dois lados: "-R$ 21.550,00-". Sai de
+# exportação de planilha que preenche o resto da célula com hífen. O traço da
+# FRENTE só é decoração quando existe o de TRÁS e a célula traz R$ — número
+# negativo de verdade é "R$ -21.550,00" ou "-21.550,00", e esses continuam
+# negativos. Sem isto, a mesma tabela guarda "165500" numa célula e
+# "-R$ 21.550,00-" (texto) na de baixo: duas representações do mesmo dado.
+_MONEY_DASHED = re.compile(r"^\s*-\s*(R\$\s*[\d.,]+)\s*-\s*$", re.I)
+_HAS_CURRENCY = re.compile(r"R\$", re.I)
 
 _UNIT_HINTS = {
     "bar": "bar", "psi": "psi", "kpa": "kPa", "l/min": "L/min", "l/ha": "L/ha",
@@ -34,6 +42,8 @@ def parse_number(cell: Any) -> int | float | None:
     if cell is None:
         return None
     s = str(cell).strip()
+    if (dashed := _MONEY_DASHED.match(s)):
+        s = dashed.group(1)
     m = _NUM.match(s)
     if m:
         inteiro = m.group(1).replace(".", "")
@@ -44,6 +54,15 @@ def parse_number(cell: Any) -> int | float | None:
     if m:
         return float(s)
     return None
+
+
+def is_money(cell: Any) -> bool:
+    """A célula é dinheiro? Só com marca de moeda no próprio texto ("R$ 9.502,00",
+    "-R$ 999,00-"). Número solto NÃO é dinheiro: 1580 pode ser um modelo de bateria."""
+    if cell is None or isinstance(cell, (int, float, bool)):
+        return False
+    s = str(cell)
+    return bool(_HAS_CURRENCY.search(s)) and parse_number(s) is not None
 
 
 def _clean(cell: Any) -> str:
@@ -63,13 +82,20 @@ def _header_key(h: str, i: int) -> str:
 
 def _unit_of(header: str) -> str | None:
     """Unidade declarada no cabeçalho: prefere o que está entre parênteses ("Pressão (bar)"),
-    depois qualquer token inteiro ("L/min", "psi"). 'm' de 'mínimo' não é metro: só token inteiro."""
+    depois qualquer token inteiro ("L/min", "psi"). 'm' de 'mínimo' não é metro: só token inteiro.
+
+    Unidade de UMA letra ("A", "V", "W", "G", "M") só vale DENTRO de parênteses:
+    solta no meio da frase ela quase sempre é palavra — o "à vista" de
+    "Pgto à vista" virava ampere e o preço saía "159000 A"."""
     h = _unaccent(header).lower()
-    candidates = re.findall(r"\(([^)]*)\)", h) or [h]
-    for cand in candidates + [h]:
+    entre_parenteses = re.findall(r"\(([^)]*)\)", h)
+    for cand in entre_parenteses:
         for token in re.findall(r"(?<![a-z0-9])([a-z$%/]+)(?![a-z0-9])", cand):
             if token in _UNIT_HINTS:
                 return _UNIT_HINTS[token]
+    for token in re.findall(r"(?<![a-z0-9])([a-z$%/]+)(?![a-z0-9])", h):
+        if len(token) >= 2 and token in _UNIT_HINTS:
+            return _UNIT_HINTS[token]
     return None
 
 
@@ -81,6 +107,7 @@ class TechnicalTable:
     page: int | None = None
     notes: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)   # cabeçalhos como estão no documento
+    title: str | None = None                 # linha de título acima do cabeçalho, quando houver
     groups: list[str | None] = field(default_factory=list)   # rótulo de grupo acima de cada coluna (ou None)
     # Estado formal de qualidade, gravado no table_data (nunca derivado de `notes`):
     #   {"quality": "trusted" | "degraded", "fatal": bool, "issues": [...]}
@@ -108,6 +135,7 @@ class TechnicalTable:
     def table_data(self) -> dict[str, Any]:
         return {
             "page": self.page,
+            "title": self.title,
             "headers": self.headers,
             "labels": self.labels,
             "units": self.units,
@@ -123,7 +151,9 @@ class TechnicalTable:
         'Código Série ... Vazão (L/min) ...' / 'MJ981CAP MUG-CV 02 UG 2,76 bar 40 psi 0,77 L/min'.
         O cabecalho entra no texto pesquisavel de proposito: "vazao" so existe ali."""
         group_line = " ".join(dict.fromkeys(g for g in self.groups if g))
-        lines = ([group_line] if group_line else []) + [" ".join(h for h in (self.labels or self.headers) if h)]
+        lines = ([self.title] if self.title else []) \
+            + ([group_line] if group_line else []) \
+            + [" ".join(h for h in (self.labels or self.headers) if h)]
         for row in self.rows:
             parts = []
             for h, v in zip(self.headers, row):
@@ -155,6 +185,19 @@ def build_table(raw: list[list[Any]], page: int | None = None) -> TechnicalTable
         return None
     width = max(len(r) for r in rows)
     rows = [r + [""] * (width - len(r)) for r in rows]
+    # Título acima do cabeçalho — padrão de tabela comercial: a primeira linha
+    # traz só o nome do produto ("DRONE AGRAS T100 + 3 BAT + CARREGADOR C12000")
+    # e o cabeçalho de verdade vem na segunda ("Pgto faturado / Pgto à vista").
+    # Sem isto o nome do produto vira o cabeçalho, as colunas de preço ficam
+    # `col_1`/`col_2`, e o valor deixa de dizer a que condição pertence.
+    title: str | None = None
+    if len(rows) >= 3:
+        cheias_0 = [c for c in rows[0] if c]
+        cheias_1 = [c for c in rows[1] if c]
+        if len(cheias_0) == 1 and len(cheias_1) >= 2 \
+                and all(parse_number(c) is None for c in rows[1]):
+            title = cheias_0[0]
+            rows = rows[1:]
     raw_headers = rows[0]
     headers = [_header_key(h, i) for i, h in enumerate(raw_headers)]
     # cabeçalhos duplicados ganham sufixo — sem isso a linha vira ambígua
@@ -167,13 +210,67 @@ def build_table(raw: list[list[Any]], page: int | None = None) -> TechnicalTable
             seen[h] = 1
     units = {headers[i]: u for i, h in enumerate(raw_headers) if (u := _unit_of(h))}
     body: list[list[Any]] = []
+    money_hits = [0] * width
     for r in rows[1:]:
         conv: list[Any] = []
-        for c in r:
+        for i, c in enumerate(r):
+            if is_money(c) and i < width:
+                money_hits[i] += 1
             n = parse_number(c)
             conv.append(n if n is not None else (c if c != "" else None))
         body.append(conv)
-    return TechnicalTable(headers=headers, rows=body, units=units, page=page, labels=raw_headers)
+    # A moeda quase nunca está no cabeçalho de uma tabela comercial — está em
+    # cada célula ("R$ 9.502,00"). Uma coluna com marca de moeda no corpo é
+    # coluna de dinheiro, e é isso que faz a tabela ser reconhecida como preço.
+    for i, hits in enumerate(money_hits):
+        if hits and headers[i] not in units:
+            units[headers[i]] = "BRL"
+    return TechnicalTable(headers=headers, rows=body, units=units, page=page,
+                          labels=raw_headers, title=title)
+
+
+def split_side_by_side(raw: list[list[Any]]) -> list[list[list[Any]]]:
+    """Duas tabelas lado a lado que o detector devolveu como uma só.
+
+    Tabela comercial impressa em duas colunas visuais ("T55 + C7000" à esquerda,
+    "T55 + D8000" à direita) chega com uma COLUNA VAZIA no meio — a calha entre
+    os dois blocos. Sem separar, o cabeçalho de um bloco vira coluna do outro e
+    o preço da direita responde pergunta da esquerda.
+
+    Só separa quando a divisão é inequívoca: coluna completamente vazia em TODAS
+    as linhas, tabela larga (5+ colunas) e cada lado sobrando com 2+ colunas.
+    Fora disso devolve a tabela inteira, como veio.
+    """
+    rows = [r for r in raw if r and any(_clean(c) for c in r)]
+    if len(rows) < 2:
+        return [raw]
+    width = max(len(r) for r in rows)
+    if width < 5:
+        return [raw]
+    rows = [list(r) + [""] * (width - len(r)) for r in rows]
+    vazias = {j for j in range(width) if all(not _clean(r[j]) for r in rows)}
+    if not vazias:
+        return [raw]
+    blocos: list[list[int]] = []
+    atual: list[int] = []
+    for j in range(width):
+        if j in vazias:
+            if atual:
+                blocos.append(atual)
+            atual = []
+        else:
+            atual.append(j)
+    if atual:
+        blocos.append(atual)
+    blocos = [b for b in blocos if len(b) >= 2]
+    if len(blocos) < 2:
+        return [raw]
+    return [[[r[j] for j in bloco] for r in rows] for bloco in blocos]
+
+
+def build_tables(raw: list[list[Any]], page: int | None = None) -> list[TechnicalTable]:
+    """`build_table` para cada bloco lado a lado (normalmente um só)."""
+    return [t for bloco in split_side_by_side(raw) if (t := build_table(bloco, page=page))]
 
 
 # ── Auditor automático ─────────────────────────────────────────
@@ -200,7 +297,9 @@ def audit_table(t: TechnicalTable) -> list[str]:
         if len(r) != width:
             bad_width += 1
         strs = [c for c in r if isinstance(c, str)]
-        multi += sum(1 for c in strs if _MULTI_NUM.match(c))
+        # dois números na mesma célula — soltos ("2,76 40") ou com moeda
+        # ("-R$ 7.100,00--R$ 6.800,00-", duas colunas que viraram uma)
+        multi += sum(1 for c in strs if _MULTI_NUM.match(c) or len(_HAS_CURRENCY.findall(c)) >= 2)
         tokens = [tok for c in strs for tok in c.split()]
         # linha sem nenhuma celula numerica, mas com unidade escrita ("km/h", "psi"):
         # e um cabecalho que o detector deixou cair no corpo
@@ -220,6 +319,14 @@ def audit_table(t: TechnicalTable) -> list[str]:
         issues.append(f"{generic} de {width} colunas sem cabecalho")
     if bad_width:
         issues.append(f"{bad_width} linha(s) com largura diferente do cabecalho")
+    # Dinheiro em coluna sem nome: o valor existe, mas não dá para dizer a QUE
+    # condição pertence — à vista, faturado, cliente final. Preço sem condição
+    # não é dado incompleto, é dado errado esperando para ser citado; por isso
+    # é FATAL e a tabela fica `degraded`.
+    anonimas = [h for h in t.headers
+                if t.units.get(h) == "BRL" and re.fullmatch(r"col_\d+(?:_\d+)?", h)]
+    if anonimas:
+        issues.append(f"{len(anonimas)} coluna(s) com preco sem condicao (cabecalho generico)")
     # propagação de rótulo: coluna de texto onde valores aparecem e somem
     for j in range(width):
         col = [r[j] if j < len(r) else None for r in t.rows]
@@ -232,10 +339,11 @@ def audit_table(t: TechnicalTable) -> list[str]:
     return issues
 
 
-FATAL_MARKERS = ("fundidos", "caida", "engolida")
+FATAL_MARKERS = ("fundidos", "caida", "engolida", "preco sem condicao")
 
 
 def fatal_issues(issues: list[str]) -> list[str]:
     """Sinais que significam dado errado (nao so incompleto): numeros fundidos,
-    cabecalho caido como dados, linha de dados engolida como cabecalho."""
+    cabecalho caido como dados, linha de dados engolida como cabecalho, preco
+    que nao diz a que condicao pertence."""
     return [i for i in issues if any(m in i for m in FATAL_MARKERS)]
