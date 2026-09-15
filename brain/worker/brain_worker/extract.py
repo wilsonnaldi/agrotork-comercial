@@ -249,12 +249,13 @@ def extract_xlsx(path: Path) -> Extraction:
     pages: list[ExtractedPage] = []
     for i, ws in enumerate(wb.worksheets, start=1):
         rows = [list(r) for r in ws.iter_rows(values_only=True)]
-        table = build_table(rows, page=i)
-        if table and table.is_meaningful:
-            # A aba inteira e a tabela: nenhum texto solto, o nome da aba vai na nota.
-            table.notes.append(f"aba: {ws.title}")
-            table.stamp_audit()
-            pages.append(ExtractedPage(i, "", "spreadsheet", False, [table], {"sheet": ws.title, "rows": len(rows)}))
+        # Uma aba pode trazer vários blocos empilhados; cada um é uma tabela, e
+        # a proveniência de planilha é "aba + intervalo de linhas", não página.
+        tables = [t for t in build_tables(rows, page=i, origin=f"aba: {ws.title}") if t.is_meaningful]
+        if tables:
+            for t in tables:
+                t.stamp_audit()
+            pages.append(ExtractedPage(i, "", "spreadsheet", False, tables, {"sheet": ws.title, "rows": len(rows)}))
         else:
             text = "\n".join(" ".join(_cell(c) for c in r) for r in rows if any(_cell(c) for c in r))
             pages.append(ExtractedPage(i, f"{ws.title}\n{text}".strip(), "spreadsheet", False, [], {"sheet": ws.title, "rows": len(rows)}))

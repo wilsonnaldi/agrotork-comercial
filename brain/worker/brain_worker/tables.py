@@ -12,7 +12,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
-from .codes import extract_codes
+from .codes import extract_codes, normalize_code
 
 # "2,76" → 2.76; "1.234,56" → 1234.56; "40" → 40; "R$ 165.500,00" → 165500.0
 _NUM = re.compile(r"^\s*(?:R\$\s*)?([+-]?\d{1,3}(?:\.\d{3})+|[+-]?\d+)(?:,(\d+))?\s*%?\s*$")
@@ -171,7 +171,32 @@ class TechnicalTable:
         return "\n".join(lines)
 
     def codes(self, profile: str | None = None) -> list[str]:
-        return extract_codes(self.render_text(), profile)
+        """Códigos do texto da tabela MAIS o conteúdo de uma coluna que se
+        declara de código ("COD", "CÓDIGO", "REF", "SKU").
+
+        Numa coluna assim o código não precisa ser adivinhado por padrão: o
+        documento já disse que aquilo é código. É o que resgata `46202G`,
+        `863T026S` e `5538/2L1/94A`, que começam por dígito e por isso nenhum
+        padrão genérico alcança sem inventar falso positivo em "4-20MAH"."""
+        achados = set(extract_codes(self.render_text(), profile))
+        for j, h in enumerate(self.labels or self.headers):
+            if not _CODE_HEADER.fullmatch(_unaccent(str(h)).strip().lower()):
+                continue
+            for row in self.rows:
+                if j >= len(row):
+                    continue
+                v = row[j]
+                if v is None or isinstance(v, bool):
+                    continue
+                if isinstance(v, float) and v.is_integer():
+                    v = int(v)
+                bruto = str(v).strip()
+                # rótulo de "não se aplica" não é código
+                if not bruto or len(bruto) < 3 or bruto.upper() in {"X", "N/A", "NA", "-", "--"}:
+                    continue
+                if (code := normalize_code(bruto)):
+                    achados.add(code)
+        return sorted(achados)
 
 
 def build_table(raw: list[list[Any]], page: int | None = None) -> TechnicalTable | None:
@@ -268,9 +293,61 @@ def split_side_by_side(raw: list[list[Any]]) -> list[list[list[Any]]]:
     return [[[r[j] for j in bloco] for r in rows] for bloco in blocos]
 
 
-def build_tables(raw: list[list[Any]], page: int | None = None) -> list[TechnicalTable]:
-    """`build_table` para cada bloco lado a lado (normalmente um só)."""
-    return [t for bloco in split_side_by_side(raw) if (t := build_table(bloco, page=page))]
+def split_stacked(raw: list[list[Any]]) -> list[tuple[int, list[list[Any]]]]:
+    """Blocos empilhados na mesma aba ou região, separados por LINHA vazia.
+
+    Uma planilha comercial costuma trazer vários blocos um embaixo do outro —
+    "SISTEMA PARA BICOS HIDRÁULICOS" com seus itens, linha em branco,
+    "SISTEMA PARA BICOS ROTATIVOS" com os dele. Lidos como uma tabela só, o
+    título do primeiro fica valendo para as linhas do segundo e o cabeçalho
+    repetido vira linha de dados: pergunta sobre um sistema responde com o
+    outro.
+
+    Devolve (índice da primeira linha do bloco no original, linhas do bloco).
+    Conservador: só separa com 4+ linhas úteis, bloco de 2+ linhas e 2+ blocos.
+    """
+    if not raw:
+        return [(0, raw)]
+    cheia = [bool(r) and any(_clean(c) for c in r) for r in raw]
+    if sum(cheia) < 4:
+        return [(0, raw)]
+    blocos: list[tuple[int, list[list[Any]]]] = []
+    inicio: int | None = None
+    for i, tem in enumerate(cheia):
+        if tem and inicio is None:
+            inicio = i
+        elif not tem and inicio is not None:
+            blocos.append((inicio, raw[inicio:i]))
+            inicio = None
+    if inicio is not None:
+        blocos.append((inicio, raw[inicio:]))
+    blocos = [b for b in blocos if len(b[1]) >= 2]
+    if len(blocos) < 2:
+        return [(0, raw)]
+    return blocos
+
+
+def build_tables(raw: list[list[Any]], page: int | None = None,
+                 origin: str | None = None) -> list[TechnicalTable]:
+    """Uma tabela por bloco: primeiro os empilhados, depois os lado a lado.
+    `origin` ("aba 'Página1'") vira nota com o intervalo de linhas do bloco —
+    é a proveniência que uma planilha tem no lugar de número de página."""
+    out: list[TechnicalTable] = []
+    for inicio, bloco in split_stacked(raw):
+        for sub in split_side_by_side(bloco):
+            t = build_table(sub, page=page)
+            if t is None:
+                continue
+            if origin:
+                t.notes.append(f"{origin}, linhas {inicio + 1}–{inicio + len(bloco)}")
+            out.append(t)
+    return out
+
+
+# Cabecalho que DECLARA a coluna como de codigo. Palavra inteira, sem acento,
+# em minuscula — "codigo do fabricante" tambem conta, "codificacao" nao.
+_CODE_HEADER = re.compile(r"(cod|codigo|code|ref|referencia|sku|part|part_number|partnumber)"
+                          r"([ _-](do|de|da)?[ _-]?(fabricante|produto|peca|item|barras))?")
 
 
 # ── Auditor automático ─────────────────────────────────────────
@@ -290,6 +367,7 @@ def audit_table(t: TechnicalTable) -> list[str]:
     """
     issues: list[str] = []
     width = len(t.headers)
+    rotulos = [_unaccent(str(h)).strip().lower() for h in (t.labels or t.headers)]
     multi = 0
     header_rows = 0
     bad_width = 0
@@ -305,6 +383,12 @@ def audit_table(t: TechnicalTable) -> list[str]:
         # e um cabecalho que o detector deixou cair no corpo
         if tokens and sum(1 for c in r if isinstance(c, (int, float))) == 0 \
                 and any(_UNIT_TOKEN.match(tok) for tok in tokens):
+            header_rows += 1
+        # ou uma linha que REPETE o proprio cabecalho: duas tabelas coladas numa
+        # so. Sem isto a segunda passa a ser lida sob o titulo da primeira.
+        elif rotulos and sum(1 for j, c in enumerate(r)
+                             if j < len(rotulos) and rotulos[j]
+                             and isinstance(c, str) and _unaccent(c).strip().lower() == rotulos[j]) >= 2:
             header_rows += 1
     if multi:
         issues.append(f"{multi} celula(s) com numeros fundidos")
