@@ -107,6 +107,20 @@ qualquer forma, e quem decide o que cada usuário enxerga é o RLS.
 **Não cadastre `SUPABASE_SERVICE_ROLE_KEY`.** Ela ignora o RLS e nenhum
 código do sistema a utiliza hoje. Ver `.env.production.example`.
 
+### Credencial do ERP (Compusystem) — quando existir
+
+Não existe hoje: não há integração, endpoint nem chave. Registrado aqui
+porque a regra precisa estar escrita **antes** de a chave chegar, não depois.
+
+Quando houver, a credencial da API da Compusystem **não entra nas variáveis
+do site**. O prefixo `NEXT_PUBLIC_` publica o valor no navegador de qualquer
+visitante, e uma variável sem prefixo ainda assim fica ao alcance do processo
+que serve as páginas. A chave é do executor da sincronização — servidor
+próprio ou Supabase Vault —, com acesso somente leitura, permissão mínima,
+rotação possível e registro de execução que não guarda segredo.
+
+Regra curta: se a chave aparecer no painel do Netlify, está no lugar errado.
+
 ---
 
 ## 4. Supabase Auth URLs

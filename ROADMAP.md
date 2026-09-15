@@ -402,11 +402,61 @@ Nada aqui entra sem que as fases 1–6 estejam concluídas.
 | Assinatura digital | Fase 5 |
 | Dashboard com gráficos | Fase 6 |
 | Controle financeiro (contas a receber) | Pedidos |
-| Integrações externas (ERP, NF-e) | Pedidos |
+| Integrações externas (ERP, NF-e) | **Substituído** pela consolidação Compusystem — ver seção própria |
 | **Importação de catálogos de fabricante** (AGRIS 2026 e outros): leitura → área de revisão → aprovação | Fase 1 (unidades/marcas cadastráveis) |
 | **Importação de tabelas de preço**, casando pelo código do fabricante | Importação de catálogos |
 | IA (sugestão de kit, resumo de cliente, busca em linguagem natural) | Base de dados populada |
 | App mobile / PWA offline | Reavaliar após uso real em campo |
+
+---
+
+## Consolidação Compusystem — setembro/2026
+
+O ERP da AGROTORK é a **Compusystem**, e é dela a verdade operacional. A
+decisão, com as cinco regras que dela decorrem, está em `ARCHITECTURE.md` §14;
+aqui fica o efeito sobre a ordem do trabalho. A numeração histórica das fases
+acima **não muda** — o que vem abaixo se soma a ela.
+
+Duas numerações convivem neste documento, e confundi-las já custou tempo: as
+Fases 0–6 e as Ondas 1–2 são do **sistema comercial**; as Fases 1, 2 e
+seguintes do **AGROTORK BRAIN** são outra série, e é a essa que "Fase 1" e
+"Fase 2" se referem daqui para baixo.
+
+| Etapa | Estado | O que é |
+| --- | --- | --- |
+| BRAIN Fase 1 — CRM, identidade, eventos, jornada | ✅ | Em produção desde 11/09/2026, modo desacoplado. Compatível com a Compusystem como fonte: nada escreve fora do Supabase, e `brain.events` já é idempotente por `(source, external_id)` |
+| BRAIN Fase 2 — memória corporativa | ✅ | Em produção; piloto Magnojet V41 ativo. Pendências conhecidas: bucket `brain-documents`, Lote C, DJI subdealer |
+| BRAIN Fase 1.1 — vocabulário de fontes | ⬜ | Aditiva e pequena: `'erp'` passa a significar explicitamente o schema `public` desta aplicação, a Compusystem entra como fonte nova, identidade de id externo, eventos de venda vindos do espelho |
+| BRAIN Fase 2.1 — memória × ERP | ⬜ | `chunk_products` e `knowledge_sources` apontando por tabela de vínculo; precedência entre custo do ERP e tabela de fabricante (a tabela vira conferência, não origem); criação do bucket |
+| Comercial · congelamento operacional | ⬜ | Estoque, compras, financeiro e efeito do faturamento deixam de ser operação. Sem migração destrutiva — ver `docs/integracoes/congelamento-modulos-operacionais.md` |
+| BRAIN Fase 3 — integração Compusystem | ⬜ | **Bloqueada até a documentação da API.** 3.0 contrato e de-para · 3.1 fundação e executor · 3.2 produtos e clientes · 3.3 vendas e estoque · 3.4 financeiro e compras · 3.5 observabilidade e operação |
+| BRAIN Fase 4 — governança e gestão remota | ⬜ | Travas de desconto e aprovação, aprovação de compra, alerta de margem e de estoque crítico, auditoria de decisão. Tudo dentro do Supabase, sem escrever no ERP |
+| E-commerce (Mercado Livre / Tray) | ⬜ | Sem fase própria. A Compusystem já integra com ambos; se tudo chegar por ela, não há o que construir. As perguntas que decidem isso estão no bloco I do pedido técnico |
+
+A ordem importa: **congelar antes de espelhar**. Espelho chegando enquanto o
+aplicativo ainda escreve é pior do que qualquer um dos dois sozinho.
+
+### Trabalho não verificado
+
+Anotações de trabalho citam quatro entregas que **não existem em nenhuma
+branch publicada nem no repositório local**: Fase 9 (painel), Fase 10
+(comissão), Fase 11 (PWA instalável) e um ensaio geral chamado "suíte 26". Os
+identificadores de commit citados (`d1bb4fe`, `050887b`, `09b826e`, `fcee639`)
+não resolvem para objeto nenhum, e não há manifesto, service worker, tabela de
+comissão ou arquivo correspondente em ref alguma.
+
+Classificação oficial: **NÃO VERIFICADAS**. Não contam como concluídas, não
+entram no roadmap como feitas, e nada é planejado em cima delas. Se existirem
+na máquina do Wilson, precisam ser publicadas para serem consideradas; até lá,
+são trabalho futuro.
+
+O que existe de verdade, e não é isso: a branch local
+`fase-b/custos-por-condicao` (`897ff12`, três commits de 03–05/09/2026, nunca
+publicada) guarda uma linha alternativa do Pedido de venda, com uma migration
+`20260905100000_orders_hardening.sql` que nunca entrou na `main` — é de onde
+vem a referência a `order_item_costs`. Ela **diverge** da linha que venceu (a
+`trabalho`, com Onda 2, financeiro e NF-e) e não deve ser integrada sem
+revisão; está registrada aqui para não ser redescoberta como novidade.
 
 ---
 

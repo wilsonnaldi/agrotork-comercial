@@ -17,7 +17,7 @@ Funciona em computador, notebook, tablet e celular com o mesmo código.
 ## Stack
 
 Next.js 16 (App Router) · React 19 · TypeScript estrito · Tailwind CSS v4 ·
-Supabase (PostgreSQL + Auth + Storage) · **pdfkit** (geração do PDF no servidor) · Vercel
+Supabase (PostgreSQL + Auth + Storage) · **pdfkit** (geração do PDF no servidor) · Netlify
 
 ---
 
@@ -131,13 +131,15 @@ Abra <http://localhost:3000>.
 
 ---
 
-## Deploy na Vercel
+## Deploy no Netlify
 
 1. Suba o repositório no GitHub.
-2. Na Vercel, **Add New → Project** e importe o repositório.
-3. Em **Environment Variables**, cadastre as quatro variáveis do `.env.local`
-   (`NEXT_PUBLIC_SITE_URL` deve apontar para o domínio de produção).
-4. Deploy. A cada `git push` a Vercel publica; cada Pull Request ganha um preview.
+2. No Netlify, **Add new site → Import an existing project** e importe o repositório.
+3. Em **Site configuration → Environment variables**, cadastre as três variáveis
+   públicas do `.env.local` (`NEXT_PUBLIC_SITE_URL` deve apontar para o domínio
+   de produção). **`SUPABASE_SERVICE_ROLE_KEY` não é cadastrada.**
+4. Deploy. O passo a passo completo, com Auth, domínio, smoke test e rollback,
+   está em `DEPLOY.md`.
 
 ---
 

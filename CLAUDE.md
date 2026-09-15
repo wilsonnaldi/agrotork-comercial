@@ -28,6 +28,13 @@ Zod · Supabase (Postgres + Auth + Storage) · pdfkit. Publicado na Netlify.
 5. **Não invente dado.** Preço, custo, NCM, categoria: se a fonte não diz,
    fica vazio. `sale_price_set_at` nulo significa "preço nunca definido" —
    é diferente de R$ 0,00, e o sistema não mistura os dois.
+6. **A Compusystem é a fonte oficial operacional.** Estoque, produtos,
+   preço, custo, clientes, vendas, faturamento, compras e financeiro são
+   dela. O que se constrói aqui não compete com isso: nenhuma entidade tem
+   duas fontes oficiais. A integração combinada é **somente leitura**, e não
+   existe ainda — enquanto a documentação da API não chegar, nada de schema
+   de integração, coluna desenhada por suposição ou credencial guardada.
+   Detalhe em `ARCHITECTURE.md` §14 e em `docs/integracoes/`.
 
 ## Como o trabalho é conduzido
 
@@ -68,17 +75,29 @@ npm run db:types     # tipos do Supabase vinculado
 npm run db:types:local  # tipos a partir das migrations, sem projeto
 ```
 
-## Estado atual (setembro/2026)
+## Estado atual (15/09/2026)
 
-Fases 0–5 entregues: cadastros, clientes, produtos, kits, orçamentos, PDF,
-link público e auditoria. Base de produção zerada e recarregada em 02/09
-com **112 produtos** das tabelas DJI (subdealer) e JR, classificados em
-**7 setores comerciais**, todos **inativos e sem preço de venda** até a
-margem ser definida em Configurações → Margens.
+Sistema publicado na Netlify, em produção. Núcleo comercial entregue até o
+Pedido de venda; estoque, compras, financeiro e importação de NF-e existem
+no banco e na interface, mas **sem nenhum dado em produção** — e é isso que
+o congelamento da rodada de consolidação torna barato. 112 produtos ativos e
+precificados, 1 usuário administrador, 0 vendedores, 1 cliente e 2 pedidos
+(todos de teste). 67 migrations aplicadas, a última `20260912040000`.
 
-Pendências conhecidas: Usuários e Dados da empresa (Fase 1), relatórios
-(Fase 6), e os commits órfãos `e3c75c9` e `7bb9605`, que contêm esse
-trabalho e ainda precisam ser integrados.
+AGROTORK BRAIN: Fase 1 (CRM, identidade, eventos, jornada) em produção em
+modo desacoplado — as três pontes `trg_brain_*` ficam desligadas e a
+sincronia é por reconciliação. Fase 2 (memória corporativa) em produção, com
+o Catálogo Magnojet V41 ativo: 172 páginas, 778 trechos, 202 tabelas
+confiáveis e 68 degradadas, que a busca recusa como evidência.
+
+Pendências conhecidas: bucket `brain-documents` não criado (a versão ativa
+aponta para um caminho que ainda não existe), Lote C e DJI subdealer não
+iniciados, cinco falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no
+modo desacoplado), e a barra do celular com 5 itens marcados para 4 lugares.
+
+O trabalho citado como "Fase 9/10/11" e "suíte 26" **não existe em nenhuma
+branch** — ver `ROADMAP.md`, "Trabalho não verificado". Não planejar em cima
+dele.
 
 ## Armadilhas já pagas
 

@@ -3,10 +3,15 @@
 > Documento de decisões técnicas. Toda mudança que afete a arquitetura deve ser
 > registrada aqui **antes** de ser implementada.
 
-Versão: 1.2 — 29/08/2026
-Fase atual: **Fase 0 e Fase 2 concluídas** (Clientes e Produtos). Fase 1
-(cadastros de apoio) pendente, e o projeto Supabase ainda não provisionado —
-ver `ROADMAP.md` e `SETUP.md`.
+Versão: 1.3 — 15/09/2026
+Estado: sistema em produção na Netlify, Supabase provisionado (projeto
+`nedmdkdhchkadijtdnja`). Núcleo comercial entregue até o Pedido de venda;
+AGROTORK BRAIN com Fase 1 (CRM, identidade, eventos) e Fase 2 (memória
+corporativa) em produção. **A decisão de setembro/2026 que reposiciona este
+sistema diante do ERP da AGROTORK está em §14** — leia-a antes de qualquer
+trabalho em estoque, compras, financeiro ou faturamento. Os parágrafos
+anteriores a §14 descrevem decisões tomadas antes dela e continuam válidos
+onde ela não alcança; onde houver conflito, §14 prevalece.
 
 ---
 
@@ -765,3 +770,121 @@ Registradas para não serem esquecidas nem implementadas cedo demais:
 - Modo offline / PWA com fila de sincronização — reavaliar na Fase 4.
 - Tabelas de preço por região/cliente e regras de comissão — Fase 3.
 - Cache/edge de leitura — só quando houver métrica que justifique.
+
+---
+
+## 14. ERP / Compusystem — fonte oficial e fronteira de responsabilidade
+
+Decisão de setembro/2026, e a partir daqui ela governa o resto do documento:
+**o ERP da AGROTORK é a Compusystem**, e é dela a verdade operacional —
+estoque, produtos, preço e custo, clientes, vendas, faturamento, compras e
+financeiro. O que se constrói aqui não compete com isso.
+
+Essa frase muda o papel de duas coisas que já existem. O sistema comercial
+deixa de ser o dono da operação e fica com o que é dele: cliente, produto,
+kit, **orçamento**, PDF, link público — a proposta comercial, que é anterior à
+venda. E o AGROTORK BRAIN fica com o que sempre foi: inteligência, memória
+corporativa, busca com proveniência, jornada, indicadores, alerta e auditoria.
+
+### As cinco regras
+
+1. **A Compusystem é a fonte oficial operacional.** Onde ela manda, ninguém mais manda.
+2. **O BRAIN é camada de inteligência.** Ele lê, cruza, explica e avisa; não substitui o ERP e não guarda a verdade dele.
+3. **O Supabase pode ter espelhos e read models do ERP** — cópias de leitura, atualizadas pela integração, marcadas como tal.
+4. **Escrita no ERP só por contrato explícito.** Hoje não existe, e a integração combinada é somente leitura.
+5. **Nenhuma entidade tem duas fontes oficiais ao mesmo tempo.** Esta é a regra da qual as outras quatro são consequência.
+
+### Verdade paralela: o que é, e por que é o risco principal
+
+Verdade paralela é a mesma pergunta com duas respostas diferentes em dois
+sistemas: o saldo daquele produto, quanto o cliente deve, se aquele pedido foi
+faturado. Ela não nasce de uma decisão de arquitetura — nasce de um clique numa
+tela que continuou ligada.
+
+O sistema tem, hoje, módulos que produzem exatamente isso: estoque com livro
+próprio, entrada de nota que grava custo, financeiro com título e baixa, e o
+faturamento do pedido, que dispara os dois primeiros por gatilho. Estão todos
+sem dado em produção, e é por isso que o momento de congelá-los é agora. O
+mapa dos pontos, o mecanismo proposto e o risco de cada um estão em
+[`docs/integracoes/congelamento-modulos-operacionais.md`](docs/integracoes/congelamento-modulos-operacionais.md).
+
+Congelar não é apagar: tabela, função, teste e documentação ficam onde estão.
+O que para é o uso.
+
+### `orders`: espelho, não origem
+
+A venda nasce na Compusystem. O `orders` do Supabase é espelho do que o ERP
+registrou — e o pedido criado no aplicativo, enquanto não houver contrato de
+escrita, é **intenção comercial**, não a venda. O caminho futuro (pedido no app
+→ pendente → integração envia → ERP confirma → Supabase espelha situação e
+identificador) está desenhado, sem uma linha implementada, em
+[`docs/integracoes/integracao-modelo-conceitual.md`](docs/integracoes/integracao-modelo-conceitual.md).
+
+### Espelho, read model, identificador externo
+
+Espelho é cópia de leitura de uma entidade do ERP; read model é dado derivado,
+montado para consulta. Os dois carregam sempre o **identificador externo** do
+registro na origem, a hora da última alteração lá e a hora da sincronização
+aqui. O sistema da AGROTORK nunca depende do identificador do ERP fora da
+tabela de vínculo — é o que permite trocar de ERP sem reescrever o núcleo.
+
+### Idempotência: a parte que já está pronta
+
+`brain.events` é append-only e idempotente por `(source, external_id)`. O
+mesmo fato entregue duas vezes entra uma vez só, e isso vale tanto para
+repetição da API quanto para reprocessamento. A integração futura usa esse
+mecanismo como está — **o schema de eventos não muda por causa dela**.
+
+Uma armadilha de vocabulário, registrada para não custar caro depois: dentro
+do BRAIN, `source = 'erp'` significa **o próprio schema `public` desta
+aplicação**, não a Compusystem. São três eventos em produção com esse valor, e
+ele não será renomeado; a Compusystem entra como fonte nova, com nome próprio.
+
+### Reconciliação e auditoria
+
+Sincronizar traz o que mudou; reconciliar responde "o espelho está mentindo?".
+O molde já existe em produção — `brain.divergencias_erp()` lista a diferença
+sem corrigir por conta própria, e `reconciliar_erp()` corrige o que a lista
+apontou. A integração repete a forma.
+
+Auditoria continua onde está: `audit_log` para o que o aplicativo altera, e a
+trilha de execução da integração para o que veio do ERP — quem leu, quando, o
+que voltou. As duas são somente-anexação e de leitura do administrador.
+
+### Segredo e superfície
+
+A credencial da Compusystem é do servidor e de mais ninguém: nunca em
+`NEXT_PUBLIC_*`, nunca no navegador, nunca no repositório. A mesma disciplina
+já aplicada à service role (ver "Por que a service role não está configurada")
+vale aqui — chave que não está no ambiente do cliente não vaza por ele. Acesso
+somente leitura, permissão mínima, rotação possível, registro de execução sem
+segredo.
+
+### O que está proibido antes da documentação da API
+
+Criar schema de integração. Escolher nome definitivo. Escrever normalizador.
+Desenhar coluna a partir de suposição sobre o que a Compusystem devolve.
+Guardar credencial. Implementar escrita. O pedido técnico enviado ao
+fornecedor — contrato, entidades, backup de referência — está em
+[`docs/integracoes/compusystem-contrato-integracao.md`](docs/integracoes/compusystem-contrato-integracao.md).
+
+---
+
+## 15. `instagram_curator` — sistema separado no mesmo banco
+
+O banco de produção tem um terceiro schema, `instagram_curator`, criado pelas
+migrations `20260910151115` e `20260910151534`. Ele atende a curadoria de
+conteúdo do Instagram da AGROTORK: referências, artefatos, execuções, eventos,
+regras editoriais e travas.
+
+Está documentado aqui por uma razão só: **quem audita o banco encontra o
+schema e precisa saber que ele não faz parte deste sistema.**
+
+- Não tem relação funcional com o sistema comercial, com o BRAIN ou com o ERP;
+- nenhum código deste repositório lê ou escreve nele;
+- RLS ligado em todas as tabelas, acesso apenas de `service_role` — `anon` e `authenticated` não alcançam nada;
+- governança e evolução são próprias, fora do roadmap do sistema comercial;
+- a migration que o cria traz, no cabeçalho, o registro de que foi recuperada byte a byte do histórico de produção, com tamanho e md5 — ela não deve ser reescrita nem "melhorada".
+
+A integração com a Compusystem não o alcança, e ele não participa de nenhuma
+decisão de fonte oficial.

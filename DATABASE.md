@@ -872,12 +872,36 @@ qualquer mudança nasce como arquivo de migration versionado no Git.
 
 Documentadas apenas para garantir que o modelo atual as comporta:
 
-`stock_movements`, `warehouses`, `suppliers`, `purchase_orders`,
-`price_lists`, `price_list_items`, `commissions`, `commission_rules`,
-`customer_interactions`, `attachments`, `quote_approvals`, `signatures`.
+`warehouses`, `purchase_orders`, `price_lists`, `price_list_items`,
+`commissions`, `commission_rules`, `customer_interactions`, `attachments`,
+`quote_approvals`, `signatures`.
 
-`orders` e `order_items` saíram desta lista: foram criadas na migration
-`20260903060000` e estão documentadas em 4.14 e 4.15.
+Saíram desta lista porque foram criadas e estão documentadas na seção 4:
+`orders` e `order_items` (migration `20260903060000`), `suppliers`
+(`20260903100000`), `stock_movements` e `stock_movement_costs`
+(`20260903120000`).
+
+### Espelhos do ERP — nome e forma ainda em aberto
+
+A decisão de setembro/2026 (ARCHITECTURE §14) põe a Compusystem como fonte
+oficial de estoque, produtos, preço, custo, clientes, vendas, compras e
+financeiro, com integração **somente leitura**. Isso pede, no futuro, tabelas
+de espelho e uma trilha de sincronização neste banco.
+
+Elas **não estão desenhadas e não devem ser criadas agora**. Nem as colunas,
+nem o nome do schema (`integration`, `erp`, `compusystem` — nenhum escolhido).
+O motivo é o mesmo que vale para o resto deste documento: não se modela contra
+suposição. O desenho entra quando a documentação da API chegar; o pedido
+técnico enviado ao fornecedor está em
+`docs/integracoes/compusystem-contrato-integracao.md`, e a forma pretendida em
+`docs/integracoes/integracao-modelo-conceitual.md`.
+
+O que já se sabe da forma, e vale registrar para conferir o modelo atual
+contra ela: toda linha de espelho carrega o identificador do registro na
+origem, a hora da última alteração lá e a hora da sincronização aqui; o
+vínculo com `products`, `customers` e `orders` se faz por tabela de ligação, e
+**não** por coluna nova nessas três — é o que permite trocar de ERP sem mexer
+no núcleo.
 
 ### Importação de catálogos de fabricante — forma prevista
 
