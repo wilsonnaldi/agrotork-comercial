@@ -307,3 +307,40 @@ Recomendação: **A** — é o fluxo já auditado (T1/T2/T3), sem código novo e
 - A cobertura usa título do documento e nome da fonte: "Magnojet" na pergunta conta para
   qualquer chunk do catálogo (intencional; documentado).
 - Versão ativa em produção continua inexistente; nada do golden foi executado lá.
+
+## 8. Regressão automatizada do piloto (15/09/2026)
+
+Até aqui o golden e as provas A–K deste piloto eram executados à mão, e por
+isso não protegiam ninguém de uma regressão futura. Viraram script:
+
+```
+PGHOST=/tmp/pgrun PGPORT=5433 PGUSER=postgres \
+  bash supabase/db-tests/ensaiar-magnojet.sh "<caminho>/MAGNOJET-CATALOGO_BR41_DIGITAL-V2.pdf"
+```
+
+Sobe um PostgreSQL descartável, aplica todas as migrations, ingere o catálogo
+real com o worker, e roda **golden 14/14** (as 14 perguntas de
+`docs/brain/golden-dataset-v0.json`, incluindo as que devem dar ZERO porque o
+documento não foi ingerido — "não encontrei evidência" é resposta golden
+igual) e **provas 12/12** (A–K de §4 mais X1–X3 do hotfix de código numérico).
+Como o resto dos `ensaiar-*.sh`, recebe o caminho do documento real por
+argumento e não entra no `run.mjs`.
+
+Rodado em PG16.13 e PG17.6: 14/14 e 12/12 nos dois.
+
+Uma diferença esperada: a ingestão de hoje marca **56** tabelas degradadas,
+contra as 68 que estão em produção. As 68 foram ingeridas por uma versão
+anterior do worker; as correções de reconstrução das rodadas seguintes
+recuperaram 12 tabelas. Produção não foi reingerida — quando for, o número
+cai.
+
+### O hotfix de código numérico não tocou neste piloto
+
+`20260915120000` (código puramente numérico é exato ou nada) é sobre o braço
+fuzzy de código, e o corpo Magnojet é alfanumérico. Provado, não presumido:
+
+| Prova | Consulta | Resultado |
+| --- | --- | --- |
+| X1 | `MJ981CA` | tabela p.20 com `rank_exact` — o fuzzy alfanumérico segue |
+| X2 | `MJ999CAP` | zero |
+| X3 | busca ampla, limite 100, superseded incluído | zero tabela degradada |

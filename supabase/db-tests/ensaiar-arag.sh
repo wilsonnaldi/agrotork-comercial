@@ -18,6 +18,10 @@
 # A–N    adversariais: código parecido, preço/telefone/CNPJ como código,
 #        exato × aproximado, linha vazia, cabeçalho, fórmula, contexto entre
 #        blocos, código repetido, inexistente, degradado, ERP intacto
+#
+# A, B e F exigem a migration 20260915120000 (código puramente numérico é
+# exato ou nada). Sem ela, a busca resolve um código numérico inexistente
+# para o vizinho a um dígito — que foi o bloqueio deste lote.
 # ============================================================
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -109,19 +113,20 @@ declare n int; m int; passes int:=0; falhas int:=0;
 begin
   -- A e B) código NUMÉRICO inexistente não pode ser resolvido para o vizinho.
   -- Num código numérico cada dígito é significado: 466113201 é OUTRA peça, não
-  -- um erro de digitação de 466113200. O braço aproximado da busca usa trigrama
-  -- com limiar 0,6, e para código numérico longo um dígito trocado passa
-  -- (0,667 e 0,700) — enquanto em código alfanumérico o mesmo limiar rejeita
-  -- corretamente (MJ999CAP × MJ981CAP = 0,385; DB1580 × DB1050 = 0,273).
-  -- Estes dois testes são o gate: enquanto FALHAREM, o lote ARAG não vai a
-  -- produção, porque perguntar por uma peça devolveria o preço de outra.
+  -- um erro de digitação de 466113200. Até 20260912040000 o braço aproximado
+  -- usava trigrama com limiar 0,6 e, para código numérico longo, um dígito
+  -- trocado passava (0,667 e 0,700) — enquanto em código alfanumérico o mesmo
+  -- limiar rejeitava corretamente (MJ999CAP × MJ981CAP = 0,385). Estes dois
+  -- testes eram o bloqueio do lote ARAG: perguntar por uma peça devolvia o
+  -- preço de outra. A migration 20260915120000 fecha isso — par de códigos
+  -- puramente numéricos não entra no fuzzy, nem na seleção nem no ranking.
   select count(*) into n from brain.search_knowledge('466113201');
   if n=0 then passes:=passes+1; raise notice 'A PASS  466113201 (inexistente) → zero';
-  else falhas:=falhas+1; raise warning 'A FALHA (BLOQUEIO CONHECIDO — aproximação em código numérico): % hit(s) para código que não existe', n; end if;
+  else falhas:=falhas+1; raise warning 'A FALHA: % hit(s) para código numérico que não existe', n; end if;
 
   select count(*) into n from brain.search_knowledge('46262150');
   if n=0 then passes:=passes+1; raise notice 'B PASS  46262150 (inexistente) → zero';
-  else falhas:=falhas+1; raise warning 'B FALHA (BLOQUEIO CONHECIDO — aproximação em código numérico): % hit(s) para código que não existe', n; end if;
+  else falhas:=falhas+1; raise warning 'B FALHA: % hit(s) para código numérico que não existe', n; end if;
 
   -- C) número de preço não é código
   select count(*) into n from brain.document_chunks c where c.codes @> array['1098'] or c.codes @> array['1630'];
@@ -139,11 +144,13 @@ begin
   if n>=1 then passes:=passes+1; raise notice 'E PASS  código exato entra pelo braço exato (rank_exact=1)';
   else falhas:=falhas+1; raise warning 'E FALHA'; end if;
 
-  -- F) fuzzy não substitui exato: dígito faltando acha; código diferente não
+  -- F) código numérico é EXATO OU NADA: nem o vizinho a um dígito nem o distante
+  --    respondem. (Antes de 20260915120000 o vizinho respondia — era o defeito.)
+  --    O exato continua respondendo, provado em E.
   select count(*) into n from brain.search_knowledge('46611320');
   select count(*) into m from brain.search_knowledge('466119999');
-  if n>=1 and m=0 then passes:=passes+1; raise notice 'F PASS  46611320 acha por proximidade; 466119999 não acha nada';
-  else falhas:=falhas+1; raise warning 'F FALHA: proximo=% distante=%', n, m; end if;
+  if n=0 and m=0 then passes:=passes+1; raise notice 'F PASS  46611320 (dígito a menos) e 466119999 (distante) não acham nada — numérico é exato ou nada';
+  else falhas:=falhas+1; raise warning 'F FALHA: proximo=% distante=% (esperado 0 e 0)', n, m; end if;
 
   -- G) linha vazia não virou produto
   select count(*) into n from brain.document_chunks c, lateral jsonb_array_elements(c.table_data->'rows') r
@@ -200,8 +207,9 @@ if [ "$GOK" = 0 ] && [ "$AOK" = 0 ]; then
   echo "✔ lote ARAG ensaiado: golden e adversariais"
 else
   echo "✗ lote ARAG NAO liberado (golden=$GOK adversariais=$AOK)"
-  echo "  Se as falhas forem A e B, o bloqueio e conhecido: a busca resolve"
-  echo "  codigo NUMERICO inexistente para o vizinho mais parecido. Ver"
-  echo "  docs/brain/fase-2-arag.md, secao 'Bloqueio para producao'."
+  echo "  A e B cobrem o antigo bloqueio (codigo NUMERICO inexistente resolvido"
+  echo "  para o vizinho), fechado pela migration 20260915120000. Se voltarem a"
+  echo "  falhar, a migration nao esta aplicada neste banco ou foi revertida."
+  echo "  Ver docs/brain/fase-2-arag.md, secao 'Bloqueio para producao'."
   exit 1
 fi

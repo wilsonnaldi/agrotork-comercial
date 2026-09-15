@@ -90,10 +90,16 @@ sincronia é por reconciliação. Fase 2 (memória corporativa) em produção, c
 o Catálogo Magnojet V41 ativo: 172 páginas, 778 trechos, 202 tabelas
 confiáveis e 68 degradadas, que a busca recusa como evidência.
 
+A migration `20260915120000` (código puramente numérico é exato ou nada na
+busca) está no repositório, testada em PG16/17/18, com rollback pronto em
+`supabase/operacao/10-…`, e **ainda não foi aplicada em produção** — a última
+aplicada lá continua sendo a `20260912040000`. É ela que destrava o lote ARAG.
+
 Pendências conhecidas: bucket `brain-documents` não criado (a versão ativa
 aponta para um caminho que ainda não existe), Lote C e DJI subdealer não
 iniciados, cinco falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no
-modo desacoplado), e a barra do celular com 5 itens marcados para 4 lugares.
+modo desacoplado), a migration `20260915120000` aguardando gate produtivo, e
+a barra do celular com 5 itens marcados para 4 lugares.
 
 O trabalho citado como "Fase 9/10/11" e "suíte 26" **não existe em nenhuma
 branch** — ver `ROADMAP.md`, "Trabalho não verificado". Não planejar em cima

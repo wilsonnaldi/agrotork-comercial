@@ -105,3 +105,20 @@ faltantes". A reconciliação também põe a oportunidade no estágio certo,
 liga o pedido, marca a venda ganha, converte o lead e desfaz a venda
 cancelada no escuro. Ela não atropela decisão humana: oportunidade em
 `lost` fica em `lost`.
+
+## Reverter a busca de código numérico
+
+`10-reverter-codigo-numerico-exato.sql` desfaz a migration
+`20260915120000` e devolve `brain.search_knowledge` à definição de
+`20260912040000`, byte a byte.
+
+Ele **reintroduz um defeito de propósito**: sem a `20260915120000`, uma
+pergunta por código puramente numérico que não existe (`466113201`) é
+resolvida para o vizinho a um dígito (`466113200`) — quer dizer, o
+sistema responde sobre uma peça com o dado de outra. Só se usa se a
+correção quebrar em produção algo pior do que isso.
+
+O script confere a assinatura antes, é transacional, reaplica os grants
+e aborta se `anon` ou `public` ficarem com `EXECUTE`. A diferença de md5
+que ele produz em produção é comentário, não código — está explicada no
+cabeçalho do arquivo.

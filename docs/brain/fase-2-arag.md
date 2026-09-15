@@ -8,8 +8,9 @@ fora de produção: o arquivo foi lido, o suporte a `.xlsx` foi auditado e
 corrigido onde estava errado, a planilha foi ingerida num PostgreSQL
 descartável e submetida a golden e adversariais.
 
-**Golden 7/7. Adversariais 12 de 14 — e as duas falhas são um bloqueio real
-de produção, não um detalhe de teste.** Ver §7.
+**Golden 7/7. Adversariais 14/14 — desde 15/09/2026.** Os dois adversariais
+que faltavam (A e B) eram um bloqueio real de produção, não um detalhe de
+teste; a migration `20260915120000` fechou a causa. Ver §7.
 
 Reproduzir:
 
@@ -148,9 +149,14 @@ inexistente → zero) · M (nenhuma tabela degradada) · N (zero escrita no ERP)
 3. **Fórmula sem valor calculado fica vazia.** A linha TOTAL do segundo bloco tem `=SUM(...)` com valor em cache, e aparece; uma fórmula gravada por ferramenta que não calcula chegaria como nada. Nunca como texto cru — isso está testado (W30).
 4. **Dinheiro em ponto flutuante**, como no lote DJI e pelo mesmo motivo: a coluna é `jsonb`, o sistema só armazena e cita, e trocar a representação agora seria migration e reingestão por motivo estético.
 
-## 7. Bloqueio para produção: aproximação em código numérico
+## 7. Bloqueio para produção (RESOLVIDO em 15/09/2026): aproximação em código numérico
 
-O adversarial A e o B falham, e a causa é a mesma:
+> **Estado:** corrigido pela migration `20260915120000_brain_busca_codigo_numerico_exato`,
+> **ainda não aplicada em produção** — está no repositório, testada, com
+> rollback pronto, aguardando o gate produtivo. A descrição abaixo é o
+> diagnóstico original, mantido porque é ele que justifica a correção.
+
+O adversarial A e o B falhavam, e a causa era a mesma:
 
 ```
 busca por 466113201  (código que NÃO existe)  → devolve 2 trechos do 466113200
@@ -176,34 +182,46 @@ ortografia, e um dígito trocado é outra peça — nunca um erro de digitação
 o sistema deva resolver sozinho. O corpo ARAG é inteiramente numérico, e é por
 isso que o problema aparece aqui e não apareceu no Magnojet nem no DJI.
 
-**Correção proposta** (uma linha na CTE `codigo` de `brain.search_knowledge`,
-migration nova, não escrita nesta rodada): excluir do braço aproximado os
-códigos em que **tanto a consulta quanto o candidato são puramente numéricos**
+**Correção aplicada** (migration `20260915120000`, auditada e aprovada pelo
+ChatGPT antes de ser escrita): excluir do braço aproximado os pares em que
+**tanto o código da pergunta quanto o do candidato são puramente numéricos**
 — para esses, só casamento exato.
 
 ```sql
--- dentro do exists(...) do braço aproximado, acrescentar:
+-- na CTE `codigo`, nos DOIS lugares em que o fuzzy contribui:
+-- (a) no exists(...) que seleciona o candidato
+-- (b) na subconsulta max(similarity(...)) que calcula o `sim` do ranking
   and not (qc ~ '^[0-9]+$' and cc ~ '^[0-9]+$')
 ```
 
-Isso não mexe em nada que hoje funciona: `MJ981CA → MJ981CAP` continua (tem
-letras), e todos os pares alfanuméricos acima seguem idênticos. Precisa de
-migration, teste na suíte 36 e GO do ChatGPT — **é decisão de segurança de
-busca, não de worker**, e por isso não foi aplicada por conta própria.
+Precisava valer nos dois: só no `exists` deixaria um candidato numérico entrar
+por casamento exato de OUTRO código e ainda ganhar ordenação por similaridade
+numérica. A migration **não edita** a `20260912040000` (já aplicada em
+produção): redefine `brain.search_knowledge` preservando assinatura, `security
+invoker`, `search_path` vazio, grants, RRF, fail-closed de tabela degradada,
+filtros e todo o comportamento alfanumérico.
 
-**Enquanto não for corrigido, o lote ARAG não vai a produção**: ingerir um
-corpo de códigos numéricos com essa busca significa responder pergunta sobre
-uma peça com o preço de outra.
+Isso não mexe em nada que já funcionava: `MJ981CA → MJ981CAP` continua (tem
+letras), e todos os pares alfanuméricos acima seguem idênticos — provado em
+`37_brain_codigo_numerico.sql` (N6, N10) e em `ensaiar-magnojet.sh` (X1).
+
+**Fronteira conhecida, deliberadamente não mexida:** `brain.query_codes`
+reconhece número puro como código de 7 a 9 dígitos. Fora dessa janela (6
+dígitos, ou 10+) a pergunta não tem intenção de código e os braços de prosa
+respondem — a trigrama pode casar o número de 9 dígitos que está dentro do
+texto. Não é o braço de código (nenhum `rank_exact` sai daí) e está fora do
+escopo aprovado desta correção; ficou assertado em N11 para ser fronteira
+registrada e não surpresa.
 
 ## 8. Gate produtivo
 
 | Gate | Situação | O que falta |
 | --- | --- | --- |
-| GO técnico | **PARCIAL** | Golden 7/7 e 12 de 14 adversariais. Faltam A e B, que dependem da correção de §7 |
+| GO técnico | **SIM** | Golden 7/7 e adversariais 14/14, em PG16 e PG17 |
 | GO governança | **SIM** | A proveniência está resolvida: fonte interna da AGROTORK, marca ARAG relacionada, nada apresentado como catálogo de fabricante |
-| GO produção | **NÃO** | Depende de §7 |
+| GO produção | **NÃO** | A migration `20260915120000` ainda não foi aplicada em produção — é ela que sustenta A, B e F |
 
-Ordem recomendada: corrigir a busca (migration + suíte 36 + GO do ChatGPT) →
-rodar `ensaiar-arag.sh` de novo e ver A e B verdes → então o gate produtivo do
-ARAG, que é curto: registrar fonte e documento, ingerir, rodar o golden,
-ativar.
+Ordem recomendada: auditoria do ChatGPT sobre `20260915120000` → aplicar a
+migration em produção (com o rollback `supabase/operacao/10-…` à mão) →
+conferir A/B/F contra produção → então o gate produtivo do ARAG, que é curto:
+registrar fonte e documento, ingerir, rodar o golden, ativar.

@@ -86,6 +86,7 @@ const SUITES = [
   ["BRAIN Fase 2: hardening (adversarial)", "34_brain_memoria_hardening.sql", /RAG-H\d+b?\)|NOTICE/],
   ["BRAIN Fase 2: ingestão sem vetores (Lote B)", "35_brain_ingestao.sql", /B\d+\)|BG\d+\)|NOTICE/],
   ["BRAIN Fase 2: busca calibrada (piloto Magnojet)", "36_brain_busca_calibracao.sql", /C\d+\)|NOTICE/],
+  ["BRAIN Fase 2: código numérico exato ou nada", "37_brain_codigo_numerico.sql", /N\d+\)|N-SEG\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {

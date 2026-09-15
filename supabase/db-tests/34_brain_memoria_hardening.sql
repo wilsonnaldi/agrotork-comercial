@@ -551,8 +551,9 @@ $$;
 -- pg_trgm.word_similarity_threshold = 0.35`; a funcao passou a fixar o
 -- limiar com set_config(..., true) dentro da execucao. Este teste prova que
 -- o arquivo versionado e o que deve estar em producao e que o comportamento
--- e o aprovado no Lote A. Desde a migration 20260912040000 (calibracao do
--- piloto Magnojet) o corpo e o dessa migration; a busca por codigo com
+-- e o aprovado no Lote A. Desde a migration 20260915120000 (codigo numerico
+-- exato ou nada) o corpo e o dessa migration, que redefine a busca calibrada
+-- em 20260912040000 sem tocar nela; a busca por codigo com
 -- letra faltando ("kw7710") passou a ser tratada pelo braco de codigo
 -- (codigo x codigo), entao o controle do limiar trigram usa uma PALAVRA
 -- com erro de grafia ("glyfox" → "glifox", similaridade 0,40).
@@ -568,12 +569,15 @@ begin
   if v_cfg <> array['search_path=""'] then raise exception 'RAG-H11 FALHOU: proconfig = %', v_cfg; end if;
   -- 2. volatile (altera configuracao de sessao), nao stable
   if v_vol <> 'v' then raise exception 'RAG-H11 FALHOU: volatilidade = %', v_vol; end if;
-  -- 3. corpo byte a byte igual ao versionado: o da migration 20260912040000
-  --    (calibracao do piloto, presente quando brain.query_codes existe) ou, sem
-  --    ela — Lote A puro, ou depois do 08-remover-lote-b — o aplicado em
-  --    producao em 12/09/2026 (md5 3b54175bfd5a335ff737b799ca3eb3b6)
+  -- 3. corpo byte a byte igual ao versionado: o da migration 20260915120000
+  --    (codigo numerico exato ou nada, ultima redefinicao; presente quando
+  --    brain.query_codes existe) ou, sem ela — Lote A puro, ou depois do
+  --    08-remover-lote-b — o aplicado em producao em 12/09/2026
+  --    (md5 3b54175bfd5a335ff737b799ca3eb3b6).
+  --    Definicoes anteriores desta cadeia, para leitura de historico:
+  --      20260912040000 (calibracao do piloto) = 21b2f43731ab0d17f8f781845aa52830
   v_esperado := case when to_regprocedure('brain.query_codes(text)') is not null
-                     then '21b2f43731ab0d17f8f781845aa52830' else '3b54175bfd5a335ff737b799ca3eb3b6' end;
+                     then '9d4924c582f183cab496207fa95ee44f' else '3b54175bfd5a335ff737b799ca3eb3b6' end;
   if v_md5 <> v_esperado then raise exception 'RAG-H11 FALHOU: definicao diverge do versionado (md5 %, esperado %)', v_md5, v_esperado; end if;
 
   -- 4. limiar efetivo 0,35 durante a execucao: 'glyfox' tem similaridade 0,40
