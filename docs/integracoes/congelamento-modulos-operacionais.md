@@ -61,6 +61,11 @@ custo em `product_costs` e movimento de estoque) · `register_financial_payment`
 
 ### Na aplicação
 
+Reconferido em 15/09/2026 contra o código: 13 funções do banco chamadas pelos
+módulos operacionais, 18 Server Actions de escrita (4 estoque, 6 compras, 2
+importação de NF-e, 3 financeiro, 3 pedidos) e os dois gatilhos de faturamento
+acima, todos habilitados. Nada mudou desde o mapa anterior.
+
 | Arquivo | Ações |
 | --- | --- |
 | `src/modules/stock/actions.ts` | `registerMovementAction`, `createSerialAction`, `assignSerialAction`, `releaseSerialAction` |
