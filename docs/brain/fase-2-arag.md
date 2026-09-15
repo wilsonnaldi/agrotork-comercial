@@ -152,9 +152,9 @@ inexistente → zero) · M (nenhuma tabela degradada) · N (zero escrita no ERP)
 ## 7. Bloqueio para produção (RESOLVIDO em 15/09/2026): aproximação em código numérico
 
 > **Estado:** corrigido pela migration `20260915120000_brain_busca_codigo_numerico_exato`,
-> **ainda não aplicada em produção** — está no repositório, testada, com
-> rollback pronto, aguardando o gate produtivo. A descrição abaixo é o
-> diagnóstico original, mantido porque é ele que justifica a correção.
+> **aplicada em produção em 15/09/2026**, com rollback pronto em
+> `supabase/operacao/10-…`. A descrição abaixo é o diagnóstico original,
+> mantido porque é ele que justifica a correção.
 
 O adversarial A e o B falhavam, e a causa era a mesma:
 
@@ -219,9 +219,10 @@ registrada e não surpresa.
 | --- | --- | --- |
 | GO técnico | **SIM** | Golden 7/7 e adversariais 14/14, em PG16 e PG17 |
 | GO governança | **SIM** | A proveniência está resolvida: fonte interna da AGROTORK, marca ARAG relacionada, nada apresentado como catálogo de fabricante |
-| GO produção | **NÃO** | A migration `20260915120000` ainda não foi aplicada em produção — é ela que sustenta A, B e F |
+| GO produção | **PENDENTE DE GATE PRÓPRIO** | A busca já está corrigida em produção (`20260915120000`, 15/09/2026). Falta o gate de ingestão do ARAG |
 
-Ordem recomendada: auditoria do ChatGPT sobre `20260915120000` → aplicar a
-migration em produção (com o rollback `supabase/operacao/10-…` à mão) →
-conferir A/B/F contra produção → então o gate produtivo do ARAG, que é curto:
-registrar fonte e documento, ingerir, rodar o golden, ativar.
+Ordem recomendada, agora que a busca está corrigida em produção: gate de
+ingestão do ARAG — registrar fonte e documento, ingerir, rodar o golden contra
+produção, ativar. É nesse momento que A, B e F deixam de ser vácuo em produção:
+enquanto não houver um corpo de códigos numéricos lá, eles passam por ausência
+de evidência, não por comportamento.
