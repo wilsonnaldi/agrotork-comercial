@@ -13,12 +13,12 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fixtures import FLOW_SPEEDS, TABLE_ROWS, make_catalog_pdf, make_degraded_pdf, make_flow_pdf, make_price_xlsx, make_text  # noqa: E402
+from fixtures import COMMERCIAL_BLOCKS, FLOW_SPEEDS, TABLE_ROWS, make_catalog_pdf, make_commercial_pdf, make_degraded_pdf, make_flow_pdf, make_price_xlsx, make_text  # noqa: E402
 from brain_worker.chunking import CONFIG, MAX, PageInput, chunk_pages, is_heading  # noqa: E402
 from brain_worker.codes import extract_codes, known_profiles, normalize_code  # noqa: E402
 from brain_worker.extract import extract, mime_for, ocr_available, sniff_ok  # noqa: E402
 from brain_worker.pipeline import plan, sha256_of  # noqa: E402
-from brain_worker.tables import TechnicalTable, build_table, parse_number  # noqa: E402
+from brain_worker.tables import TechnicalTable, build_table, is_money, parse_number, split_side_by_side  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -329,3 +329,111 @@ def test_w16_tables_inherit_section_only_when_page_has_one_section():
     assert [c.heading_path for c in two if c.kind == "table"] == [["TITULO"], ["TITULO"]]
     # (os corpos curtos se agregam num chunk com o caminho do primeiro fragmento — politica de fragmentos)
     assert [c.heading_path for c in two if c.kind == "text"] == [["TITULO"]]
+
+
+# ── W17–W24 tabela comercial: título, blocos lado a lado, moeda, adversariais ──
+#
+# Os valores da fixture são inventados (11.111, 22.222, 33.333, 44.444). Nenhum
+# preço real entra em teste: se entrasse, o teste passaria por coincidir com o
+# documento em vez de por ler a estrutura, e amarrar o pipeline a um número de
+# tabela é exatamente o que não pode acontecer.
+
+@pytest.fixture(scope="module")
+def commercial_pdf(tmp_path_factory):
+    return make_commercial_pdf(tmp_path_factory.mktemp("c") / "subdealer_sintetico.pdf")
+
+
+def _price_tables(pdf):
+    return [c for c in plan(pdf).chunks if c.kind == "price_table"]
+
+
+def test_w17_commercial_table_is_price_table_and_trusted(commercial_pdf):
+    """Tabela de preço tem que ser reconhecida pelo CONTEÚDO (R$ na célula), não
+    por bandeira na linha de comando, e sair confiável — os quatro blocos."""
+    tabelas = _price_tables(commercial_pdf)
+    assert len(tabelas) == len(COMMERCIAL_BLOCKS)
+    for c in tabelas:
+        assert c.table_data["audit"]["quality"] == "trusted", c.table_data["audit"]["issues"]
+
+
+def test_w18_title_above_header_becomes_title_not_header(commercial_pdf):
+    """O nome do produto está ACIMA do cabeçalho. Sem promover a segunda linha,
+    ele vira o cabeçalho e as colunas de preço ficam col_1/col_2."""
+    titulos = {c.table_data.get("title") for c in _price_tables(commercial_pdf)}
+    assert titulos == {b[0] for b in COMMERCIAL_BLOCKS}
+    for c in _price_tables(commercial_pdf):
+        assert "Pgto_faturado" in c.table_data["headers"]
+        assert "Pgto_a_vista" in c.table_data["headers"]
+
+
+def test_w19_side_by_side_blocks_are_separate_tables(commercial_pdf):
+    """Dois blocos lado a lado com calha vazia no meio são DUAS tabelas. Juntos,
+    o preço da direita responderia pergunta da esquerda."""
+    tabelas = _price_tables(commercial_pdf)
+    por_titulo = {c.table_data["title"]: c.table_data["rows"] for c in tabelas}
+    t25p = por_titulo["DRONE AGRAS T25P + 3 BAT + CARREGADOR C8000"]
+    t25 = por_titulo["DRONE AGRAS T25 + 3 BAT + CARREGADOR C8000"]
+    assert t25p[0][1] == 11111.0 and t25[0][1] == 22222.0
+    # a mesma tabela nunca carrega os dois produtos
+    for c in tabelas:
+        assert len([b for b in COMMERCIAL_BLOCKS if b[0] == c.table_data["title"]]) == 1
+
+
+def test_w20_money_with_decorative_dashes_is_a_number():
+    """"-R$ 33.333,00-" é 33333.0, não texto nem negativo. Negativo de verdade
+    continua negativo, e número solto não é dinheiro."""
+    assert parse_number("-R$ 33.333,00-") == 33333.0
+    assert parse_number("R$ -33.333,00") == -33333.0
+    assert parse_number("-33.333,00") == -33333.0
+    assert is_money("-R$ 999,00-") and is_money("R$ 1.099,00")
+    assert not is_money("1580") and not is_money("DB1580") and not is_money("2,76")
+
+
+def test_w21_columns_keep_the_payment_condition(commercial_pdf):
+    """À vista ≠ faturado ≠ cliente final mínimo: três valores diferentes que
+    não podem colapsar em um. O da linha 'cliente final' não tem faturado."""
+    por_titulo = {c.table_data["title"]: c.table_data for c in _price_tables(commercial_pdf)}
+    td = por_titulo["DRONE AGRAS T55 + 3 BAT DB1050 + CARREGADOR C7000"]
+    i_fat = td["headers"].index("Pgto_faturado")
+    i_vista = td["headers"].index("Pgto_a_vista")
+    revenda, cliente = td["rows"][0], td["rows"][1]
+    assert revenda[i_fat] == 33333.0 and revenda[i_vista] == 30303.0
+    assert cliente[i_fat] is None and cliente[i_vista] == 35353.0
+    assert td["units"][td["headers"][i_fat]] == "BRL"
+
+
+def test_w22_adversarial_codes_never_collapse(commercial_pdf):
+    """T25P ≠ T25, DB1050 ≠ DB1580, C7000 ≠ C12000: cada bloco só declara os
+    códigos que estão nele."""
+    por_titulo = {c.table_data["title"]: set(c.codes) for c in _price_tables(commercial_pdf)}
+    t25p = por_titulo["DRONE AGRAS T25P + 3 BAT + CARREGADOR C8000"]
+    t25 = por_titulo["DRONE AGRAS T25 + 3 BAT + CARREGADOR C8000"]
+    assert "T25P" in t25p and "T25" not in t25p
+    assert "T25" in t25 and "T25P" not in t25
+    db1050 = por_titulo["DRONE AGRAS T55 + 3 BAT DB1050 + CARREGADOR C7000"]
+    db1580 = por_titulo["DRONE AGRAS T55 + 3 BAT DB1580 + CARREGADOR C12000"]
+    assert "DB1050" in db1050 and "DB1580" not in db1050 and "C7000" in db1050
+    assert "DB1580" in db1580 and "DB1050" not in db1580 and "C12000" in db1580
+
+
+def test_w23_money_is_not_a_product_code_and_quantity_is_not_a_price():
+    """Preço não vira código ("165.500,00" não é peça) e "3 BAT" não vira preço."""
+    achados = extract_codes("SUBDEALER REVENDA R$ 165.500,00 R$ 159.000,00 -R$ 21.550,00-")
+    assert achados == []
+    assert parse_number("3 BAT") is None
+    assert not is_money("3 BAT")
+    # o código do produto continua saindo do mesmo texto
+    assert "T100" in extract_codes("DRONE AGRAS T100 + 3 BAT + CARREGADOR C12000 R$ 165.500,00")
+
+
+def test_w24_split_only_when_unambiguous():
+    """A separação lado a lado é conservadora: tabela estreita, sem coluna
+    inteiramente vazia, ou com um lado de uma coluna só não se divide."""
+    estreita = [["a", "", "b"], ["1", "", "2"]]
+    assert len(split_side_by_side(estreita)) == 1
+    sem_calha = [["a", "b", "c", "d", "e"], ["1", "2", "3", "4", "5"]]
+    assert len(split_side_by_side(sem_calha)) == 1
+    lado_de_uma_coluna = [["a", "b", "", "c", "d"], ["1", "2", "", "3", "4"]]
+    assert len(split_side_by_side(lado_de_uma_coluna)) == 2
+    um_lado_magro = [["a", "b", "c", "", "d"], ["1", "2", "3", "", "4"]]
+    assert len(split_side_by_side(um_lado_magro)) == 1

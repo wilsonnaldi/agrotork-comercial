@@ -220,3 +220,72 @@ def make_degraded_pdf(path: Path) -> Path:
         c.drawCentredString(sp_x0 + sp_w * i + sp_w / 2, row_top - 8, str(v))
     c.showPage(); c.save()
     return path
+
+
+# ── Tabela comercial "à DJI": dois blocos lado a lado separados por uma calha
+#    vazia, título do produto acima do cabeçalho, e célula monetária com traço
+#    decorativo dos dois lados ("-R$ 11.111,00-"), como sai da exportação de
+#    planilha. Valores SINTÉTICOS de propósito: nenhum preço real entra em
+#    fixture, senão o teste passa por coincidir com o documento em vez de por
+#    ler a estrutura.
+COMMERCIAL_BLOCKS = [
+    # (título, [(rótulo, faturado, à vista)]) — pares adversariais de propósito:
+    # T25P ≠ T25, T55 DB1050 ≠ T55 DB1580, C7000 ≠ C12000.
+    ("DRONE AGRAS T25P + 3 BAT + CARREGADOR C8000",
+     [("SUBDEALER REVENDA", "R$ 11.111,00", "R$ 10.101,00"),
+      ("CLIENTE FINAL MÍNIMO", "", "R$ 15.151,00")]),
+    ("DRONE AGRAS T25 + 3 BAT + CARREGADOR C8000",
+     [("SUBDEALER REVENDA", "R$ 22.222,00", "R$ 20.202,00"),
+      ("CLIENTE FINAL MÍNIMO", "", "R$ 25.252,00")]),
+    ("DRONE AGRAS T55 + 3 BAT DB1050 + CARREGADOR C7000",
+     [("SUBDEALER REVENDA", "-R$ 33.333,00-", "-R$ 30.303,00-"),
+      ("CLIENTE FINAL MÍNIMO", "", "-R$ 35.353,00-")]),
+    ("DRONE AGRAS T55 + 3 BAT DB1580 + CARREGADOR C12000",
+     [("SUBDEALER REVENDA", "-R$ 44.444,00-", "-R$ 40.404,00-"),
+      ("CLIENTE FINAL MÍNIMO", "", "-R$ 45.454,00-")]),
+]
+
+
+def make_commercial_pdf(path: Path) -> Path:
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfgen import canvas
+
+    c = canvas.Canvas(str(path), pagesize=A4, invariant=1)
+    W, H = A4
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(40, H - 50, "TABELA SUBDEALER")
+    # 7 colunas: rótulo|faturado|à vista | CALHA | rótulo|faturado|à vista.
+    # A régua vertical NÃO atravessa a linha de título: ele é uma célula só,
+    # mesclada, exatamente como no documento real.
+    xs = [30, 140, 215, 285, 300, 410, 485]
+    right = 555
+    lh = 16
+    for par in range(0, len(COMMERCIAL_BLOCKS), 2):
+        esq, dir_ = COMMERCIAL_BLOCKS[par], COMMERCIAL_BLOCKS[par + 1]
+        top = H - 90 - (par // 2) * 110
+        n = 2 + len(esq[1])
+        for k in range(n + 1):
+            c.line(xs[0], top - k * lh, right, top - k * lh)
+        # verticais: bordas do bloco atravessam tudo; as internas começam no cabeçalho
+        for x in (xs[0], xs[3], xs[4], right):
+            c.line(x, top, x, top - n * lh)
+        for x in (xs[1], xs[2], xs[5], xs[6]):
+            c.line(x, top - lh, x, top - n * lh)
+        c.setFont("Helvetica-Bold", 6)
+        c.drawString(xs[0] + 2, top - lh + 5, esq[0])
+        c.drawString(xs[4] + 2, top - lh + 5, dir_[0])
+        for base, bloco in ((0, esq), (4, dir_)):
+            c.setFont("Helvetica-Bold", 6)
+            c.drawString(xs[base + 1] + 2, top - 2 * lh + 5, "Pgto faturado")
+            c.drawString(xs[base + 2] + 2, top - 2 * lh + 5, "Pgto a vista")
+            c.setFont("Helvetica", 6)
+            for j, (rotulo, fat, vista) in enumerate(bloco[1], start=3):
+                y = top - j * lh + 5
+                c.drawString(xs[base] + 2, y, rotulo)
+                if fat:
+                    c.drawString(xs[base + 1] + 2, y, fat)
+                if vista:
+                    c.drawString(xs[base + 2] + 2, y, vista)
+    c.showPage()
+    c.save()
+    return path
