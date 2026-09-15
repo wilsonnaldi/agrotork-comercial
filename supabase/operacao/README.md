@@ -122,3 +122,22 @@ O script confere a assinatura antes, é transacional, reaplica os grants
 e aborta se `anon` ou `public` ficarem com `EXECUTE`. A diferença de md5
 que ele produz em produção é comentário, não código — está explicada no
 cabeçalho do arquivo.
+
+## Reverter o lote ARAG
+
+`09-remover-documento-ingerido.sql` já serve: é parametrizado por slug.
+Trocar a linha do slug por
+
+```sql
+v_slug text := 'agrotork-orcamento-sistemas-arag';
+```
+
+e conferir, no retrato que ele imprime ANTES de apagar: 1 versão, 1 página,
+2 trechos, 1 ingestão. Se algum número divergir, `rollback;` em vez de
+`commit;` — o banco não é o que a auditoria descreveu.
+
+A fonte `agrotork_interno` fica: ela é compartilhada por desenho e vai
+receber os próximos documentos internos da AGROTORK. O roteiro avisa se ela
+ficar órfã; remover é decisão humana.
+
+Detalhe do lote em `docs/brain/fase-2-arag-producao.md`.

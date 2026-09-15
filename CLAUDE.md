@@ -86,20 +86,22 @@ precificados, 1 usuário administrador, 0 vendedores, 1 cliente e 2 pedidos
 
 AGROTORK BRAIN: Fase 1 (CRM, identidade, eventos, jornada) em produção em
 modo desacoplado — as três pontes `trg_brain_*` ficam desligadas e a
-sincronia é por reconciliação. Fase 2 (memória corporativa) em produção, com
-o Catálogo Magnojet V41 ativo: 172 páginas, 778 trechos, 202 tabelas
-confiáveis e 68 degradadas, que a busca recusa como evidência.
+sincronia é por reconciliação. Fase 2 (memória corporativa) em produção com
+**dois documentos ativos**: o Catálogo Magnojet V41 (172 páginas, 778 trechos,
+202 tabelas confiáveis e 68 degradadas, que a busca recusa como evidência) e o
+orçamento interno ARAG (`agrotork_interno`, 1 página, 2 trechos, 2 tabelas
+confiáveis), ingerido em 15/09/2026 — ver `docs/brain/fase-2-arag-producao.md`.
 
 A migration `20260915120000` (código puramente numérico é exato ou nada na
 busca) foi **aplicada em produção em 15/09/2026**, depois de testada em
-PG16/17/18. Rollback pronto em `supabase/operacao/10-…`. É ela que destrava o
-lote ARAG — que segue **não ingerido**, aguardando gate próprio.
+PG16/17/18. Rollback pronto em `supabase/operacao/10-…`. Era ela que travava o
+lote ARAG, ingerido no mesmo dia.
 
 Pendências conhecidas: bucket `brain-documents` não criado (a versão ativa
 aponta para um caminho que ainda não existe), Lote C e DJI subdealer não
 iniciados, cinco falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no
-modo desacoplado), lote ARAG aguardando gate de ingestão, e a barra do celular
-com 5 itens marcados para 4 lugares.
+modo desacoplado), lote DJI subdealer aguardando gate de ingestão, e a barra
+do celular com 5 itens marcados para 4 lugares.
 
 O trabalho citado como "Fase 9/10/11" e "suíte 26" **não existe em nenhuma
 branch** — ver `ROADMAP.md`, "Trabalho não verificado". Não planejar em cima
