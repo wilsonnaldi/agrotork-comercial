@@ -110,6 +110,18 @@ lote: a fonte é `allcomp` (`distributor`), não `dji` — a DJI é a marca, nã
 autora da tabela; e da V15.1 só a **página 1** é evidência DJI, porque as
 páginas 2–4 são Ddock/GranDdock (faturado pela Zait) e RTK South/Sunnav.
 
+Retrato consolidado da Fase 2, com o próximo lote e o estado de cada
+pendência: `docs/brain/fase-2-consolidado.md` (16/09/2026). Dois avisos que
+saíram de lá: o `FIGHTER AD-IA.pdf` **não** é manual de procedimento — é
+relatório de calibração de um cliente identificado, e não entra sem decisão de
+governança; e o próximo documento maduro é a **tabela JR Soluções**
+(`TABELA REV JAN261.pdf`), que declara a própria vigência no texto e já tem 38
+produtos correspondentes no ERP.
+
+As cinco falhas da suíte 25 foram investigadas a fundo: todas são teste escrito
+para a premissa da ponte ligada, nenhuma esconde risco. Detalhe e ressalvas em
+`fase-2-consolidado.md` §7.
+
 O trabalho citado como "Fase 9/10/11" e "suíte 26" **não existe em nenhuma
 branch** — ver `ROADMAP.md`, "Trabalho não verificado". Não planejar em cima
 dele.
