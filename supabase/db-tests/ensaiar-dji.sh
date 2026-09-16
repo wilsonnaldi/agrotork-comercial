@@ -6,7 +6,12 @@
 #   PGHOST=/tmp/pgrun PGPORT=5433 PGUSER=postgres \
 #     bash supabase/db-tests/ensaiar-dji.sh \
 #       "/caminho/TABELA-SUBDEALER-V14.11.pdf" \
-#       "/caminho/TABELASUBDEALERV16.2  B.pdf"
+#       "/caminho/TABELASUBDEALERV16.2  B.pdf" \
+#       "/caminho/TABELA-SUBDEALER-V15.1 - B.pdf"
+#
+# O terceiro argumento (V15.1) e OPCIONAL. Com ele o ensaio monta a cadeia
+# completa V14.11 → V15.1 → V16.2 e roda o GOLDEN FINAL de 10 itens; sem ele,
+# roda a cadeia curta V14.11 → V16.2 que ja existia.
 #
 # Os PDFs NÃO estão no repositório e nunca estarão: são documentos reais de
 # fornecedor, com custo. O ensaio recebe o caminho deles como argumento —
@@ -24,6 +29,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$ROOT"
 V1411="${1:?informe o caminho do PDF V14.11}"
 V162="${2:?informe o caminho do PDF V16.2}"
+V151="${3:-}"   # opcional: habilita a cadeia de tres versoes
 PSQL="${PSQL:-psql}"
 H="${PGHOST:-/tmp/pgrun}"; P="${PGPORT:-5433}"; U="${PGUSER:-postgres}"
 DB=ensaio_dji
@@ -39,22 +45,91 @@ echo "  ok $(ls supabase/migrations/*.sql | wc -l) migrations"
 
 echo "▶ fonte e documento (o mesmo documento, duas versões)"
 q -c "insert into brain.knowledge_sources (key, name, kind, default_access_level, external_processing)
-      values ('dji','DJI / distribuidor oficial','manufacturer','commercial','forbidden');
+      values ('allcomp','ALLCOMP — distribuidor DJI Agriculture','distributor','commercial','forbidden');
       insert into brain.documents (source_key, slug, title, document_type, access_level)
-      values ('dji','dji-tabela-subdealer','Tabela Subdealer DJI','price_list','commercial')" >/dev/null
+      values ('allcomp','dji-tabela-subdealer','Tabela Subdealer DJI','price_list','commercial')" >/dev/null
 
 echo "▶ ingestão das duas versões"
 export BRAIN_DB_URL="postgresql://$U@/$DB?host=$H&port=$P"
 ( cd brain/worker && python3 -m brain_worker ingest "$V1411" --document dji-tabela-subdealer --label V14.11 --date 2026-01-14 --ocr never ) | sed 's/^/  V14.11 /'
 ( cd brain/worker && python3 -m brain_worker ingest "$V162"  --document dji-tabela-subdealer --label V16.2  --date 2026-08-04 --ocr never ) | sed 's/^/  V16.2  /'
 
-echo "▶ linhagem: V16.2 vigente, V14.11 histórica"
-q -c "update brain.document_versions set status='active', valid_from='2026-08-04' where version_label='V16.2';
-      update brain.document_versions set status='superseded', valid_from='2026-01-14', valid_to='2026-08-03',
-             superseded_by_id=(select id from brain.document_versions where version_label='V16.2')
-       where version_label='V14.11';
-      update brain.document_versions set supersedes_id=(select id from brain.document_versions where version_label='V14.11')
-       where version_label='V16.2'" >/dev/null
+if [ -n "$V151" ]; then
+  # A V15.1 tem 4 paginas e SO A PAGINA 1 e DJI: as paginas 2-3 sao Ddock/
+  # GranDdock (faturadas pela Zait) e a 4 e RTK South / piloto Sunnav.
+  # Publicar isso como "Tabela Subdealer DJI" seria mentira de proveniencia.
+  #
+  # O worker nao tem opcao de subconjunto de paginas (ver
+  # docs/brain/fase-2-dji-governanca.md §4), entao o ensaio faz o que o roteiro
+  # de producao fara: ingere o arquivo inteiro num documento de PASSAGEM, copia
+  # so a pagina 1 e os chunks dela para a versao DJI pelas MESMAS funcoes
+  # brain.ingestion_*, e descarta o documento de passagem. Nada e digitado a
+  # mao e o PDF original nao e tocado.
+  echo "▶ V15.1: ingestão de passagem (4 páginas) → só a página 1 vira evidência DJI"
+  q -c "insert into brain.documents (source_key, slug, title, document_type, access_level)
+        values ('allcomp','dji-v151-passagem','Passagem V15.1 (descartado)','price_list','commercial')" >/dev/null
+  ( cd brain/worker && python3 -m brain_worker ingest "$V151" --document dji-v151-passagem --label V15.1-full --date 2026-05-19 --ocr never ) | sed 's/^/  V15.1  /'
+
+  q -v ON_ERROR_STOP=1 -c "
+  do \$copia\$
+  declare v_src uuid; v_dst uuid; v_ing uuid; r record; n int;
+  begin
+    select v.id into v_src from brain.document_versions v join brain.documents d on d.id=v.document_id
+     where d.slug='dji-v151-passagem';
+    if v_src is null then raise exception 'ingestao de passagem da V15.1 nao existe'; end if;
+    v_dst := brain.register_version(
+      (select id from brain.documents where slug='dji-tabela-subdealer'),
+      'V15.1',
+      (select file_sha256 from brain.document_versions where id=v_src),
+      (select original_filename from brain.document_versions where id=v_src),
+      'application/pdf',
+      (select file_size from brain.document_versions where id=v_src),
+      '2026-05-19'::date, 1,
+      jsonb_build_object('provenance_note',
+        'Somente a pagina 1 deste arquivo e evidencia DJI. As paginas 2-3 (Ddock/GranDdock, faturado pela Zait) e a pagina 4 (RTK South / piloto automatico Sunnav) ficam fora deste documento logico. O arquivo fisico original e preservado inteiro e o sha256 e o mesmo.'));
+    v_ing := brain.ingestion_start(v_dst,'pdf_text','pdfplumber (copia da passagem)','lote-b.2','ensaio',false,1,false);
+    for r in select * from brain.document_pages where version_id=v_src and page_no=1 loop
+      perform brain.ingestion_add_page(v_ing, r.page_no, r.text, r.extraction, r.ocr,
+              coalesce(r.layout,'{}'::jsonb), coalesce(r.metadata,'{}'::jsonb));
+    end loop;
+    for r in select * from brain.document_chunks where version_id=v_src and page_from=1 order by ordinal loop
+      perform brain.ingestion_add_chunk(v_ing, r.ordinal, r.kind, r.page_from, r.page_to, r.content,
+              r.heading_path, r.table_data, r.codes, r.token_count, coalesce(r.metadata,'{}'::jsonb));
+    end loop;
+    perform brain.ingestion_finish(v_ing,'completed',null,'[]'::jsonb,
+            jsonb_build_object('origem','copia da pagina 1 da ingestao de passagem'));
+    select count(*) into n from brain.document_pages where version_id=v_dst;
+    if n <> 1 then raise exception 'V15.1 DJI ficou com % pagina(s), esperava 1', n; end if;
+    select count(*) into n from brain.document_chunks where version_id=v_dst and page_from <> 1;
+    if n <> 0 then raise exception 'V15.1 DJI recebeu % trecho(s) fora da pagina 1', n; end if;
+    raise notice 'V15.1 DJI: 1 pagina, % trecho(s) — paginas 2-4 ficaram de fora',
+            (select count(*) from brain.document_chunks where version_id=v_dst);
+  end \$copia\$;" 2>&1 | sed 's/^/  /'
+
+  q -c "delete from brain.documents where slug='dji-v151-passagem'" >/dev/null
+  echo "  documento de passagem descartado"
+
+  echo "▶ linhagem: V14.11 → V15.1 → V16.2, V16.2 vigente"
+  q -c "update brain.document_versions set status='active', valid_from='2026-08-04' where version_label='V16.2';
+        update brain.document_versions set status='superseded', valid_from='2026-05-19', valid_to='2026-08-03',
+               superseded_by_id=(select id from brain.document_versions where version_label='V16.2')
+         where version_label='V15.1';
+        update brain.document_versions set status='superseded', valid_from='2026-01-14', valid_to='2026-05-18',
+               superseded_by_id=(select id from brain.document_versions where version_label='V15.1')
+         where version_label='V14.11';
+        update brain.document_versions set supersedes_id=(select id from brain.document_versions where version_label='V14.11')
+         where version_label='V15.1';
+        update brain.document_versions set supersedes_id=(select id from brain.document_versions where version_label='V15.1')
+         where version_label='V16.2'" >/dev/null
+else
+  echo "▶ linhagem: V16.2 vigente, V14.11 histórica"
+  q -c "update brain.document_versions set status='active', valid_from='2026-08-04' where version_label='V16.2';
+        update brain.document_versions set status='superseded', valid_from='2026-01-14', valid_to='2026-08-03',
+               superseded_by_id=(select id from brain.document_versions where version_label='V16.2')
+         where version_label='V14.11';
+        update brain.document_versions set supersedes_id=(select id from brain.document_versions where version_label='V14.11')
+         where version_label='V16.2'" >/dev/null
+fi
 
 echo "▶ GOLDEN"
 "$PSQL" -h "$H" -p "$P" -U "$U" -d "$DB" -q -v ON_ERROR_STOP=1 << 'GOLDEN'
@@ -128,7 +203,7 @@ GOK=$?
 echo "▶ ADVERSARIAIS"
 "$PSQL" -h "$H" -p "$P" -U "$U" -d "$DB" -q -v ON_ERROR_STOP=1 << 'ADV'
 do $$
-declare n int; m int; v text; passes int:=0; falhas int:=0;
+declare n int; m int; v_leak int; v text; passes int:=0; falhas int:=0;
 begin
   -- A) T25P ≠ T25: a busca por T25 não devolve a tabela do T25P como se fosse dele
   select count(*) into n from brain.search_knowledge('T25P') s
@@ -224,12 +299,37 @@ begin
   if n=0 then passes:=passes+1; raise notice 'N PASS  busca normal só devolve a versão vigente';
   else falhas:=falhas+1; raise warning 'N FALHA: % hit(s) fora da vigente', n; end if;
 
-  -- O) tabela degradada seria fail-closed (nenhuma degradada neste corpo)
+  -- O) tabela degradada e fail-closed. V14.11 e V16.2 nao tem nenhuma. A V15.1
+  --    tem DUAS — "DRONE AVULSO (SO CAIXA, COM CONTROLE)" e "BATERIA AVULSA" —
+  --    porque naquela pagina os precos estao RISCADOS e a reconstrucao derruba
+  --    a linha de cabecalho para dentro dos dados. Nao e defeito do ensaio: e o
+  --    worker marcando o que nao entendeu, e a busca recusando como evidencia.
+  --    Nenhum item do golden depende desses dois blocos.
   select count(*) into n from brain.document_chunks c
-    where c.kind='price_table' and c.table_data->'audit'->>'quality' = 'degraded';
+    join brain.document_versions v on v.id=c.version_id
+   where c.kind='price_table' and c.table_data->'audit'->>'quality'='degraded'
+     and v.version_label in ('V14.11','V16.2');
+  if n<>0 then falhas:=falhas+1; raise warning 'O FALHA: % degradada(s) em V14.11/V16.2', n; end if;
+
   select count(*) into m from brain.document_chunks c where c.kind='price_table';
-  if n=0 and m>0 then passes:=passes+1; raise notice 'O PASS  % tabelas de preço, nenhuma degradada — nada entra na busca sem condição de pagamento', m;
-  else falhas:=falhas+1; raise warning 'O FALHA: % degradada(s) de %', n, m; end if;
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where c.kind='price_table' and c.table_data->'audit'->>'quality'='degraded'
+     and v.version_label='V15.1';
+
+  -- e o que esta degradado nao chega na busca, por nenhum caminho
+  select count(*) into v_leak from brain.search_knowledge('drone avulso bateria avulsa preço','{}'::jsonb,100,true) s
+   where s.kind in ('table','price_table')
+     and (coalesce(s.table_data->'audit'->>'quality','trusted')='degraded'
+          or coalesce((s.table_data->'audit'->>'fatal')::boolean,false));
+  if v_leak <> 0 then falhas:=falhas+1; raise warning 'O FALHA: % degradada(s) vazaram para a busca', v_leak; end if;
+
+  if n=0 and v_leak=0 then passes:=passes+1; raise notice 'O PASS  % tabelas de preço, nenhuma degradada', m;
+  elsif n=2 and v_leak=0 then passes:=passes+1;
+    raise notice 'O PASS  % tabelas de preço; as 2 degradadas são da V15.1 (preços riscados: DRONE AVULSO e BATERIA AVULSA) e a busca as recusa — zero vazamento', m;
+  elsif v_leak=0 then falhas:=falhas+1;
+    raise warning 'O FALHA: % degradada(s) na V15.1 — esperava 0 ou 2, o corpo mudou', n;
+  end if;
 
   -- P) preço da tabela DJI nunca toca o ERP
   select (select count(*) from public.products) + (select count(*) from public.product_costs) into n;
@@ -241,7 +341,135 @@ end $$;
 ADV
 AOK=$?
 
-if [ "$GOK" = 0 ] && [ "$AOK" = 0 ]; then
+# ── GOLDEN FINAL (10 itens) — só com a cadeia de três versões ──────────
+G3OK=0
+if [ -n "$V151" ]; then
+echo "▶ GOLDEN FINAL (cadeia de três versões)"
+"$PSQL" -h "$H" -p "$P" -U "$U" -d "$DB" -q -v ON_ERROR_STOP=1 << 'G10'
+do $$
+declare n int; passes int:=0; falhas int:=0;
+begin
+  -- 1) bateria avulsa DB1580 T55/T70P — produto que so existe na V16.2
+  select count(*) into n from brain.search_knowledge('bateria avulsa DB1580 T55 T70P') s
+   where s.content like '%DB1580%' and s.version_label='V16.2';
+  if n>=1 then passes:=passes+1; raise notice 'F1  PASS  DB1580 avulsa T55/T70P → V16.2 (% evidência(s))', n;
+  else falhas:=falhas+1; raise warning 'F1  FALHA: %', n; end if;
+
+  -- 2) DB1050 e do T55
+  select count(*) into n from brain.search_knowledge('bateria T55 DB1050') s
+   where s.content like '%DB1050%' and s.version_label='V16.2';
+  if n>=1 then passes:=passes+1; raise notice 'F2  PASS  DB1050 → T55, V16.2';
+  else falhas:=falhas+1; raise warning 'F2  FALHA'; end if;
+
+  -- 3) DB2160 (T100/T70P) atravessa as tres versoes
+  select count(distinct v.version_label) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where c.content like '%DB2160%';
+  if n=3 then passes:=passes+1; raise notice 'F3  PASS  DB2160 T100/T70P presente nas três versões';
+  else falhas:=falhas+1; raise warning 'F3  FALHA: % versão(ões)', n; end if;
+
+  -- 4) cadeia inteira, V16.2 vigente
+  select count(*) into n from brain.document_versions v
+   where (v.version_label='V16.2'  and v.status='active'
+          and v.supersedes_id=(select id from brain.document_versions where version_label='V15.1'))
+      or (v.version_label='V15.1'  and v.status='superseded'
+          and v.supersedes_id=(select id from brain.document_versions where version_label='V14.11'))
+      or (v.version_label='V14.11' and v.status='superseded');
+  if n=3 then passes:=passes+1; raise notice 'F4  PASS  cadeia V14.11 → V15.1 → V16.2, V16.2 vigente';
+  else falhas:=falhas+1; raise warning 'F4  FALHA: % elo(s)', n; end if;
+
+  -- Nas V15.1 e V16.2 a faixa do T100 fica em chunk de TEXTO: elas vem do Google
+  -- Sheets (Skia) e aquela regiao nao tem borda para a reconstrucao morder. So a
+  -- V14.11 (Word -> Print to PDF) vira tabela titulada, e por isso F7 le do JSONB.
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V16.2' and c.content like '%T100 + 3 BAT + CARREGADOR C12000%'
+     and c.content like '%165.500,00%' and c.content like '%161.900,00%' and c.content like '%225.000,00%';
+  if n>=1 then passes:=passes+1; raise notice 'F5  PASS  T100 V16.2: 165.500 faturado / 161.900 à vista / 225.000 final';
+  else falhas:=falhas+1; raise warning 'F5  FALHA'; end if;
+
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V15.1' and c.content like '%T100 + 3 BAT + CARREGADOR C12000%'
+     and c.content like '%165.500,00%' and c.content like '%161.900,00%' and c.content like '%225.000,00%';
+  if n>=1 then passes:=passes+1; raise notice 'F6  PASS  T100 V15.1: 165.500 / 161.900 / 225.000 — igual à V16.2, o preço parou de mudar';
+  else falhas:=falhas+1; raise warning 'F6  FALHA'; end if;
+
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V14.11' and c.table_data->>'title' like 'DRONE AGRAS T100 + 3 BAT + CARREGADOR C12000%'
+     and (c.table_data->'rows'->0->>1)::numeric = 165500
+     and (c.table_data->'rows'->0->>2)::numeric = 159000
+     and (c.table_data->'rows'->1->>2)::numeric = 225000;
+  if n>=1 then passes:=passes+1; raise notice 'F7  PASS  T100 V14.11: 165.500 / 159.000 / 225.000';
+  else falhas:=falhas+1; raise warning 'F7  FALHA'; end if;
+
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V16.2' and c.table_data->>'title' like 'DRONE AGRAS T25P + 3 BAT + CARREGADOR C8000%'
+     and (c.table_data->'rows'->0->>1)::numeric = 64250
+     and (c.table_data->'rows'->0->>2)::numeric = 61789
+     and (c.table_data->'rows'->1->>2)::numeric = 87000;
+  if n>=1 then passes:=passes+1; raise notice 'F8  PASS  T25P V16.2: 64.250 / 61.789 / 87.000';
+  else falhas:=falhas+1; raise warning 'F8  FALHA'; end if;
+
+  -- o T25P da V15.1 VIRA tabela (tem borda), entao o valor sai do JSONB
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V15.1' and c.table_data->>'title' like 'DRONE AGRAS T25P + 3 BAT + CARREGADOR C8000%'
+     and (c.table_data->'rows'->0->>1)::numeric = 79000
+     and (c.table_data->'rows'->0->>2)::numeric = 77400
+     and (c.table_data->'rows'->1->>2)::numeric = 110000;
+  if n>=1 then raise notice '    (contraste: T25P na V15.1 era 79.000 / 77.400 / 110.000 — é este item que separa V15.1 de V16.2)';
+  else raise warning '    T25P da V15.1 não confere'; falhas:=falhas+1; end if;
+
+  -- 9/10) T55: produto novo, so na V16.2
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V16.2' and c.table_data->>'title' like 'DRONE AGRAS T55 + 3 BAT DB1050 + CARREGADOR C7000%'
+     and (c.table_data->'rows'->0->>1)::numeric = 101401
+     and (c.table_data->'rows'->0->>2)::numeric = 96483
+     and (c.table_data->'rows'->1->>2)::numeric = 130000;
+  if n>=1 then passes:=passes+1; raise notice 'F9  PASS  T55 DB1050+C7000 V16.2: 101.401 / 96.483 / 130.000';
+  else falhas:=falhas+1; raise warning 'F9  FALHA'; end if;
+
+  select count(*) into n from brain.document_chunks c
+    join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V16.2' and c.table_data->>'title' like 'DRONE AGRAS T55 + 3 BAT DB1580 + CARREGADOR C12000%'
+     and (c.table_data->'rows'->0->>1)::numeric = 119400
+     and (c.table_data->'rows'->0->>2)::numeric = 113789
+     and (c.table_data->'rows'->1->>2)::numeric = 156000;
+  if n>=1 then passes:=passes+1; raise notice 'F10 PASS  T55 DB1580+C12000 V16.2: 119.400 / 113.789 / 156.000';
+  else falhas:=falhas+1; raise warning 'F10 FALHA'; end if;
+
+  select count(*) into n from brain.document_chunks c join brain.document_versions v on v.id=c.version_id
+   where v.version_label in ('V14.11','V15.1') and c.content like '%T55%';
+  if n=0 then raise notice '    (T55 não existe na V14.11 nem na V15.1 — é produto novo da V16.2)';
+  else raise warning '    T55 apareceu em versão anterior: % trecho(s)', n; falhas:=falhas+1; end if;
+
+  -- proveniencia: todo hit traz version_id, label, pagina, fonte e documento
+  select count(*) into n from brain.search_knowledge('DRONE AGRAS T100 CARREGADOR C12000','{}'::jsonb,20,true) s
+   where s.version_id is null or s.version_label is null or s.page_from is null
+      or s.source_key <> 'allcomp' or s.document_id is null or s.title is null;
+  if n=0 then raise notice '    (proveniência completa: version_id, label, página, fonte allcomp, documento)';
+  else raise warning '    proveniência incompleta em % hit(s)', n; falhas:=falhas+1; end if;
+
+  -- a V15.1 do documento DJI nao pode ter NADA das paginas 2-4
+  select count(*) into n from brain.document_chunks c join brain.document_versions v on v.id=c.version_id
+   where v.version_label='V15.1'
+     and (c.page_from <> 1 or c.content ilike '%GranDdock%' or c.content ilike '%Zait%'
+          or c.content ilike '%GALAXY%' or c.content ilike '%Sunnav%');
+  if n=0 then raise notice '    (V15.1 DJI limpa: nenhum trecho de Ddock/GranDdock/Zait/RTK South)';
+  else raise warning '    V15.1 DJI contaminada: % trecho(s)', n; falhas:=falhas+1; end if;
+
+  raise notice '--- GOLDEN FINAL DJI: % PASS, % FALHA ---', passes, falhas;
+  if falhas>0 then raise exception 'Golden final DJI com % falha(s)', falhas; end if;
+end $$;
+G10
+G3OK=$?
+fi
+
+if [ "$GOK" = 0 ] && [ "$AOK" = 0 ] && [ "$G3OK" = 0 ]; then
   echo "✔ lote DJI ensaiado: golden e adversariais"
 else
   echo "✗ lote DJI com falha (golden=$GOK adversariais=$AOK)"; exit 1

@@ -97,11 +97,18 @@ busca) foi **aplicada em produção em 15/09/2026**, depois de testada em
 PG16/17/18. Rollback pronto em `supabase/operacao/10-…`. Era ela que travava o
 lote ARAG, ingerido no mesmo dia.
 
-Pendências conhecidas: bucket `brain-documents` não criado (a versão ativa
-aponta para um caminho que ainda não existe), Lote C e DJI subdealer não
-iniciados, cinco falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no
-modo desacoplado), lote DJI subdealer aguardando gate de ingestão, e a barra
-do celular com 5 itens marcados para 4 lugares.
+Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
+apontam para caminhos que ainda não existem), Lote C não iniciado, cinco
+falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no modo desacoplado), e a
+barra do celular com 5 itens marcados para 4 lugares.
+
+O lote **DJI Subdealer** está tecnicamente pronto — golden 9/9, adversariais
+16/16 e golden final 10/10 com a cadeia V14.11 → V15.1 → V16.2 — e **travado
+por governança**: falta a ALLCOMP confirmar rótulos e vigências. Ver
+`docs/brain/fase-2-dji-governanca.md`. Dois pontos que não se negociam nesse
+lote: a fonte é `allcomp` (`distributor`), não `dji` — a DJI é a marca, não a
+autora da tabela; e da V15.1 só a **página 1** é evidência DJI, porque as
+páginas 2–4 são Ddock/GranDdock (faturado pela Zait) e RTK South/Sunnav.
 
 O trabalho citado como "Fase 9/10/11" e "suíte 26" **não existe em nenhuma
 branch** — ver `ROADMAP.md`, "Trabalho não verificado". Não planejar em cima
