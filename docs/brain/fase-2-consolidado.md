@@ -113,18 +113,26 @@ suposto:
 | classe | qtd | perguntas |
 | --- | --- | --- |
 | `respondida` | 5 | 1, 2, 3, 5, 10 |
-| `zero_por_desenho` | 3 | 12, 13, 14 |
-| `zero_por_ausencia` | 6 | 4, 6, 7, 8, 9, 11 |
+| `zero_por_desenho` | 2 | 12, 14 |
+| `zero_por_ausencia` | 7 | 4, 6, 7, 8, 9, 11, 13 |
 
-O que mudou do v0 para o v1: **as perguntas 3 e 10 deixaram de ser lacuna**.
-Eram "ARAG não ingerida"; hoje são respondidas pela fonte `agrotork_interno`
-(1 e 2 evidências). Nenhuma expectativa histórica foi reescrita.
+O que mudou do v0 para o v1: **as perguntas 3 e 10 deixaram de ser lacuna** —
+eram "ARAG não ingerida" e hoje são respondidas por `agrotork_interno` (1 e 2
+evidências) — e **a 11 perdeu a fonte que o v0 lhe atribuía**, porque o
+`FIGHTER AD-IA.pdf` é relatório de serviço de cliente, não procedimento (§2).
+Nenhuma expectativa histórica foi reescrita: o v0 segue intocado, e o v1 se
+declara `sucessor_de` ele, não substituto.
 
-A distinção que o v1 introduz vale por si: `zero_por_desenho` tem de
-**continuar** zero (12 é código inexistente, 13 é lacuna real, 14 é teste de
-acesso); `zero_por_ausencia` vira `respondida` quando o documento entrar — e
-enquanto não entra, **o zero é o próprio teste**, porque pega ingestão
-acidental.
+A distinção que o v1 introduz vale por si, e a fronteira entre as duas classes
+de zero é o que a torna útil:
+
+- **`zero_por_desenho`** é o que deve continuar zero **mesmo com fontes
+  novas** — 12 é código que não existe, 14 é bloqueio de acesso. Se um dia
+  responderem, é defeito.
+- **`zero_por_ausencia`** é documento que ainda não está na memória e pode
+  estar amanhã — inclusive quando nem se sabe se ele existe no mundo (13,
+  KUHN; 11, procedimento do Fighter). Enquanto não entra, **o zero é o próprio
+  teste**, porque pega ingestão acidental.
 
 ## 4. Storage — o bucket `brain-documents`
 

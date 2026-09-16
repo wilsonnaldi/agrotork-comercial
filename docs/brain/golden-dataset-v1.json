@@ -1,7 +1,7 @@
 {
   "versao": "v1",
   "data": "2026-09-16",
-  "substitui": "v0",
+  "sucessor_de": "v0",
   "v0_preservado": "docs/brain/golden-dataset-v0.json — retrato de 11/09/2026, quando nada estava ingerido. Nao alterar.",
   "estado_produtivo_de_referencia": {
     "migration": "20260915120000",
@@ -19,7 +19,8 @@
     "sem_evidencia descreve o que o sistema deve responder quando o retrieval nao atinge o limiar; nunca completar por plausibilidade.",
     "nivel_chamador indica o perfil que faz a pergunta no teste.",
     "NOVO no v1: cada pergunta carrega estado_produtivo medido, nao suposto. 'zero_por_desenho' e resposta CERTA e deve continuar zero; 'zero_por_ausencia' vira 'respondida' quando o documento entrar — e ate la o zero e o proprio teste (pega ingestao acidental).",
-    "O que mudou do v0 para o v1: as perguntas 3 e 10 (ARAG) deixaram de ser lacuna de fonte e passaram a ser respondidas em producao, pela fonte interna agrotork_interno. Nenhuma expectativa historica do v0 foi reescrita."
+    "A fronteira entre as duas classes de zero: 'zero_por_desenho' e reservado ao que deve continuar zero mesmo com fontes novas (codigo que nao existe; bloqueio de acesso). 'zero_por_ausencia' e para documento que ainda nao existe na memoria e pode existir amanha — inclusive quando nem sabemos se o documento existe no mundo (KUHN, procedimento do Fighter).",
+    "O que mudou do v0 para o v1: as perguntas 3 e 10 (ARAG) deixaram de ser lacuna de fonte e passaram a ser respondidas em producao, pela fonte interna agrotork_interno; e a pergunta 11 (Fighter) perdeu a fonte que o v0 lhe atribuia, porque o arquivo auditado e relatorio de servico de cliente e nao procedimento. Nenhuma expectativa historica do v0 foi reescrita — o v0 segue intocado."
   ],
   "perguntas": [
     {
@@ -236,20 +237,17 @@
       "tipo": "procedimento",
       "nivel_chamador": "salesperson",
       "pergunta": "Como calibrar o Fighter AD-IA?",
-      "resposta_esperada": "Sequência de passos do PDF 'FIGHTER AD-IA' (Calibração MARCHIONI), citando as páginas de cada passo; a resposta não pode inventar passos ausentes.",
-      "documentos_validos": [
-        "FIGHTER AD-IA.pdf (17 p.)"
-      ],
-      "paginas_esperadas": [
-        "a extrair na ingestão"
-      ],
+      "resposta_esperada": null,
+      "documentos_validos": [],
+      "paginas_esperadas": [],
       "sem_evidencia": "Não encontrei procedimento de calibração para esse modelo.",
       "estado_produtivo": {
         "classe": "zero_por_ausencia",
         "hits_medidos": 0,
         "fonte_que_respondeu": null,
-        "motivo": "FIGHTER AD-IA nao ingerido — e relatorio de calibracao de um cliente, nao manual de procedimento; ver fase-2-consolidado.md §2"
-      }
+        "motivo": "Nao existe manual ou procedimento de calibracao do Fighter AD-IA na memoria corporativa. O arquivo FIGHTER AD-IA.pdf, auditado em 16/09/2026, NAO e fonte valida para esta pergunta: e relatorio de servico de um cliente identificado (calibracao do pulverizador MARCHIONI 3 em 25/10/2024, titulo interno 'Report Test'), nao documento de procedimento. Vira 'respondida' se e quando um manual de procedimento legitimo for ingerido. Ver fase-2-consolidado.md §2."
+      },
+      "criterio": "Não usar relatório de serviço de cliente como se fosse procedimento de referência, e não sugerir o procedimento de outro equipamento no lugar."
     },
     {
       "id": 12,
@@ -279,10 +277,10 @@
       "sem_evidencia": "Não há documento da Kuhn na memória corporativa.",
       "criterio": "Não sugerir conteúdo de outro fabricante como se fosse Kuhn.",
       "estado_produtivo": {
-        "classe": "zero_por_desenho",
+        "classe": "zero_por_ausencia",
         "hits_medidos": 0,
         "fonte_que_respondeu": null,
-        "motivo": "lacuna de fonte confirmada: nenhum documento Kuhn existe"
+        "motivo": "lacuna de fonte: nenhum documento KUHN existe na memoria corporativa; deve virar respondida quando uma fonte KUHN valida for ingerida"
       }
     },
     {
