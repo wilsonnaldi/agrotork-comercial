@@ -111,12 +111,20 @@ autora da tabela; e da V15.1 só a **página 1** é evidência DJI, porque as
 páginas 2–4 são Ddock/GranDdock (faturado pela Zait) e RTK South/Sunnav.
 
 Retrato consolidado da Fase 2, com o próximo lote e o estado de cada
-pendência: `docs/brain/fase-2-consolidado.md` (16/09/2026). Dois avisos que
-saíram de lá: o `FIGHTER AD-IA.pdf` **não** é manual de procedimento — é
-relatório de calibração de um cliente identificado, e não entra sem decisão de
-governança; e o próximo documento maduro é a **tabela JR Soluções**
-(`TABELA REV JAN261.pdf`), que declara a própria vigência no texto e já tem 38
-produtos correspondentes no ERP.
+pendência: `docs/brain/fase-2-consolidado.md` (16/09/2026). Um aviso que saiu
+de lá: o `FIGHTER AD-IA.pdf` **não** é manual de procedimento — é relatório de
+calibração de um cliente identificado, e não entra sem decisão de governança.
+
+O lote **JR Soluções** foi preparado e está **BLOQUEADO por extração**, não por
+governança — `docs/brain/fase-2-jr-solucoes.md`. A tabela tem cabeçalho uma vez
+só, então cada bloco promove a primeira linha de produto a cabeçalho: 9
+produtos viram nome de coluna, e **6 tabelas passam como `trusted` com um
+produto faltando**, porque o detector de "linha engolida" exige 4 cabeçalhos
+numéricos de 8 e aqui só há 2. Além disso, nenhum código de produto entra em
+`codes` (têm 3–4 dígitos, fora da janela de 7–9 de `query_codes`) enquanto o
+**NCM entra** — o oposto do útil. O cruzamento com o ERP, esse, está limpo: 35
+match exatos, 0 divergência de preço, e o `REVENDAS` do PDF é o **custo**
+`AVISTA`, não o `sale_price`.
 
 As cinco falhas da suíte 25 foram investigadas a fundo: todas são teste escrito
 para a premissa da ponte ligada, nenhuma esconde risco. Detalhe e ressalvas em
