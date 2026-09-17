@@ -59,55 +59,34 @@ if [ -n "$V151" ]; then
   # GranDdock (faturadas pela Zait) e a 4 e RTK South / piloto Sunnav.
   # Publicar isso como "Tabela Subdealer DJI" seria mentira de proveniencia.
   #
-  # O worker nao tem opcao de subconjunto de paginas (ver
-  # docs/brain/fase-2-dji-governanca.md §4), entao o ensaio faz o que o roteiro
-  # de producao fara: ingere o arquivo inteiro num documento de PASSAGEM, copia
-  # so a pagina 1 e os chunks dela para a versao DJI pelas MESMAS funcoes
-  # brain.ingestion_*, e descarta o documento de passagem. Nada e digitado a
-  # mao e o PDF original nao e tocado.
-  echo "▶ V15.1: ingestão de passagem (4 páginas) → só a página 1 vira evidência DJI"
-  q -c "insert into brain.documents (source_key, slug, title, document_type, access_level)
-        values ('allcomp','dji-v151-passagem','Passagem V15.1 (descartado)','price_list','commercial')" >/dev/null
-  ( cd brain/worker && python3 -m brain_worker ingest "$V151" --document dji-v151-passagem --label V15.1-full --date 2026-05-19 --ocr never ) | sed 's/^/  V15.1  /'
+  # Ate 16/09 isto era feito com um documento de PASSAGEM: ingerir o arquivo
+  # inteiro num descartavel e copiar a pagina 1 para a versao DJI. Funcionava,
+  # mas declarava `page_count = 1` para um PDF de 4 paginas — o arquivo
+  # aparecia menor do que e. Desde 17/09 o worker recorta de verdade
+  # (`--pages`), e o recorte fica no metadata ao lado do total fisico.
+  echo "▶ V15.1: só a página 1 é evidência DJI (--pages 1, sem documento de passagem)"
+  ( cd brain/worker && python3 -m brain_worker ingest "$V151" --document dji-tabela-subdealer --label V15.1 --date 2026-05-19 --ocr never --pages 1 ) | sed 's/^/  V15.1  /'
 
   q -v ON_ERROR_STOP=1 -c "
-  do \$copia\$
-  declare v_src uuid; v_dst uuid; v_ing uuid; r record; n int;
+  do \$recorte\$
+  declare v uuid; n int; m jsonb;
   begin
-    select v.id into v_src from brain.document_versions v join brain.documents d on d.id=v.document_id
-     where d.slug='dji-v151-passagem';
-    if v_src is null then raise exception 'ingestao de passagem da V15.1 nao existe'; end if;
-    v_dst := brain.register_version(
-      (select id from brain.documents where slug='dji-tabela-subdealer'),
-      'V15.1',
-      (select file_sha256 from brain.document_versions where id=v_src),
-      (select original_filename from brain.document_versions where id=v_src),
-      'application/pdf',
-      (select file_size from brain.document_versions where id=v_src),
-      '2026-05-19'::date, 1,
-      jsonb_build_object('provenance_note',
-        'Somente a pagina 1 deste arquivo e evidencia DJI. As paginas 2-3 (Ddock/GranDdock, faturado pela Zait) e a pagina 4 (RTK South / piloto automatico Sunnav) ficam fora deste documento logico. O arquivo fisico original e preservado inteiro e o sha256 e o mesmo.'));
-    v_ing := brain.ingestion_start(v_dst,'pdf_text','pdfplumber (copia da passagem)','lote-b.2','ensaio',false,1,false);
-    for r in select * from brain.document_pages where version_id=v_src and page_no=1 loop
-      perform brain.ingestion_add_page(v_ing, r.page_no, r.text, r.extraction, r.ocr,
-              coalesce(r.layout,'{}'::jsonb), coalesce(r.metadata,'{}'::jsonb));
-    end loop;
-    for r in select * from brain.document_chunks where version_id=v_src and page_from=1 order by ordinal loop
-      perform brain.ingestion_add_chunk(v_ing, r.ordinal, r.kind, r.page_from, r.page_to, r.content,
-              r.heading_path, r.table_data, r.codes, r.token_count, coalesce(r.metadata,'{}'::jsonb));
-    end loop;
-    perform brain.ingestion_finish(v_ing,'completed',null,'[]'::jsonb,
-            jsonb_build_object('origem','copia da pagina 1 da ingestao de passagem'));
-    select count(*) into n from brain.document_pages where version_id=v_dst;
+    select id into v from brain.document_versions where version_label='V15.1';
+    if v is null then raise exception 'V15.1 nao foi registrada'; end if;
+    update brain.document_versions set metadata = metadata || jsonb_build_object('provenance_note',
+      'Somente a pagina 1 deste arquivo e evidencia DJI. As paginas 2-3 (Ddock/GranDdock, faturado pela Zait) e a pagina 4 (RTK South / piloto automatico Sunnav) ficam fora deste documento logico. O arquivo fisico original e preservado inteiro e o sha256 e o mesmo.')
+     where id = v;
+    select metadata into m from brain.document_versions where id = v;
+    select count(*) into n from brain.document_pages where version_id=v;
     if n <> 1 then raise exception 'V15.1 DJI ficou com % pagina(s), esperava 1', n; end if;
-    select count(*) into n from brain.document_chunks where version_id=v_dst and page_from <> 1;
+    select count(*) into n from brain.document_chunks where version_id=v and page_from <> 1;
     if n <> 0 then raise exception 'V15.1 DJI recebeu % trecho(s) fora da pagina 1', n; end if;
-    raise notice 'V15.1 DJI: 1 pagina, % trecho(s) — paginas 2-4 ficaram de fora',
-            (select count(*) from brain.document_chunks where version_id=v_dst);
-  end \$copia\$;" 2>&1 | sed 's/^/  /'
-
-  q -c "delete from brain.documents where slug='dji-v151-passagem'" >/dev/null
-  echo "  documento de passagem descartado"
+    select page_count into n from brain.document_versions where id = v;
+    if n <> 4 then raise exception 'page_count da V15.1 = %, esperava 4 (o arquivo tem 4 paginas)', n; end if;
+    if m->'ingested_pages' <> '[1]'::jsonb then raise exception 'metadata nao declara o recorte: %', m->'ingested_pages'; end if;
+    raise notice 'V15.1 DJI: 1 pagina ingerida de 4 do arquivo, % trecho(s) — paginas 2-4 nao foram lidas',
+            (select count(*) from brain.document_chunks where version_id=v);
+  end \$recorte\$;" 2>&1 | sed 's/^/  /'
 
   echo "▶ linhagem: V14.11 → V15.1 → V16.2, V16.2 vigente"
   q -c "update brain.document_versions set status='active', valid_from='2026-08-04' where version_label='V16.2';
