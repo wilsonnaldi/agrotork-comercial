@@ -141,6 +141,17 @@ export function assessEvidence(
       dropped.push({ chunkId: e.chunkId, why: "nada em comum com a pergunta" });
       continue;
     }
+    // Acima do teto, a evidência sai INTEIRA da síntese. Mandar metade de uma
+    // tabela é pior do que não mandar nada: o modelo responde com confiança
+    // sobre a metade que viu, e a linha que faltava era justamente a
+    // perguntada. A evidência continua na tela, inteira, para a pessoa ler.
+    if (e.content.length > MAX_CHARS_POR_EVIDENCIA) {
+      dropped.push({
+        chunkId: e.chunkId,
+        why: `evidência acima do limite de contexto do provider (${e.content.length} caracteres, teto ${MAX_CHARS_POR_EVIDENCIA})`,
+      });
+      continue;
+    }
     aprovadas.push(e);
   }
 
@@ -156,13 +167,20 @@ export function assessEvidence(
     };
   }
 
-  // Corta no teto de evidências e no teto de contexto, nessa ordem. Cortar
-  // uma evidência inteira é honesto; cortar um trecho ao meio, não.
+  // Corta no teto de evidências e no teto de contexto, nessa ordem. Toda
+  // evidência que sobrou aqui cabe inteira — o teto por evidência já barrou
+  // as grandes demais —, então o que estes dois laços fazem é escolher
+  // QUANTAS entram, nunca quanto de cada uma.
   const escolhidas: KnowledgeEvidence[] = [];
   let orcamento = MAX_CHARS_CONTEXTO;
   for (const e of aprovadas.slice(0, MAX_EVIDENCIAS_SINTESE)) {
-    const custo = Math.min(e.content.length, MAX_CHARS_POR_EVIDENCIA) + 200; // 200 ≈ cabeçalho
-    if (custo > orcamento && escolhidas.length > 0) {
+    const custo = e.content.length + 200;   // 200 ≈ cabeçalho da evidência
+    // Sem exceção para a primeira. Antes havia (`&& escolhidas.length > 0`),
+    // o que deixava a primeira evidência estourar o orçamento sozinha — uma
+    // regra que existia para nunca devolver lista vazia, e que na prática
+    // significava "o limite vale para todo mundo menos para quem vier na
+    // frente". Se nada couber, a resposta é não sintetizar.
+    if (custo > orcamento) {
       dropped.push({ chunkId: e.chunkId, why: "não coube no orçamento de contexto" });
       continue;
     }
@@ -171,6 +189,15 @@ export function assessEvidence(
   }
   for (const e of aprovadas.slice(MAX_EVIDENCIAS_SINTESE)) {
     dropped.push({ chunkId: e.chunkId, why: `além das ${MAX_EVIDENCIAS_SINTESE} evidências da síntese` });
+  }
+
+  if (escolhidas.length === 0) {
+    return {
+      sufficient: false,
+      reason: "nenhuma evidência coube no contexto da síntese",
+      accepted: [],
+      dropped,
+    };
   }
 
   return { sufficient: true, accepted: escolhidas, dropped };

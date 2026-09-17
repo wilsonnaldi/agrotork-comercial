@@ -1,5 +1,4 @@
 import type { KnowledgeEvidence } from "./evidence";
-import { MAX_CHARS_POR_EVIDENCIA } from "./limits";
 
 /**
  * O prompt, num lugar só. Não se espalha pela interface nem pelo adapter:
@@ -41,12 +40,6 @@ FORMA
 
 Português do Brasil. Objetivo e curto: responda a pergunta, sem introdução e sem oferecer ajuda adicional. No máximo dois parágrafos, e cada um com as suas referências.`;
 
-/** Corta no teto e avisa — trecho pela metade sem aviso é pior que trecho cortado. */
-function recorta(texto: string): string {
-  if (texto.length <= MAX_CHARS_POR_EVIDENCIA) return texto;
-  return `${texto.slice(0, MAX_CHARS_POR_EVIDENCIA)}\n[…trecho truncado…]`;
-}
-
 const TIPO: Record<string, string> = {
   text: "texto",
   heading: "título",
@@ -62,6 +55,14 @@ const TIPO: Record<string, string> = {
  * documento, versão, página, tipo e conteúdo. Nenhum id, nenhum caminho,
  * nenhum hash, nenhum campo administrativo — a autorização aconteceu antes,
  * e o provedor externo não precisa de nada disso para escrever um parágrafo.
+ *
+ * O CONTEÚDO VAI INTEIRO, SEMPRE. Havia aqui um `recorta()` que cortava no
+ * teto por evidência e deixava um "[…trecho truncado…]" no lugar. Saiu: quem
+ * decide se uma evidência cabe é `assessEvidence`, e a decisão dele é sim ou
+ * não, nunca "um pedaço". Uma tabela cortada ao meio faz o modelo responder
+ * com segurança sobre a metade que viu — e a linha perguntada costuma estar
+ * na outra. Se uma evidência grande demais chegasse até aqui, seria um
+ * defeito do gate, não algo para esta função disfarçar.
  */
 export function renderEvidence(evidencias: KnowledgeEvidence[]): string {
   return evidencias
@@ -76,7 +77,7 @@ export function renderEvidence(evidencias: KnowledgeEvidence[]): string {
         `Tipo: ${TIPO[e.kind] ?? e.kind}`,
         e.codes.length > 0 ? `Códigos: ${e.codes.join(", ")}` : null,
         "Conteúdo:",
-        recorta(e.content),
+        e.content,
       ]
         .filter(Boolean)
         .join("\n");
