@@ -179,6 +179,32 @@ class TechnicalTable:
         `863T026S` e `5538/2L1/94A`, que começam por dígito e por isso nenhum
         padrão genérico alcança sem inventar falso positivo em "4-20MAH"."""
         achados = set(extract_codes(self.render_text(), profile))
+
+        def _valores_da_coluna(indice: int) -> set[str]:
+            vistos: set[str] = set()
+            for row in self.rows:
+                if indice >= len(row):
+                    continue
+                v = row[indice]
+                if v is None or isinstance(v, bool):
+                    continue
+                if isinstance(v, float) and v.is_integer():
+                    v = int(v)
+                bruto = str(v).strip()
+                if bruto and (code := normalize_code(bruto)):
+                    vistos.add(code)
+            return vistos
+
+        # o que a coluna de codigo declara, e o que a coluna fiscal declara
+        declarados: set[str] = set()
+        fiscais: set[str] = set()
+        for j, h in enumerate(self.labels or self.headers):
+            rotulo = _unaccent(str(h)).strip().lower()
+            if _FISCAL_HEADER.fullmatch(rotulo):
+                fiscais |= _valores_da_coluna(j)
+            elif _CODE_HEADER.fullmatch(rotulo):
+                declarados |= _valores_da_coluna(j)
+
         for j, h in enumerate(self.labels or self.headers):
             if not _CODE_HEADER.fullmatch(_unaccent(str(h)).strip().lower()):
                 continue
@@ -196,7 +222,10 @@ class TechnicalTable:
                     continue
                 if (code := normalize_code(bruto)):
                     achados.add(code)
-        return sorted(achados)
+        # Valor que o documento declara como classificacao fiscal sai — a menos
+        # que a MESMA tabela tambem o declare como codigo de peca, caso em que
+        # quem declarou primeiro tem razao e o valor fica.
+        return sorted(achados - (fiscais - declarados))
 
 
 def build_table(raw: list[list[Any]], page: int | None = None) -> TechnicalTable | None:
@@ -348,6 +377,12 @@ def build_tables(raw: list[list[Any]], page: int | None = None,
 # em minuscula — "codigo do fabricante" tambem conta, "codificacao" nao.
 _CODE_HEADER = re.compile(r"(cod|codigo|code|ref|referencia|sku|part|part_number|partnumber)"
                           r"([ _-](do|de|da)?[ _-]?(fabricante|produto|peca|item|barras))?")
+
+# Cabecalho que declara a coluna como CLASSIFICACAO FISCAL. Um NCM identifica
+# uma categoria tributaria compartilhada por dezenas de produtos — nunca a
+# peca. Se ele virar codigo, perguntar "84368000" devolve o catalogo inteiro
+# pelo braco exato, e a resposta passa a ser sobre imposto, nao sobre produto.
+_FISCAL_HEADER = re.compile(r"(ncm|nbm|cest|sh|hs[ _-]?code|codigo[ _-]fiscal|class(ificacao)?[ _-]fiscal)")
 
 
 # ── Auditor automático ─────────────────────────────────────────

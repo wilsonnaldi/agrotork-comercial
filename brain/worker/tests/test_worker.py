@@ -578,3 +578,42 @@ def test_w34_cabecalho_comercial_legitimo_nao_e_falso_positivo():
         labels=["CÓDIGO PONTAS", "BAR", "PSI", "12 km/h"])
     for t in (arag, dji, magnojet):
         assert not any("valor monetario" in i for i in audit_table(t)), t.labels
+
+
+# ── W35–W37 · NCM é classificação fiscal, não código de peça ────────────
+
+
+def test_w35_ncm_declarado_nao_vira_codigo_de_peca():
+    """NCM é classificação fiscal compartilhada por dezenas de produtos. Se
+    entrar em `codes`, perguntar pelo NCM devolve o catálogo inteiro pelo
+    braço exato — e a resposta passa a ser sobre imposto, não sobre peça."""
+    t = _tabela(
+        ["CODIGO", "NCM", "PRODUTO", "REVENDAS"],
+        [[2141, 84368000, "DRONE FEEDER 500 - 220Volts", 11700.0],
+         [1243, 84368000, "DRONE MIX 130L LE", 5600.0]],
+        labels=["CÓDIGO", "NCM", "PRODUTO", "REVENDAS"])
+    codes = t.codes()
+    assert "2141" in codes and "1243" in codes, codes
+    assert "84368000" not in codes, codes
+
+
+def test_w36_coluna_de_codigo_continua_mandando():
+    """Se o mesmo valor for declarado nas DUAS colunas, quem diz "código"
+    ganha: a exclusão fiscal não pode apagar um código de peça legítimo."""
+    t = _tabela(
+        ["CODIGO", "NCM", "PRODUTO"],
+        [[84368000, 84368000, "PECA COM CODIGO IGUAL AO NCM"]],
+        labels=["CÓDIGO", "NCM", "PRODUTO"])
+    assert "84368000" in t.codes()
+
+
+def test_w37_sem_coluna_fiscal_nada_muda():
+    """Tabela sem coluna de NCM segue exatamente como antes — a regra nova
+    não tira nada de quem não declarou classificação fiscal."""
+    t = _tabela(
+        ["COD", "DESCRICAO", "VALOR"],
+        [["46202G", "FLUXOMETRO ORION 3", 2602.29],
+         ["863T026S", "VALVULA PROPORCIONAL", 897.0]],
+        labels=["COD", "DESCRIÇÃO", "VALOR"])
+    codes = t.codes()
+    assert "46202G" in codes and "863T026S" in codes, codes
