@@ -132,11 +132,33 @@ código. Com isso o **documento de passagem** da V15.1 DJI deixou de ser o
 caminho: o ensaio usa `--pages 1`, o mesmo conteúdo (7 trechos) sai com
 `page_count = 4` em vez de 1, e nenhum documento fantasma é criado e apagado.
 
+O BRAIN deixou de ser só banco + worker: em 17/09 ganhou o **Query Service e
+o Console v0** (`/brain`, permissão `knowledge.query`) —
+`docs/brain/fase-2-query-console.md`. **Sem LLM de propósito**: a tela mostra
+os trechos recuperados com fonte, versão e página, ou recusa. Primeiro provar
+recuperação, autorização e proveniência; gerador em cima de retrieval não
+auditado escreve texto convincente sobre documento errado.
+
+A escada de acesso, que decide tudo ali e não é óbvia:
+`public < internal < commercial < admin`; admin vê tudo, **vendedor é
+`internal` e portanto NÃO alcança `commercial`**. Em produção isso já vale —
+o Catálogo Magnojet é `public` e o orçamento ARAG é `commercial`, então
+"código 4626215 da Arag" responde para o admin e dá zero para o vendedor, sem
+revelar que o documento existe. Suíte `39_brain_query_service.sql`, Q8.
+
+O que nunca chega à tela: `version_id`, `document_id`, `storage_path`,
+`file_sha256`. O painel "Detalhes da busca" (score e ranks) só é MONTADO para
+admin — não é escondido por CSS —, e quem decide é o papel de quem perguntou,
+nunca a requisição. Testes: `npm run check:brain` (29 asserções) e a suíte 39
+(Q1–Q16, contra `public.brain_search`, que é a porta que o app usa). A trilha
+em `brain.knowledge_queries` já existia e não precisou de ajuste.
+
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
 apontam para caminhos que ainda não existem), Lote C não iniciado, cinco
 falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no modo desacoplado), e a
-barra do celular com 5 itens marcados para 4 lugares. O `--pages` do worker
-deixou de ser pendência em 17/09.
+barra do celular com 5 itens marcados para 4 lugares — por isso o BRAIN entra
+na navegação com `mobile: false`. O `--pages` do worker deixou de ser
+pendência em 17/09.
 
 O lote **DJI Subdealer** está tecnicamente pronto — golden 9/9, adversariais
 16/16 e golden final 10/10 com a cadeia V14.11 → V15.1 → V16.2 — e **travado
