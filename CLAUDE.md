@@ -75,7 +75,7 @@ npm run db:types     # tipos do Supabase vinculado
 npm run db:types:local  # tipos a partir das migrations, sem projeto
 ```
 
-## Estado atual (15/09/2026)
+## Estado atual (17/09/2026)
 
 Sistema publicado na Netlify, em produção. Núcleo comercial entregue até o
 Pedido de venda; estoque, compras, financeiro e importação de NF-e existem
@@ -115,16 +115,45 @@ pendência: `docs/brain/fase-2-consolidado.md` (16/09/2026). Um aviso que saiu
 de lá: o `FIGHTER AD-IA.pdf` **não** é manual de procedimento — é relatório de
 calibração de um cliente identificado, e não entra sem decisão de governança.
 
-O lote **JR Soluções** foi preparado e está **BLOQUEADO por extração**, não por
-governança — `docs/brain/fase-2-jr-solucoes.md`. A tabela tem cabeçalho uma vez
-só, então cada bloco promove a primeira linha de produto a cabeçalho: 9
-produtos viram nome de coluna, e **6 tabelas passam como `trusted` com um
-produto faltando**, porque o detector de "linha engolida" exige 4 cabeçalhos
-numéricos de 8 e aqui só há 2. Além disso, nenhum código de produto entra em
-`codes` (têm 3–4 dígitos, fora da janela de 7–9 de `query_codes`) enquanto o
-**NCM entra** — o oposto do útil. O cruzamento com o ERP, esse, está limpo: 35
-match exatos, 0 divergência de preço, e o `REVENDAS` do PDF é o **custo**
-`AVISTA`, não o `sale_price`.
+O lote **JR Soluções** segue **BLOQUEADO**, mas o bloqueio mudou de endereço em
+17/09: era o motor, agora é o arquivo — `docs/brain/fase-2-jr-solucoes.md`.
+Dois consertos genéricos no worker, cada um com teste próprio e nenhum
+específico da JR:
+
+- **cabeçalho que carrega dinheiro denuncia linha engolida.** Um cabeçalho
+  NOMEIA a coluna; ele nunca É um preço. O teste é o símbolo `R$`, não o parse
+  numérico — este PDF quebra `R$ 5.600,00` em `R$ 5 .600,00`, e um parse
+  estrito deixaria passar justamente o caso que motivou a regra. `"engolida"`
+  já está em `FATAL_MARKERS`, então a tabela vira `degraded/fatal` e a busca a
+  recusa. **Não há tentativa de recuperar a linha** — fail-closed primeiro.
+- **NCM é classificação fiscal, não código de peça.** Coluna que o documento
+  declara como NCM/NBM/CEST/HS não alimenta `codes`; se o mesmo valor também
+  aparece numa coluna declarada de código, ele fica. O NCM continua inteiro em
+  `table_data`.
+
+Efeito na JR: tabelas `trusted` com produto faltando de 6 para **0**,
+adversariais de 8/12 para **11/12**, e o NCM `84368000` deixou de responder
+pelo braço exato (4 trechos → 0). O golden caiu de 5/10 para **3/10** **de
+propósito** — as provas que ele perdeu liam justamente as tabelas que hoje são
+recusadas. Golden menor, integridade maior. Nos corpos que já existiam,
+**nenhuma degradação nova**: Magnojet segue em 56, DJI em 2, ARAG em 0.
+
+**`query_codes` não foi mexido.** A hipótese de alargar a janela de 7–9 dígitos
+para caber código de 3–4 foi testada ponta a ponta com os códigos já extraídos
+certo: `2141` dá 1 hit, `879` dá 1 hit, `qual o preço do 2141?` dá 1 hit, NCM
+dá 0. O código curto **é** recuperado, pelos braços de prosa — o que muda sem
+alargar a janela é o rank, não a recuperação. Alargar é mexer em regra
+transversal do BRAIN e exige documento que prove a necessidade. Fica registrado
+como fronteira conhecida, não como pendência.
+
+O que ainda trava é **o PDF**: o cabeçalho verdadeiro aparece uma vez só e essa
+única ocorrência está fundida com duas linhas de produto sobrepostas, então não
+existe cabeçalho limpo para herdar (a herança chegou a ser implementada, medida
+e descartada por não disparar). Recuperar as 9 linhas exigiria adivinhar onde
+termina a palavra do cabeçalho e começa o dado. A correção é a montante: um PDF
+sem sobreposição, ou gerado de novo a partir da planilha. O cruzamento com o
+ERP, esse, está limpo: 35 match exatos, 0 divergência de preço, e o `REVENDAS`
+do PDF é o **custo** `AVISTA`, não o `sale_price`.
 
 As cinco falhas da suíte 25 foram investigadas a fundo: todas são teste escrito
 para a premissa da ponte ligada, nenhuma esconde risco. Detalhe e ressalvas em
