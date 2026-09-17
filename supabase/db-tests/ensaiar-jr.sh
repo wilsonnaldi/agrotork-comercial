@@ -45,11 +45,13 @@ q -c "insert into brain.knowledge_sources (key, name, kind, default_access_level
 
 echo "▶ ingestão"
 export BRAIN_DB_URL="postgresql://$U@/$DB?host=$H&port=$P"
-# --date 2026-01-01: NAO e conveniencia. O gatilho de ativacao faz
-# `valid_from := coalesce(valid_from, document_date, current_date)` — sem uma
-# data declarada, a versao seria carimbada com o DIA DA ATIVACAO, que nao tem
-# relacao nenhuma com o documento. Entre um carimbo mudo e a competencia que o
-# proprio PDF declara ("atualizacao Janeiro 26"), a segunda e a honesta.
+# --date 2026-01-01 e a COMPETENCIA que o proprio PDF declara ("atualizacao
+# Janeiro 26"), gravada onde ela mora: `document_date`. Ela NAO sobe para
+# `valid_from` — a JR nao informou dia de inicio de vigencia, e desde a
+# migration 20260917120000 o banco nao inventa um. `valid_from` fica NULL, que
+# e a verdade: vigencia inicial nao declarada. Ate 16/09 o gatilho carimbava
+# `coalesce(valid_from, document_date, current_date)` e esta linha existia para
+# escolher o mal menor; hoje ela existe so para gravar o que o documento diz.
 ( cd brain/worker && python3 -m brain_worker ingest "$PDF" --document jr-solucoes-tabela-revendas \
     --label 'JAN/26' --date 2026-01-01 --ocr never --price-table ) | sed 's/^/  /'
 q -c "update brain.document_versions set status='active' where version_label='JAN/26'" >/dev/null
@@ -201,10 +203,21 @@ begin
   if n=1 then passes:=passes+1; raise notice 'K  PASS  fonte é o fabricante, processamento externo proibido';
   else falhas:=falhas+1; raise warning 'K  FALHA'; end if;
 
-  -- L) a versao carrega a competencia declarada
-  select count(*) into n from brain.document_versions where version_label='JAN/26' and valid_from='2026-01-01';
-  if n=1 then passes:=passes+1; raise notice 'L  PASS  versão JAN/26 com valid_from declarado, não carimbado na ativação';
-  else falhas:=falhas+1; raise warning 'L  FALHA'; end if;
+  -- L) a competencia fica em document_date; a vigencia NAO e inventada.
+  --    A JR declara "Janeiro 26" e nao declara dia de inicio. Entao
+  --    document_date = 2026-01-01 e valid_from = NULL — e a versao continua
+  --    sendo a vigente, porque "nao declarado" nao e "invalido".
+  select count(*) into n from brain.document_versions v
+   where v.version_label='JAN/26' and v.document_date='2026-01-01'
+     and v.valid_from is null and v.status='active'
+     and brain.current_version(v.document_id) = v.id;
+  if n=1 then passes:=passes+1; raise notice 'L  PASS  competência JAN/26 em document_date; valid_from NULL (não declarado) e a versão é a vigente';
+  else falhas:=falhas+1;
+    raise warning 'L  FALHA: document_date=% valid_from=% status=%',
+      (select document_date from brain.document_versions where version_label='JAN/26'),
+      coalesce((select valid_from::text from brain.document_versions where version_label='JAN/26'), 'NULL'),
+      (select status from brain.document_versions where version_label='JAN/26');
+  end if;
 
   raise notice '--- ADVERSARIAIS JR: % PASS, % FALHA ---', passes, falhas;
   if falhas>0 then raise exception 'Adversariais JR com % falha(s)', falhas; end if;
