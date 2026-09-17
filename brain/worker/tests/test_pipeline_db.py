@@ -294,3 +294,47 @@ def test_d9_concurrent_ingestions_serialize(db, tmp_path):
         other.close()
     (n,) = _q(db, "select count(*) from brain.document_chunks where version_id = %s", vid)[0]
     assert n > 0
+
+
+def test_d10_pages_subset_preserva_pagina_fisica(db, tmp_path):
+    """`--pages` no banco: a versão diz o tamanho do ARQUIVO, a trilha diz o
+    que foi ingerido, e a página citada é a do arquivo original.
+
+    É o caso DJI V15.1 sem documento de passagem: de um PDF de 6 páginas
+    entram a 1 e a 4, e o BRAIN continua capaz de dizer "abra a p. 4".
+
+    Nota de comportamento (não é defeito): o mesmo ARQUIVO no mesmo documento
+    é a mesma versão — `uq_version_file` é (document_id, file_sha256). Por
+    isso este teste usa um arquivo próprio: reingerir um recorte de um PDF já
+    ingerido inteiro devolve `skipped`, não uma segunda versão recortada.
+    """
+    pdf = make_catalog_pdf(tmp_path / "recorte.pdf", pages_long_text=4)   # 6 paginas
+    r = ingest(db, pdf, DOC_PUB, "V-REC", ocr="never", pages="1,4")
+    assert r.status == "completed" and r.pages == 2, r
+
+    (v,) = _q(db, "select page_count, metadata from brain.document_versions where id = %s", r.version_id)
+    assert v[0] == 6, "page_count tem de ser o total FISICO do arquivo"
+    assert v[1]["ingested_pages"] == [1, 4]
+    assert v[1]["ingested_page_count"] == 2
+    assert v[1]["page_selection"] == "1,4"
+
+    # a trilha de ingestao conta o que ingeriu — e por isso fecha como completed
+    (i,) = _q(db, "select pages_total, pages_done, status::text from brain.knowledge_ingestions where id = %s", r.ingestion_id)
+    assert i == (2, 2, "completed"), i
+
+    # proveniencia: p.1 e p.4, nunca p.1 e p.2
+    paginas = [n for (n,) in _q(db, "select page_no from brain.document_pages where version_id = %s order by page_no", r.version_id)]
+    assert paginas == [1, 4]
+    chunk_pgs = {n for (n,) in _q(db, "select distinct page_from from brain.document_chunks where version_id = %s", r.version_id)}
+    assert chunk_pgs == {1, 4}
+
+    # a tabela tecnica esta na p.2, que ficou de fora: nao entrou por nenhuma porta
+    (n_tab,) = _q(db, "select count(*) from brain.document_chunks where version_id = %s and kind in ('table','price_table')", r.version_id)[0]
+    assert n_tab == 0
+    (n_cod,) = _q(db, "select count(*) from brain.document_chunks where version_id = %s and 'PS981CAP' = any(codes)", r.version_id)[0]
+    assert n_cod == 0
+
+    # e a citacao sai com o numero fisico
+    (cid,) = _q(db, "select id from brain.document_chunks where version_id = %s and page_from = 4 limit 1", r.version_id)[0]
+    (prov,) = _q(db, "select brain.chunk_provenance(%s)", cid)[0]
+    assert prov["citation"].endswith("V-REC, p. 4"), prov["citation"]

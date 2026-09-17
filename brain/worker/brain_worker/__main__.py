@@ -1,7 +1,12 @@
 """CLI do worker.
 
-  python -m brain_worker ingest ARQUIVO --document SLUG --label V41 [--replace] [--ocr auto|never|force]
-  python -m brain_worker plan   ARQUIVO [--json]         # so extrai e fatia; nao toca no banco
+  python -m brain_worker ingest ARQUIVO --document SLUG --label V41 [--replace] [--ocr auto|never|force] [--pages 1,3-5]
+  python -m brain_worker plan   ARQUIVO [--json] [--pages 1]   # so extrai e fatia; nao toca no banco
+
+`--pages` recorta um PDF por pagina fisica: '1', '1,3', '2-4', '1,3-5'. O
+numero da pagina no BRAIN continua sendo o do arquivo original, e
+`page_count` continua sendo o total do arquivo — o recorte fica no metadata
+da versao. So vale para PDF.
 
 Conexão: variável de ambiente BRAIN_DB_URL (nunca em argumento, nunca em log).
 """
@@ -13,6 +18,7 @@ import sys
 from pathlib import Path
 
 from .db import BrainDb
+from .extract import parse_pages
 from .pipeline import ingest, plan, plan_to_json
 
 
@@ -26,6 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     p_plan.add_argument("--price-table", action="store_true")
     p_plan.add_argument("--json", action="store_true")
     p_plan.add_argument("--profile", default=None, help="perfil de codigos (ex.: magnojet_catalog)")
+    p_plan.add_argument("--pages", default=None, help="paginas do PDF a ingerir: '1', '1,3', '2-4', '1,3-5'. A numeracao no BRAIN continua a do arquivo original")
 
     p_ing = sub.add_parser("ingest", help="grava versao, paginas e chunks")
     p_ing.add_argument("file", type=Path)
@@ -37,10 +44,23 @@ def main(argv: list[str] | None = None) -> int:
     p_ing.add_argument("--replace", action="store_true", help="reprocessar versao que ja tem conteudo")
     p_ing.add_argument("--dry-run", action="store_true")
     p_ing.add_argument("--profile", default=None, help="perfil de codigos; padrao: pela fonte do documento")
+    p_ing.add_argument("--pages", default=None, help="paginas do PDF a ingerir: '1', '1,3', '2-4', '1,3-5'. A numeracao no BRAIN continua a do arquivo original")
 
     a = ap.parse_args(argv)
+    # Selecao invalida e erro de operador: para antes de abrir arquivo ou banco,
+    # com a mensagem do parser, em vez de virar excecao la dentro.
+    if a.pages is not None:
+        try:
+            parse_pages(a.pages)
+        except ValueError as exc:
+            print(f"--pages: {exc}", file=sys.stderr)
+            return 2
     if a.cmd == "plan":
-        p = plan(a.file, ocr=a.ocr, price_table=a.price_table, profile=a.profile)
+        try:
+            p = plan(a.file, ocr=a.ocr, price_table=a.price_table, profile=a.profile, pages=a.pages)
+        except ValueError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
         print(plan_to_json(p) if a.json else _fmt(p.summary()))
         return 0
 
@@ -51,7 +71,8 @@ def main(argv: list[str] | None = None) -> int:
     db = BrainDb(dsn)
     try:
         r = ingest(db, a.file, a.document, a.label, ocr=a.ocr, replace=a.replace,
-                   price_table=a.price_table, document_date=a.date, dry_run=a.dry_run, profile=a.profile)
+                   price_table=a.price_table, document_date=a.date, dry_run=a.dry_run, profile=a.profile,
+                   pages=a.pages)
     finally:
         db.close()
     print(_fmt({"version_id": str(r.version_id), "ingestion_id": str(r.ingestion_id), "status": r.status,

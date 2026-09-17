@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,10 +59,66 @@ class Extraction:
     needs_ocr: bool
     text_ratio: float | None
     warnings: list[str] = field(default_factory=list)
+    # Total de paginas do ARQUIVO, nao do que foi ingerido. Sem `--pages` os
+    # dois numeros sao iguais; com `--pages 1` num PDF de 4, este continua 4.
+    # E o que `document_versions.page_count` guarda: o arquivo nao encolhe
+    # porque pedimos um pedaco dele.
+    physical_pages: int | None = None
+    # Paginas fisicas pedidas, quando houve selecao. None = arquivo inteiro.
+    selection: tuple[int, ...] | None = None
 
     @property
     def pages_total(self) -> int:
+        """Paginas INGERIDAS — e o que a trilha de ingestao conta e cobra."""
         return len(self.pages)
+
+    @property
+    def file_pages(self) -> int:
+        return self.physical_pages if self.physical_pages is not None else len(self.pages)
+
+
+# ── seleção de páginas ──────────────────────────────────────
+
+# `--pages` nomeia PÁGINAS DE PDF. Aba de planilha não é página: o Excel não
+# tem paginação, e chamar aba de "página 2" faria a proveniência citar uma
+# coisa que o arquivo não tem. Por isso a seleção é recusada para os outros
+# formatos em vez de ser traduzida para algo parecido.
+PAGE_SELECTION_FORMATS = (".pdf",)
+
+_PAGE_TOKEN = re.compile(r"^(\d+)(?:-(\d+))?$")
+
+
+def parse_pages(spec: str, total: int | None = None) -> tuple[int, ...]:
+    """'1' · '1,3' · '2-4' · '1,3-5' → tupla ordenada de páginas FÍSICAS.
+
+    Recusa: vazio, zero, negativo, não-número, intervalo invertido, página
+    além do arquivo. Duplicata não é erro — pedir '1,1-2' é pedir as páginas
+    1 e 2, e o resultado é o conjunto, não a repetição.
+    """
+    if spec is None or not spec.strip():
+        raise ValueError("selecao de paginas vazia; use por exemplo '1', '1,3' ou '2-4'")
+    escolhidas: set[int] = set()
+    for bruto in spec.split(","):
+        token = bruto.strip()
+        if not token:
+            raise ValueError(f"selecao de paginas invalida em '{spec}': item vazio entre virgulas")
+        m = _PAGE_TOKEN.match(token)
+        if not m:
+            raise ValueError(f"trecho invalido na selecao de paginas: '{token}'. "
+                             "Use numero ('3'), intervalo ('2-4') ou lista ('1,3-5')")
+        ini = int(m.group(1))
+        fim = int(m.group(2)) if m.group(2) is not None else ini
+        if ini == 0 or fim == 0:
+            raise ValueError("pagina 0 nao existe: a primeira pagina e a 1")
+        if fim < ini:
+            raise ValueError(f"intervalo invertido: '{token}'. O fim vem depois do inicio")
+        escolhidas.update(range(ini, fim + 1))
+    if total is not None:
+        alem = sorted(p for p in escolhidas if p > total)
+        if alem:
+            raise ValueError(f"o arquivo tem {total} pagina(s); pedida(s) "
+                             + ", ".join(str(p) for p in alem))
+    return tuple(sorted(escolhidas))
 
 
 def mime_for(path: Path) -> str:
@@ -133,15 +190,32 @@ def _table_regions(page):
     return regions
 
 
-def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
-    """ocr: 'auto' (só páginas sem camada textual), 'never', 'force'."""
+def extract_pdf(path: Path, ocr: str = "auto", pages_wanted: tuple[int, ...] | None = None) -> Extraction:
+    """ocr: 'auto' (só páginas sem camada textual), 'never', 'force'.
+
+    `pages_wanted`: páginas FÍSICAS a processar (1-based). O número físico
+    sobrevive à seleção — pedir 1 e 4 dá páginas numeradas 1 e 4, nunca 1 e 2.
+    Quem cita o BRAIN precisa poder abrir o arquivo original nessa página.
+    """
     import pdfplumber
 
     pages: list[ExtractedPage] = []
     warnings: list[str] = []
     total_chars = 0
     with pdfplumber.open(str(path)) as pdf:
+        fisicas = len(pdf.pages)
+        if pages_wanted is not None:
+            alem = sorted(n for n in pages_wanted if n > fisicas)
+            if alem:
+                raise ValueError(f"o arquivo tem {fisicas} pagina(s); pedida(s) "
+                                 + ", ".join(str(n) for n in alem))
         for i, page in enumerate(pdf.pages, start=1):
+            if pages_wanted is not None and i not in pages_wanted:
+                # Pagina fora da selecao nao e lida: nao gera texto, nem tabela,
+                # nem chunk, nem codigo. E o unico jeito de a exclusao ser real
+                # em vez de um filtro no fim da esteira.
+                page.close()
+                continue
             tables: list[TechnicalTable] = []
             bboxes = []
             reconstructed = 0
@@ -233,7 +307,11 @@ def extract_pdf(path: Path, ocr: str = "auto") -> Extraction:
             for p in pages:
                 if len(p.text.strip()) < OCR_MIN_CHARS_PER_PAGE:
                     p.extraction = "none"
-    return Extraction(pages, method, "pdfplumber " + pdfplumber.__version__, needs_ocr, round(ratio, 4), warnings)
+    if pages_wanted is not None:
+        warnings.append(f"selecao de paginas: {len(pages)} de {fisicas} pagina(s) do arquivo "
+                        f"({', '.join('p.' + str(p.page_no) for p in pages)})")
+    return Extraction(pages, method, "pdfplumber " + pdfplumber.__version__, needs_ocr, round(ratio, 4), warnings,
+                      physical_pages=fisicas, selection=pages_wanted)
 
 
 # ── XLSX / CSV ──────────────────────────────────────────────
@@ -280,10 +358,15 @@ def extract_text(path: Path) -> Extraction:
     return Extraction(pages, "other", "text", False, None, ["texto: form-feed separa paginas"] if "\f" in content else ["texto: uma pagina"])
 
 
-def extract(path: Path, ocr: str = "auto") -> Extraction:
+def extract(path: Path, ocr: str = "auto", pages: str | None = None) -> Extraction:
     ext = path.suffix.lower()
+    if pages is not None and ext not in PAGE_SELECTION_FORMATS:
+        raise ValueError(
+            f"--pages so vale para PDF; {ext or '(sem extensao)'} nao tem paginas. "
+            "Planilha e organizada por ABA e csv/txt nao paginam: para ingerir um "
+            "pedaco desses arquivos, o recorte e feito no proprio arquivo.")
     if ext == ".pdf":
-        return extract_pdf(path, ocr)
+        return extract_pdf(path, ocr, parse_pages(pages) if pages is not None else None)
     if ext == ".xlsx":
         return extract_xlsx(path)
     if ext == ".csv":

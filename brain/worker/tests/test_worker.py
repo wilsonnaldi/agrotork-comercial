@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from fixtures import COMMERCIAL_BLOCKS, FLOW_SPEEDS, SHEET_CODES, TABLE_ROWS, make_catalog_pdf, make_commercial_pdf, make_degraded_pdf, make_flow_pdf, make_price_xlsx, make_quote_xlsx, make_text  # noqa: E402
 from brain_worker.chunking import CONFIG, MAX, PageInput, chunk_pages, is_heading  # noqa: E402
 from brain_worker.codes import extract_codes, known_profiles, normalize_code  # noqa: E402
-from brain_worker.extract import extract, mime_for, ocr_available, sniff_ok  # noqa: E402
+from brain_worker.extract import extract, mime_for, ocr_available, parse_pages, sniff_ok  # noqa: E402
 from brain_worker.pipeline import plan, sha256_of  # noqa: E402
 from brain_worker.tables import TechnicalTable, build_table, is_money, parse_number, split_side_by_side, split_stacked  # noqa: E402
 
@@ -617,3 +617,144 @@ def test_w37_sem_coluna_fiscal_nada_muda():
         labels=["COD", "DESCRIÇÃO", "VALOR"])
     codes = t.codes()
     assert "46202G" in codes and "863T026S" in codes, codes
+
+
+# ── W38–W49 seleção de páginas (--pages) ────────────────────
+#
+# O PDF de 5 páginas: p.1 institucional, p.2 a tabela técnica, p.3-5 capítulos
+# de texto. Serve para provar as duas coisas que importam — o que entra e o
+# que NÃO entra — sem depender de nenhum documento real.
+
+@pytest.fixture(scope="module")
+def pdf5(tmp_path_factory):
+    return make_catalog_pdf(tmp_path_factory.mktemp("sel") / "cinco-paginas.pdf", pages_long_text=3)
+
+
+def test_w38_pagina_unica(pdf5):
+    assert parse_pages("1") == (1,)
+    ext = extract(pdf5, ocr="never", pages="2")
+    assert [p.page_no for p in ext.pages] == [2]
+    assert ext.pages_total == 1
+
+
+def test_w39_lista_de_paginas(pdf5):
+    assert parse_pages("1,3") == (1, 3)
+    ext = extract(pdf5, ocr="never", pages="1,3")
+    assert [p.page_no for p in ext.pages] == [1, 3]
+
+
+def test_w40_intervalo(pdf5):
+    assert parse_pages("2-4") == (2, 3, 4)
+    ext = extract(pdf5, ocr="never", pages="2-4")
+    assert [p.page_no for p in ext.pages] == [2, 3, 4]
+
+
+def test_w41_lista_mais_intervalo(pdf5):
+    assert parse_pages("1,3-5") == (1, 3, 4, 5)
+    ext = extract(pdf5, ocr="never", pages="1,3-5")
+    assert [p.page_no for p in ext.pages] == [1, 3, 4, 5]
+
+
+def test_w42_duplicata_normaliza(pdf5):
+    # Pedir a mesma pagina duas vezes e pedir a pagina uma vez. Nao e erro:
+    # e um conjunto, e '1,1-2' significa exatamente as paginas 1 e 2.
+    assert parse_pages("1,1") == (1,)
+    assert parse_pages("1,1-2") == (1, 2)
+    assert parse_pages("3-4,4-5") == (3, 4, 5)
+    assert parse_pages("3,1,2") == (1, 2, 3)          # fora de ordem tambem
+    ext = extract(pdf5, ocr="never", pages="2,2,2")
+    assert [p.page_no for p in ext.pages] == [2]
+
+
+def test_w43_pagina_zero_e_negativa_sao_recusadas():
+    with pytest.raises(ValueError, match="pagina 0"):
+        parse_pages("0")
+    with pytest.raises(ValueError, match="pagina 0"):
+        parse_pages("1,0")
+    with pytest.raises(ValueError, match="pagina 0"):
+        parse_pages("0-3")
+    # '-3' nao e "menos tres": e um intervalo sem inicio. Recusado como sintaxe.
+    for lixo in ("-3", "1,-3", "abc", "1.5", "", "   ", "1,,2", "1--3", "2-", "1,2-"):
+        with pytest.raises(ValueError):
+            parse_pages(lixo)
+
+
+def test_w44_pagina_alem_do_arquivo(pdf5):
+    # O parser sozinho nao sabe o tamanho do arquivo; com o total, sabe.
+    assert parse_pages("9") == (9,)
+    with pytest.raises(ValueError, match="5 pagina"):
+        parse_pages("9", total=5)
+    # e na extracao a recusa vem do arquivo de verdade
+    with pytest.raises(ValueError, match="5 pagina"):
+        extract(pdf5, ocr="never", pages="6")
+    with pytest.raises(ValueError, match="5 pagina"):
+        extract(pdf5, ocr="never", pages="4-7")
+
+
+def test_w45_intervalo_invertido():
+    with pytest.raises(ValueError, match="invertido"):
+        parse_pages("4-2")
+    with pytest.raises(ValueError, match="invertido"):
+        parse_pages("1,9-3")
+
+
+def test_w46_proveniencia_mantem_numero_fisico(pdf5):
+    """O caso que motivou tudo: pedir 1 e 4 tem de dar p.1 e p.4, nunca p.1 e p.2.
+
+    Quem ler a citação vai abrir o arquivo ORIGINAL nessa página.
+    """
+    ext = extract(pdf5, ocr="never", pages="1,4")
+    assert [p.page_no for p in ext.pages] == [1, 4]
+    chunks = chunk_pages([PageInput(p.page_no, p.text, p.tables) for p in ext.pages])
+    assert {c.page for c in chunks} <= {1, 4}
+    assert 2 not in {c.page for c in chunks}
+
+
+def test_w47_page_count_continua_fisico(pdf5, tmp_path):
+    p = plan(pdf5, ocr="never", pages="1")
+    assert p.extraction.file_pages == 5          # o arquivo nao encolheu
+    assert p.extraction.pages_total == 1         # a ingestao pegou uma
+    assert p.summary()["file_pages"] == 5
+    assert p.summary()["pages"] == 1
+    assert p.summary()["selected_pages"] == [1]
+    # sem selecao os dois numeros coincidem e nao ha recorte a declarar
+    inteiro = plan(pdf5, ocr="never")
+    assert inteiro.extraction.file_pages == inteiro.extraction.pages_total == 5
+    assert inteiro.summary()["selected_pages"] is None
+
+
+def test_w48_pagina_nao_selecionada_nao_gera_chunk(pdf5):
+    """A soma das partes é o todo: nada se perde e nada vaza."""
+    inteiro = plan(pdf5, ocr="never")
+    so_p2 = plan(pdf5, ocr="never", pages="2")
+    resto = plan(pdf5, ocr="never", pages="1,3-5")
+    assert len(so_p2.chunks) + len(resto.chunks) == len(inteiro.chunks)
+    assert {c.page for c in so_p2.chunks} == {2}
+    assert 2 not in {c.page for c in resto.chunks}
+    # o texto do capitulo 3 (p.3) nao aparece em lugar nenhum do recorte da p.2
+    assert not any("CAPÍTULO 3" in c.content for c in so_p2.chunks)
+
+
+def test_w49_pagina_nao_selecionada_nao_gera_tabela(pdf5):
+    """A tabela técnica está na p.2. Pedindo p.1 e p.3, ela não existe —
+    nem como tabela, nem como código, nem como texto."""
+    sem_tabela = plan(pdf5, ocr="never", pages="1,3")
+    assert sum(1 for c in sem_tabela.chunks if c.kind in ("table", "price_table")) == 0
+    assert not any(TABLE_ROWS[0][0] in c.content for c in sem_tabela.chunks)
+    assert not any(TABLE_ROWS[0][0] in (c.codes or []) for c in sem_tabela.chunks)
+    com_tabela = plan(pdf5, ocr="never", pages="2")
+    assert sum(1 for c in com_tabela.chunks if c.kind in ("table", "price_table")) >= 1
+    assert any(TABLE_ROWS[0][0] in (c.codes or []) for c in com_tabela.chunks)
+
+
+def test_w50_pages_so_vale_para_pdf(tmp_path):
+    """Aba de planilha não é página. Recusar é mais honesto do que traduzir."""
+    xlsx = make_price_xlsx(tmp_path / "precos.xlsx")
+    with pytest.raises(ValueError, match="so vale para PDF"):
+        extract(xlsx, pages="1")
+    txt = make_text(tmp_path / "proc.txt")
+    with pytest.raises(ValueError, match="so vale para PDF"):
+        extract(txt, pages="1")
+    # sem --pages os dois continuam funcionando como sempre
+    assert extract(xlsx).pages_total == 2
+    assert extract(txt).pages_total == 2

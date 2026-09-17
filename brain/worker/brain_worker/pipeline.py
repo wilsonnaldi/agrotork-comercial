@@ -58,6 +58,8 @@ class Plan:
             "method": self.extraction.method, "parser": self.extraction.parser,
             "needs_ocr": self.extraction.needs_ocr, "text_ratio": self.extraction.text_ratio,
             "pages": self.extraction.pages_total, "chunks": len(self.chunks),
+            "file_pages": self.extraction.file_pages,
+            "selected_pages": list(self.extraction.selection) if self.extraction.selection else None,
             "tables": sum(1 for c in self.chunks if c.kind in ("table", "price_table")),
             "warnings": list(self.extraction.warnings) + [w for p in self.extraction.pages for w in p.warnings],
             "pipeline_version": PIPELINE_VERSION, "chunk_config": CHUNK_CONFIG,
@@ -71,14 +73,15 @@ class Plan:
 PROFILE_BY_SOURCE = {"magnojet": "magnojet_catalog"}   # perfil de codigos por fonte (particularidades isoladas em codes.py)
 
 
-def plan(path: Path, ocr: str = "auto", price_table: bool = False, profile: str | None = None) -> Plan:
+def plan(path: Path, ocr: str = "auto", price_table: bool = False, profile: str | None = None,
+         pages: str | None = None) -> Plan:
     if not path.is_file():
         raise FileNotFoundError(str(path))
     mime = mime_for(path)
     if not sniff_ok(path):
         raise ValueError(f"{path.name}: conteudo nao bate com a extensao")
     t0 = time.perf_counter()
-    ext = extract(path, ocr=ocr)
+    ext = extract(path, ocr=ocr, pages=pages)
     t1 = time.perf_counter()
     chunks = chunk_pages([PageInput(p.page_no, p.text, p.tables) for p in ext.pages], price_table_hint=price_table, profile=profile)
     t2 = time.perf_counter()
@@ -110,7 +113,8 @@ class InjectedFailure(RuntimeError):
 def ingest(db: BrainDb, path: Path, document_slug: str, version_label: str, *,
            ocr: str = "auto", replace: bool = False, price_table: bool = False,
            document_date=None, executor: str | None = None, dry_run: bool = False,
-           fail_at: str | None = None, profile: str | None = None) -> Result:
+           fail_at: str | None = None, profile: str | None = None,
+           pages: str | None = None) -> Result:
     """`fail_at` (so testes): 'after_start' | 'after_pages' | 'mid_chunks' | 'before_finish' —
     levanta InjectedFailure naquele ponto da T2, DEPOIS de o conteudo antigo ter sido removido
     dentro da transacao. Serve para provar que o rollback devolve tudo."""
@@ -118,16 +122,23 @@ def ingest(db: BrainDb, path: Path, document_slug: str, version_label: str, *,
     if doc is None:
         raise LookupError(f"documento '{document_slug}' nao existe ou nao e visivel para esta conexao")
     profile = profile or PROFILE_BY_SOURCE.get(doc["source_key"])
-    p = plan(path, ocr=ocr, price_table=price_table, profile=profile)
+    p = plan(path, ocr=ocr, price_table=price_table, profile=profile, pages=pages)
     if dry_run:
         return Result(None, None, "dry-run", p.extraction.pages_total, len(p.chunks),
                       sum(1 for c in p.chunks if c.kind in ("table", "price_table")))
 
     executor = executor or f"brain_worker@{socket.gethostname()}"
     # T1: a versao. Confirmada sozinha — e um registro, nao conteudo.
+    # page_count e o tamanho do ARQUIVO, sempre. Um recorte nao encolhe o
+    # original, e quem for conferir a citacao vai abrir o arquivo inteiro.
+    # O recorte fica no metadata da versao, explicito, ao lado do total.
+    meta_versao: dict[str, Any] = {"pipeline_version": PIPELINE_VERSION, "text_ratio": p.extraction.text_ratio}
+    if p.extraction.selection is not None:
+        meta_versao["page_selection"] = pages
+        meta_versao["ingested_pages"] = list(p.extraction.selection)
+        meta_versao["ingested_page_count"] = p.extraction.pages_total
     version_id = db.register_version(doc["id"], version_label, p.sha256, path.name, p.mime, p.size,
-                                     document_date, p.extraction.pages_total,
-                                     {"pipeline_version": PIPELINE_VERSION, "text_ratio": p.extraction.text_ratio})
+                                     document_date, p.extraction.file_pages, meta_versao)
     db.commit()
     if db.version_has_content(version_id) and not replace:
         db.rollback()
