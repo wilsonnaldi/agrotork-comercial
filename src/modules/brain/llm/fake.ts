@@ -21,8 +21,22 @@ export type FakeMode =
   | "invented_code"   // inventa um código vizinho (MJ981CAP -> MJ982CAP)
   | "orphan_paragraph"// dois parágrafos, só o segundo cita
   | "model_refusal"   // diz que a documentação não permite concluir
+  | "listing_complete"// lista os 6 pontos da MJ981CAP (p. 20 do Magnojet V41)
+  | "listing_partial" // lista só 5 dos 6 — cada um existe, um sumiu
+  | "listing_foreign" // lista os 6 e cola um ponto da MJ982CAP
   | "timeout"
   | "error";
+
+/** Os seis pontos reais da MJ981CAP, no formato que o prompt pede para listagem. */
+const LISTA_MJ981CAP = [
+  "Valores da MJ981CAP [1]:",
+  "- 2,07 bar -> 0,66 L/min [1]",
+  "- 2,76 bar -> 0,77 L/min [1]",
+  "- 3,45 bar -> 0,86 L/min [1]",
+  "- 4,14 bar -> 0,94 L/min [1]",
+  "- 4,83 bar -> 1,01 L/min [1]",
+  "- 5,52 bar -> 1,08 L/min [1]",
+];
 
 export class FakeBrainLlmProvider implements BrainLlmProvider {
   readonly name = "fake";
@@ -69,6 +83,12 @@ export class FakeBrainLlmProvider implements BrainLlmProvider {
         return { text: "A vazão é de 0,77 L/min.\n\nA pressão é de 40 psi. [1]", meta };
       case "model_refusal":
         return { text: "A documentação disponível não permite concluir isso.", meta };
+      case "listing_complete":
+        return { text: LISTA_MJ981CAP.join("\n"), meta };
+      case "listing_partial":
+        return { text: LISTA_MJ981CAP.filter((l) => !l.includes("4,83 bar")).join("\n"), meta };
+      case "listing_foreign":
+        return { text: [...LISTA_MJ981CAP, "- 2,07 bar -> 0,83 L/min [1]"].join("\n"), meta };
       case "valid":
       default: {
         const citacoes = Array.from({ length: Math.min(n, 2) }, (_, i) => `[${i + 1}]`).join(" ");

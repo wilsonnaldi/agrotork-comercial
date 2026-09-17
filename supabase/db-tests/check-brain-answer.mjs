@@ -27,6 +27,7 @@ const ARQUIVOS = {
   "prompt.ts": "src/modules/brain/prompt.ts",
   "external-processing.ts": "src/modules/brain/external-processing.ts",
   "grounding.ts": "src/modules/brain/grounding.ts",
+  "exhaustiveness.ts": "src/modules/brain/exhaustiveness.ts",
   "provider.ts": "src/modules/brain/llm/provider.ts",
   "fake.ts": "src/modules/brain/llm/fake.ts",
 };
@@ -39,7 +40,8 @@ for (const [nome, caminho] of Object.entries(ARQUIVOS)) {
     .replace(/from "\.\/evidence"/g, 'from "./evidence.ts"')
     .replace(/from "\.\/limits"/g, 'from "./limits.ts"')
     .replace(/from "\.\/provider"/g, 'from "./provider.ts"')
-    .replace(/from "\.\/grounding"/g, 'from "./grounding.ts"');
+    .replace(/from "\.\/grounding"/g, 'from "./grounding.ts"')
+    .replace(/from "\.\/exhaustiveness"/g, 'from "./exhaustiveness.ts"');
   writeFileSync(join(destino, nome), fonte);
 }
 const imp = (n) => import(pathToFileURL(join(destino, n)).href);
@@ -49,6 +51,7 @@ const X = await imp("external-processing.ts");
 const F = await imp("fake.ts");
 const L = await imp("limits.ts");
 const GD = await imp("grounding.ts");
+const EX = await imp("exhaustiveness.ts");
 
 let falhas = 0;
 const ok = (t) => process.stdout.write(`  ✓ ${t}\n`);
@@ -579,6 +582,230 @@ confere("R8 renderEvidence preserva o comprimento de cada evidência aprovada",
   aprovadas.every((e) => P.renderEvidence([e]).includes(e.content)));
 confere("R8b e o pipeline nunca entrega ao render algo acima do teto",
   aprovadas.every((e) => e.content.length <= L.MAX_CHARS_POR_EVIDENCIA));
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Listagem exaustiva (L1–L12)\n");
+
+/**
+ * Fixture REAL: as linhas do trecho 72 (Catálogo Magnojet V41, p. 20),
+ * copiadas caractere a caractere de produção em 17/09/2026 — cabeçalho e as
+ * três primeiras pontas. MJ980CAP e MJ982CAP estão aqui de propósito: são as
+ * vizinhas cujos números o modelo poderia colar na lista da MJ981CAP.
+ */
+const LINHAS_P20 = [
+  "LITROS POR HECTARE (ESPAÇAMENTO 50CM)",
+  "CÓDIGO PONTAS GOTAS BAR PSI kPa L/min 4 km/h 5 km/h 6 km/h 7 km/h 8 km/h 9 km/h 10 km/h 12 km/h 14 km/h 16 km/h 18 km/h 20 km/h 25 km/h",
+  "MJ980CAP MUG-CV 015 MALHA 50 UG 2,07 bar 30 psi 207 kPa 0,5 L/min 149 L/ha 120 L/ha 100 L/ha 85 L/ha 75 L/ha 66 L/ha 60 L/ha 50 L/ha 43 L/ha 37 L/ha 33 L/ha 30 L/ha 24 L/ha",
+  "MJ980CAP MUG-CV 015 MALHA 50 UG 2,76 bar 40 psi 276 kPa 0,58 L/min 173 L/ha 138 L/ha 115 L/ha 99 L/ha 86 L/ha 77 L/ha 69 L/ha 58 L/ha 49 L/ha 43 L/ha 38 L/ha 35 L/ha 28 L/ha",
+  "MJ980CAP MUG-CV 015 MALHA 50 UG 3,45 bar 50 psi 345 kPa 0,64 L/min 193 L/ha 154 L/ha 129 L/ha 110 L/ha 96 L/ha 86 L/ha 77 L/ha 64 L/ha 55 L/ha 48 L/ha 43 L/ha 39 L/ha 31 L/ha",
+  "MJ980CAP MUG-CV 015 MALHA 50 UG 4,14 bar 60 psi 414 kPa 0,7 L/min 211 L/ha 169 L/ha 141 L/ha 121 L/ha 106 L/ha 94 L/ha 85 L/ha 70 L/ha 60 L/ha 53 L/ha 47 L/ha 42 L/ha 34 L/ha",
+  "MJ980CAP MUG-CV 015 MALHA 50 UG 4,83 bar 70 psi 483 kPa 0,76 L/min 228 L/ha 183 L/ha 152 L/ha 130 L/ha 114 L/ha 101 L/ha 91 L/ha 76 L/ha 65 L/ha 57 L/ha 51 L/ha 46 L/ha 37 L/ha",
+  "MJ980CAP MUG-CV 015 MALHA 50 UG 5,52 bar 80 psi 552 kPa 0,81 L/min 244 L/ha 195 L/ha 163 L/ha 139 L/ha 122 L/ha 108 L/ha 98 L/ha 81 L/ha 70 L/ha 61 L/ha 54 L/ha 49 L/ha 39 L/ha",
+  "MJ981CAP MUG-CV 02 MALHA 50 UG 2,07 bar 30 psi 207 kPa 0,66 L/min 199 L/ha 159 L/ha 133 L/ha 114 L/ha 100 L/ha 89 L/ha 80 L/ha 66 L/ha 57 L/ha 50 L/ha 44 L/ha 40 L/ha 32 L/ha",
+  "MJ981CAP MUG-CV 02 MALHA 50 UG 2,76 bar 40 psi 276 kPa 0,77 L/min 230 L/ha 184 L/ha 153 L/ha 131 L/ha 115 L/ha 102 L/ha 92 L/ha 77 L/ha 66 L/ha 58 L/ha 51 L/ha 46 L/ha 37 L/ha",
+  "MJ981CAP MUG-CV 02 MALHA 50 UG 3,45 bar 50 psi 345 kPa 0,86 L/min 257 L/ha 206 L/ha 172 L/ha 147 L/ha 129 L/ha 114 L/ha 103 L/ha 86 L/ha 74 L/ha 64 L/ha 57 L/ha 51 L/ha 41 L/ha",
+  "MJ981CAP MUG-CV 02 MALHA 50 UG 4,14 bar 60 psi 414 kPa 0,94 L/min 282 L/ha 225 L/ha 188 L/ha 161 L/ha 141 L/ha 125 L/ha 113 L/ha 94 L/ha 81 L/ha 70 L/ha 63 L/ha 56 L/ha 45 L/ha",
+  "MJ981CAP MUG-CV 02 MALHA 50 UG 4,83 bar 70 psi 483 kPa 1,01 L/min 304 L/ha 244 L/ha 203 L/ha 174 L/ha 152 L/ha 135 L/ha 122 L/ha 101 L/ha 87 L/ha 76 L/ha 68 L/ha 61 L/ha 49 L/ha",
+  "MJ981CAP MUG-CV 02 MALHA 50 UG 5,52 bar 80 psi 552 kPa 1,08 L/min 325 L/ha 260 L/ha 217 L/ha 186 L/ha 163 L/ha 145 L/ha 130 L/ha 108 L/ha 93 L/ha 81 L/ha 72 L/ha 65 L/ha 52 L/ha",
+  "MJ982CAP MUG-CV 025 MALHA 50 UG 2,07 bar 30 psi 207 kPa 0,83 L/min 249 L/ha 199 L/ha 166 L/ha 142 L/ha 125 L/ha 111 L/ha 100 L/ha 83 L/ha 71 L/ha 62 L/ha 55 L/ha 50 L/ha 40 L/ha",
+  "MJ982CAP MUG-CV 025 MALHA 50 UG 2,76 bar 40 psi 276 kPa 0,96 L/min 288 L/ha 230 L/ha 192 L/ha 164 L/ha 144 L/ha 128 L/ha 115 L/ha 96 L/ha 82 L/ha 72 L/ha 64 L/ha 58 L/ha 46 L/ha",
+  "MJ982CAP MUG-CV 025 MALHA 50 UG 3,45 bar 50 psi 345 kPa 1,07 L/min 322 L/ha 257 L/ha 214 L/ha 184 L/ha 161 L/ha 143 L/ha 129 L/ha 107 L/ha 92 L/ha 80 L/ha 71 L/ha 64 L/ha 51 L/ha",
+  "MJ982CAP MUG-CV 025 MALHA 50 UG 4,14 bar 60 psi 414 kPa 1,17 L/min 352 L/ha 282 L/ha 235 L/ha 201 L/ha 176 L/ha 157 L/ha 141 L/ha 117 L/ha 101 L/ha 88 L/ha 78 L/ha 70 L/ha 56 L/ha",
+  "MJ982CAP MUG-CV 025 MALHA 50 UG 4,83 bar 70 psi 483 kPa 1,27 L/min 381 L/ha 304 L/ha 254 L/ha 217 L/ha 190 L/ha 169 L/ha 152 L/ha 127 L/ha 109 L/ha 95 L/ha 85 L/ha 76 L/ha 61 L/ha",
+  "MJ982CAP MUG-CV 025 MALHA 50 UG 5,52 bar 80 psi 552 kPa 1,36 L/min 407 L/ha 325 L/ha 271 L/ha 232 L/ha 203 L/ha 181 L/ha 163 L/ha 136 L/ha 116 L/ha 102 L/ha 90 L/ha 81 L/ha 65 L/ha",
+];
+const P20 = ev({
+  chunkId: 72, kind: "table", content: LINHAS_P20.join("\n"),
+  codes: ["MJ980CAP", "MJ981CAP", "MJ982CAP", "MUG-CV015", "MUG-CV02"],
+  headingPath: ["MAGNO ULTRA GROSSA", "CONE VAZIO"],
+});
+const LC = A.buildCitations([P20]);
+const LE = [P20];
+const vq = (q, t) => A.validateAnswer(t, LC, LE, q);
+
+const PONTOS = [
+  ["2,07", "0,66"], ["2,76", "0,77"], ["3,45", "0,86"],
+  ["4,14", "0,94"], ["4,83", "1,01"], ["5,52", "1,08"],
+];
+const lista = (pontos, extra = []) =>
+  ["Valores da MJ981CAP [1]:", ...pontos.map(([b, v]) => `- ${b} bar -> ${v} L/min [1]`), ...extra].join("\n");
+const LISTA_OK = lista(PONTOS);
+const INLINE_OK =
+  "Para a MJ981CAP, os valores disponíveis são: 2,07 bar -> 0,66 L/min; 2,76 bar -> 0,77 L/min; " +
+  "3,45 bar -> 0,86 L/min; 4,14 bar -> 0,94 L/min; 4,83 bar -> 1,01 L/min; 5,52 bar -> 1,08 L/min. [1]";
+
+// ── intenção ────────────────────────────────────────────────
+const LISTAGENS = [
+  "Quais são todas as vazões da MJ981CAP?",
+  "Quais vazões estão disponíveis para a MJ981CAP?",
+  "Me mostre todas as opções da MJ981CAP",
+  "Quais pressões a MJ981CAP aceita?",
+  "Liste as vazões da MJ981CAP",
+  "Mostre a tabela da MJ981CAP",
+  "Quais valores existem para a MJ981CAP?",
+  "Quais as possibilidades de vazão da MJ981CAP?",
+  "Quais combinações de pressão e vazão a MJ981CAP tem?",
+];
+confere("L0  as nove formas de pedir listagem são reconhecidas",
+  LISTAGENS.every((q) => EX.detectListingIntent(q)),
+  LISTAGENS.filter((q) => !EX.detectListingIntent(q)).join(" | ") || "9/9");
+confere("L0b pergunta pontual NÃO é listagem ('Qual…' no singular)",
+  !EX.detectListingIntent("Qual a vazão da MJ981CAP a 40 psi?") &&
+  !EX.detectListingIntent("Qual a vazão da MJ981CAP a 5 bar?"));
+
+// ── L1 ──────────────────────────────────────────────────────
+const Q1 = "Qual a vazão da MJ981CAP a 40 psi?";
+confere("L1  pontual continua passando com a resposta de um valor só",
+  vq(Q1, "A MJ981CAP apresenta vazão de 0,77 L/min a 40 psi. [1]").ok === true);
+confere("L1b e a exaustão não se aplica a ela",
+  EX.checkExhaustiveness(Q1, "A MJ981CAP apresenta vazão de 0,77 L/min a 40 psi. [1]", LE).status === "not_applicable");
+confere("L1c o número errado continua reprovado pelo grounding",
+  vq(Q1, "A MJ981CAP apresenta vazão de 0,78 L/min a 40 psi. [1]").kind === "grounding");
+
+// ── L2 ──────────────────────────────────────────────────────
+const Q2 = "Quais as vazões da MJ981CAP em bar possíveis?";
+const ex2 = EX.checkExhaustiveness(Q2, LISTA_OK, LE);
+confere("L2  exige 12 valores: 6 pressões em bar + 6 vazões",
+  ex2.status === "complete" && ex2.required === 12, JSON.stringify(ex2));
+confere("L2b lista com os 6 pares, citação por linha → PASS",
+  vq(Q2, LISTA_OK).ok === true, vq(Q2, LISTA_OK).problem ?? "ok");
+confere("L2c formato em linha, um parágrafo com [1] → PASS",
+  vq(Q2, INLINE_OK).ok === true, vq(Q2, INLINE_OK).problem ?? "ok");
+confere("L2d os 6 pares estão, literalmente, na resposta",
+  PONTOS.every(([b, v]) => LISTA_OK.includes(`${b} bar -> ${v} L/min`)));
+const req2 = EX.requirementsFor(EX.parseListingQuestion(Q2), EX.relevantLines(EX.parseListingQuestion(Q2), LE));
+confere("L2e só as 6 linhas da MJ981CAP entram no conjunto exigido — nada da MJ980CAP/MJ982CAP",
+  new Set(req2.map((r) => r.linha)).size === 6 && req2.every((r) => r.linha.startsWith("MJ981CAP ")));
+
+// ── L3 ──────────────────────────────────────────────────────
+const Q3 = "Liste todas as vazões da MJ981CAP";
+confere("L3  lista com os 6 pares → PASS", vq(Q3, LISTA_OK).ok === true);
+confere("L3b só as vazões, sem pressão → PASS (a pergunta não pediu pressão)",
+  vq(Q3, "Vazões da MJ981CAP: 0,66; 0,77; 0,86; 0,94; 1,01 e 1,08 L/min. [1]").ok === true);
+confere("L3c exige as 6 vazões",
+  EX.checkExhaustiveness(Q3, LISTA_OK, LE).required === 6);
+
+// ── L4 ──────────────────────────────────────────────────────
+const Q4 = "Quais pressões em bar existem para a MJ981CAP?";
+const R4 = "A MJ981CAP tem pontos em 2,07; 2,76; 3,45; 4,14; 4,83 e 5,52 bar. [1]";
+confere("L4  as 6 pressões em bar → PASS", vq(Q4, R4).ok === true, vq(Q4, R4).problem ?? "ok");
+confere("L4b exige exatamente as 6 pressões em bar",
+  EX.checkExhaustiveness(Q4, R4, LE).required === 6);
+confere("L4c em psi, quando pediu bar → FAIL (faltam os valores em bar)",
+  vq(Q4, "A MJ981CAP tem pontos em 30, 40, 50, 60, 70 e 80 psi. [1]").kind === "completeness");
+confere("L4d 'quais pressões' sem unidade aceita a série em psi",
+  vq("Quais pressões existem para a MJ981CAP?", "A MJ981CAP tem pontos em 30, 40, 50, 60, 70 e 80 psi. [1]").ok === true);
+confere("L4e faltando 4,83 bar → FAIL",
+  vq(Q4, "A MJ981CAP tem pontos em 2,07; 2,76; 3,45; 4,14 e 5,52 bar. [1]").kind === "completeness");
+
+// ── L5 ──────────────────────────────────────────────────────
+const Q5 = "Qual a vazão da MJ981CAP a 5 bar?";
+confere("L5  interpolar (1,04 L/min a 5 bar) → FAIL no grounding",
+  vq(Q5, "A 5 bar, a MJ981CAP entrega 1,04 L/min. [1]").kind === "grounding");
+confere("L5b atribuir a 5 bar um valor que EXISTE (1,01) → FAIL: '5 bar' não está na evidência",
+  vq(Q5, "A 5 bar, a MJ981CAP entrega 1,01 L/min. [1]").kind === "grounding",
+  vq(Q5, "A 5 bar, a MJ981CAP entrega 1,01 L/min. [1]").problem);
+confere("L5c '5 bar' não se sustenta dentro de '3,45 bar' nem de '5,52 bar'",
+  GD.contemLiteral(P20.content, "5 bar") === false);
+const VIZINHOS = [
+  "A tabela não traz esse ponto exato para a MJ981CAP. Os pontos existentes mais próximos são [1]:",
+  "- 4,83 bar -> 1,01 L/min [1]",
+  "- 5,52 bar -> 1,08 L/min [1]",
+].join("\n");
+confere("L5d citar os dois vizinhos existentes, sem calcular → PASS",
+  vq(Q5, VIZINHOS).ok === true, vq(Q5, VIZINHOS).problem ?? "ok");
+confere("L5e recusar → model_refusal (vira no_evidence, não erro)",
+  vq(Q5, A.FRASE_DE_RECUSA).kind === "model_refusal");
+confere("L5f 'quais vazões … a 5 bar' não tem linha para exigir → exaustão não se aplica",
+  EX.checkExhaustiveness("Quais as vazões da MJ981CAP a 5 bar?", VIZINHOS, LE).status === "not_applicable");
+confere("L5g e mesmo assim 'a 5 bar é 1,01 L/min' continua barrado",
+  vq("Quais as vazões da MJ981CAP a 5 bar?", "A 5 bar a MJ981CAP entrega 1,01 L/min. [1]").ok === false);
+confere("L5h o prompt proíbe calcular e repetir o valor ausente",
+  /não calcule e não estime/.test(P.SYSTEM_PROMPT) && /Não repita o valor pedido/.test(P.SYSTEM_PROMPT));
+
+// ── L6 ──────────────────────────────────────────────────────
+const CINCO = lista(PONTOS.filter(([b]) => b !== "4,83"));
+confere("L6  só 5 dos 6 pares: o GROUNDING deixa passar (é o buraco)",
+  GD.checkGrounding(CINCO, LC, LE).ok === true);
+const r6 = vq(Q2, CINCO);
+confere("L6b …e a exaustão REPROVA", r6.ok === false && r6.kind === "completeness", r6.problem);
+confere("L6c o relatório diz o que faltou",
+  (r6.details ?? []).some((d) => d.includes("4,83")) && (r6.details ?? []).some((d) => d.includes("1,01")),
+  (r6.details ?? []).join(" | "));
+const semUmaVazao = LISTA_OK.replace("5,52 bar -> 1,08 L/min", "5,52 bar");
+confere("L6d a pressão está mas a vazão sumiu → FAIL",
+  vq(Q2, semUmaVazao).kind === "completeness");
+confere("L6e série condensada em faixa ('de 2,07 a 5,52 bar') → FAIL",
+  vq(Q2, "A MJ981CAP vai de 2,07 a 5,52 bar, com 0,66 a 1,08 L/min. [1]").kind === "completeness");
+confere("L6f sem a pergunta, o validador se comporta como antes (e por isso a síntese SEMPRE a passa)",
+  A.validateAnswer(CINCO, LC, LE).ok === true);
+const FONTE_SINTESE = readFileSync(join(RAIZ, "src/modules/brain/synthesis.ts"), "utf8");
+confere("L6g synthesis.ts passa a pergunta ao validador",
+  FONTE_SINTESE.includes("validateAnswer(texto, citacoes, aceitas, input.query)"));
+
+// ── L7 ──────────────────────────────────────────────────────
+const SETE_INVENTADO = lista(PONTOS, ["- 6,21 bar -> 1,15 L/min [1]"]);
+confere("L7  sétimo par inexistente → FAIL no grounding",
+  vq(Q2, SETE_INVENTADO).kind === "grounding", vq(Q2, SETE_INVENTADO).problem);
+const SETE_VIZINHO = lista(PONTOS, ["- 2,07 bar -> 0,83 L/min [1]"]);
+confere("L7b sétimo par tirado da MJ982CAP: o grounding deixa passar (0,83 L/min existe na tabela)",
+  GD.checkGrounding(SETE_VIZINHO, LC, LE).ok === true);
+const r7 = vq(Q2, SETE_VIZINHO);
+confere("L7c …e a exaustão REPROVA como valor estranho à MJ981CAP",
+  r7.kind === "completeness" && (r7.details ?? []).some((d) => d.includes("0,83 L/min")), r7.problem);
+
+// ── L8 ──────────────────────────────────────────────────────
+const TROCA_483 = LISTA_OK.replace("4,83 bar", "4,8 bar");
+confere("L8  4,83 → 4,8 → FAIL no grounding", vq(Q2, TROCA_483).kind === "grounding", vq(Q2, TROCA_483).problem);
+const TROCA_101 = LISTA_OK.replace("1,01 L/min", "1.0 L/min");
+confere("L8b 1,01 → 1.0 → FAIL no grounding", vq(Q2, TROCA_101).kind === "grounding", vq(Q2, TROCA_101).problem);
+confere("L8c 1,01 → 1,0 → FAIL no grounding",
+  vq(Q2, LISTA_OK.replace("1,01 L/min", "1,0 L/min")).kind === "grounding");
+confere("L8d 0,66 → 0.66 → FAIL no grounding",
+  vq(Q2, LISTA_OK.replace("0,66 L/min", "0.66 L/min")).kind === "grounding");
+
+// ── L9–L12: bordas ─────────────────────────────────────────
+confere("L9  lista com linha de abertura SEM citação → FAIL (o validador não foi afrouxado)",
+  vq(Q2, LISTA_OK.replace("Valores da MJ981CAP [1]:", "Valores da MJ981CAP:\n")).ok === false);
+confere("L9b 'quais…' sem código na pergunta → exaustão não se aplica (e o grounding segue valendo)",
+  EX.checkExhaustiveness("Quais pontas servem para herbicida?", LISTA_OK, LE).status === "not_applicable");
+confere("L9c 'quais as vazões da MJ981CAP a 40 psi' exige só a linha de 40 psi",
+  EX.checkExhaustiveness("Quais as vazões da MJ981CAP a 40 psi?", "A MJ981CAP entrega 0,77 L/min a 40 psi. [1]", LE).status === "complete");
+
+// duas evidências: a segunda também tem linha da MJ981CAP e não pode sumir
+const OUTRA = ev({
+  chunkId: 90, content: "MJ981CAP MUG-CV 02 MALHA 50 UG 6,21 bar 90 psi 621 kPa 1,15 L/min",
+  codes: ["MJ981CAP"], page: { from: 21, to: 21 }, citation: "Magnojet — Catálogo Magnojet V41 · p. 21",
+});
+const DC = A.buildCitations([P20, OUTRA]);
+const r10 = A.validateAnswer(LISTA_OK, DC, [P20, OUTRA], Q2);
+confere("L10 linha da MJ981CAP na SEGUNDA evidência também é exigida",
+  r10.kind === "completeness" && (r10.details ?? []).some((d) => d.includes("6,21")), r10.problem);
+confere("L10b citando as duas e listando os 7 → PASS",
+  A.validateAnswer(`${LISTA_OK}\n- 6,21 bar -> 1,15 L/min [2]`, DC, [P20, OUTRA], Q2).ok === true);
+
+confere("L11 o prompt manda listar exaustivamente, sem faixa e sem ponto intermediário",
+  /Liste EXAUSTIVAMENTE/.test(P.SYSTEM_PROMPT) && /Não condense uma série em faixa/.test(P.SYSTEM_PROMPT) &&
+  /não interpole/.test(P.SYSTEM_PROMPT) && /CADA LINHA terminando com a sua referência/.test(P.SYSTEM_PROMPT));
+confere("L11b os exemplos de listagem do prompt são fictícios — nenhum valor real da p. 20 plantado nele",
+  (() => {
+    // Só a seção nova. A regra 6a, anterior, já usa 0,77 como exemplo de pontuação.
+    const secao = P.SYSTEM_PROMPT.slice(P.SYSTEM_PROMPT.indexOf("PERGUNTAS DE LISTAGEM"), P.SYSTEM_PROMPT.indexOf("FORMA"));
+    return secao.length > 0 && PONTOS.flat().every((n) => !secao.includes(n)) && !secao.includes("MJ981CAP");
+  })());
+
+async function listaCom(modo) {
+  const p = new F.FakeBrainLlmProvider(modo);
+  const saida = await p.generate({ question: Q2, evidence: LE, systemPrompt: P.SYSTEM_PROMPT, userMessage: P.buildUserMessage(Q2, LE), timeoutMs: 100 });
+  return A.validateAnswer(saida.text, LC, LE, Q2);
+}
+confere("L12 provedor falso lista os 6 → PASS", (await listaCom("listing_complete")).ok === true);
+confere("L12b provedor falso lista 5 → REJEITADO por completeness",
+  (await listaCom("listing_partial")).kind === "completeness");
+confere("L12c provedor falso cola ponto da MJ982CAP → REJEITADO por completeness",
+  (await listaCom("listing_foreign")).kind === "completeness");
+confere("L12d a mensagem ao provedor leva as 6 linhas da MJ981CAP inteiras",
+  LINHAS_P20.filter((l) => l.startsWith("MJ981CAP")).every((l) => P.buildUserMessage(Q2, LE).includes(l)));
 
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ camada de resposta natural\n" : `✗ ${falhas} falha(s)\n`);
