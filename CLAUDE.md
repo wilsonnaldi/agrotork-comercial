@@ -183,6 +183,19 @@ cai nela. O que o grounding **não** faz está escrito: ele não entende a frase
 então uma relação errada entre dois números que ambos existem continua sendo
 responsabilidade do prompt.
 
+**Listagem exaustiva:** o grounding prova que nada foi *inventado*, mas não
+que nada foi *omitido*. Com a pergunta em mãos (`validateAnswer(…, pergunta)`,
+que `synthesis.ts` sempre passa), `exhaustiveness.ts` detecta a intenção de
+listagem por gatilho lexical ("quais", "todas", "liste", "opções",
+"disponíveis"…), pega as linhas das evidências que trazem o código perguntado
+e exige na resposta cada valor do campo pedido (vazão L/min, pressão
+bar/psi/kPa, L/ha). Também reprova par número+unidade que não seja dessas
+linhas, como o ponto da MJ982CAP colado na lista da MJ981CAP. Falhou, dá
+`kind: "completeness"` e a resposta vira extractiva. Não calcula, não
+interpola e não converte; "a 5 bar" continua barrado pelo grounding, porque
+`5 bar` não está no documento. Fronteiras em `docs/brain/fase-2-answer-v1.md`
+§6.
+
 A migration `20260917054004` (`public.brain_external_processing`) foi
 **aplicada em produção em 17/09/2026** e auditada: `security invoker`, RLS
 preservado, `anon` sem EXECUTE, e a chamada real dando Magnojet `allowed` e
@@ -205,7 +218,7 @@ deixava a primeira evidência estourá-lo.
 Resta **um** gate: a **credencial** do provedor (`BRAIN_LLM_PROVIDER` /
 `BRAIN_LLM_API_KEY` / `BRAIN_LLM_MODEL`, todas de servidor — `NEXT_PUBLIC_`
 aqui mandaria a chave para o navegador). Sem ela o console responde de forma
-extractiva e diz por quê. Testes: `npm run check:brain-answer` (96 asserções,
+extractiva e diz por quê. Testes: `npm run check:brain-answer` (168 asserções,
 com provedor falso).
 
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas

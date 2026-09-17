@@ -273,6 +273,94 @@ O que mudou é a natureza da garantia: **um número que não está no documento
 não chega mais ao usuário.** O que continua dependendo do modelo e do prompt é
 a *relação* entre números que estão.
 
+### Listagem: nada omitido (exaustão)
+
+O grounding prova que nada foi **inventado**. Ele não prova que nada foi
+**omitido**. O caso real: "Quais as vazões da MJ981CAP em bar possíveis?"
+tem seis pontos na p. 20 do Catálogo Magnojet V41. Uma resposta com cinco
+passa no grounding — cada um dos cinco existe — e chega como se fosse a
+tabela inteira.
+
+`exhaustiveness.ts` fecha isso. É uma segunda trava, **depois** do grounding
+e nunca no lugar dele. `validateAnswer(texto, citações, evidências, pergunta)`
+chama `checkExhaustiveness`, e `synthesis.ts` sempre passa a pergunta (há teste
+lendo o fonte para garantir isso).
+
+**Como detecta a intenção.** Por um gatilho lexical, sem classificador:
+`quais`, `todos/todas`, `liste/listar/lista`, `opções`, `disponíveis`,
+`possíveis/possibilidades`, `existem`, `combinações`, `tabela`,
+`mostre/mostrar`. "Qual" no singular fica de fora de propósito, porque
+"Qual a vazão a 40 psi?" pede um valor só.
+
+**Como garante a completude.**
+
+1. **Código:** o mesmo perfil de código do grounding, aplicado à pergunta.
+2. **Campo:** `vaz…` = L/min; `press…` = bar/psi/kPa; `L/ha` ou `hectare` =
+   L/ha. Se a pergunta traz a unidade ("em bar"), a pressão fica restrita a
+   ela e **todos** os valores naquela unidade são exigidos. Se diz só
+   "pressões", basta um valor de pressão por linha, em qualquer unidade.
+   Se não nomeia campo nenhum ("opções"), vale pressão + vazão.
+3. **Linhas:** entram as linhas das evidências aceitas que trazem o código e
+   também o valor que a pergunta fixou, se houver ("quais … a 40 psi").
+4. **Faltante:** cada valor exigido tem de aparecer literalmente na resposta
+   (`contemLiteral`, a mesma função do grounding).
+5. **Estranho:** todo par número+unidade da resposta, numa unidade que essas
+   linhas usam, tem de pertencer a elas. É o que barra `2,07 bar -> 0,83
+   L/min` na lista da MJ981CAP. O grounding deixa esse par passar, porque
+   0,83 L/min existe na mesma tabela, só que na linha da MJ982CAP.
+
+Qualquer falha dá `kind: "completeness"`. A resposta é descartada inteira e
+vira extractiva, com o aviso "não listava todos os valores pedidos".
+
+**Como preserva o grounding.** O grounding não foi tocado: ganhou só uma
+exportação (`extractUnitPairs`), para as duas camadas lerem "2,07 bar" do
+mesmo jeito. O validador também não foi afrouxado. Uma linha de abertura sem
+citação continua reprovando (L9), e por isso o prompt pede a referência **em
+cada linha** da lista.
+
+**Formato pedido no prompt (regra 9c):**
+
+```
+Valores da MJ981CAP [1]:
+- 2,07 bar -> 0,66 L/min [1]
+- 2,76 bar -> 0,77 L/min [1]
+- 3,45 bar -> 0,86 L/min [1]
+- 4,14 bar -> 0,94 L/min [1]
+- 4,83 bar -> 1,01 L/min [1]
+- 5,52 bar -> 1,08 L/min [1]
+```
+
+O formato em linha ("…: 2,07 bar -> 0,66 L/min; … [1]") também passa (L2c).
+Escolhemos a lista com citação por linha porque é a mais estável: mesmo que o
+modelo ponha uma linha em branco no meio, cada parágrafo continua citando.
+Os exemplos do prompt usam valores fictícios, e há teste para impedir que um
+valor real seja plantado ali.
+
+**Valor que não existe (5 bar).** Não há interpolação, e a garantia vem do
+grounding: `5 bar` não existe na evidência (nem dentro de `3,45 bar` nem de
+`5,52 bar`). Por isso **qualquer** frase que afirme algo "a 5 bar" é
+descartada, mesmo com uma vazão verdadeira do lado (L5b). A regra 10 do
+prompt manda não repetir o valor ausente, e sim dizer que a tabela não traz
+esse ponto exato e listar os vizinhos existentes, cada um com a sua
+referência (L5d), ou então recusar.
+
+**O que a exaustão NÃO garante:**
+
+- que cada vazão esteja ao lado da **sua** pressão. A checagem é de
+  presença e de pertencimento ao conjunto, não de associação par a par;
+- nada quando a pergunta não traz código, quando o código não está na mesma
+  linha que os valores, ou quando o valor fixado não existe na tabela. Nesses
+  casos a checagem devolve `not_applicable` com o motivo, e só o grounding
+  vale;
+- velocidade (km/h) como filtro de L/ha: o km/h está só no cabeçalho, então
+  "L/ha a 12 km/h" não resolve linha e cai em `not_applicable`;
+- valor solto sem unidade fora do conjunto. O grounding garante que ele
+  existe na evidência; a checagem de "estranho" só olha pares com unidade.
+
+Testes: `check:brain-answer`, seção **L0–L12**. O fixture são as linhas reais
+do trecho 72 (p. 20), copiadas de produção por leitura em 17/09/2026, com a
+MJ980CAP e a MJ982CAP como vizinhas-armadilha.
+
 ### Recusa do modelo não é falha
 
 Se o modelo responde "A documentação disponível não permite concluir isso.",
@@ -361,6 +449,8 @@ Medidos com os dados de produção, somente leitura:
 | | evidências | o que acontece |
 | --- | --- | --- |
 | "vazão da MJ981CAP a 40 psi" | 1 (Magnojet, `allowed`) | síntese, `[1]` = V41 p. 20 |
+| "quais as vazões da MJ981CAP em bar possíveis?" | 1 (p. 20) | síntese com **os 6 pares**; 5 de 6, ou um ponto da MJ982CAP colado, → descartada (`completeness`) |
+| "vazão da MJ981CAP a 5 bar" | 1 (p. 20) | sem interpolação: vizinhos 4,83/5,52 bar citados, ou recusa; "a 5 bar" nunca é afirmado |
 | "vazão da MJ999CAP" | 0 | `no_evidence` — modelo não é chamado |
 | "bateria para T55 e T70P" | 0 (DJI ausente) | `no_evidence` |
 | "manual da semeadora Kuhn" | 0 | `no_evidence` |
