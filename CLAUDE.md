@@ -196,6 +196,15 @@ interpola e não converte; "a 5 bar" continua barrado pelo grounding, porque
 `5 bar` não está no documento. Fronteiras em `docs/brain/fase-2-answer-v1.md`
 §6.
 
+**Associação:** presença não prova par. `checkAssociation` quebra a resposta
+em itens (linha, `;` ou fim de frase) e exige que cada item que liga valores
+de campos diferentes (pares, números soltos e o código) caiba numa **única
+linha** da evidência, a do código do item ou, sem código no item, a do
+código da pergunta. Pares invertidos passavam no grounding e na exaustão;
+agora dão `kind: "association"`. Vale também para a resposta pontual. Não
+julga evidência sem linha de tabela (onde nenhuma linha traz duas unidades
+juntas).
+
 A migration `20260917054004` (`public.brain_external_processing`) foi
 **aplicada em produção em 17/09/2026** e auditada: `security invoker`, RLS
 preservado, `anon` sem EXECUTE, e a chamada real dando Magnojet `allowed` e
@@ -218,7 +227,7 @@ deixava a primeira evidência estourá-lo.
 Resta **um** gate: a **credencial** do provedor (`BRAIN_LLM_PROVIDER` /
 `BRAIN_LLM_API_KEY` / `BRAIN_LLM_MODEL`, todas de servidor — `NEXT_PUBLIC_`
 aqui mandaria a chave para o navegador). Sem ela o console responde de forma
-extractiva e diz por quê. Testes: `npm run check:brain-answer` (168 asserções,
+extractiva e diz por quê. Testes: `npm run check:brain-answer` (198 asserções,
 com provedor falso).
 
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas

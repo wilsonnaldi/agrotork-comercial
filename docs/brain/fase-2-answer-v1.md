@@ -346,8 +346,9 @@ referência (L5d), ou então recusar.
 
 **O que a exaustão NÃO garante:**
 
-- que cada vazão esteja ao lado da **sua** pressão. A checagem é de
-  presença e de pertencimento ao conjunto, não de associação par a par;
+- que cada vazão esteja ao lado da **sua** pressão. A exaustão confere só
+  presença e pertencimento ao conjunto. Quem garante o par é a
+  **associação**, na seção seguinte;
 - nada quando a pergunta não traz código, quando o código não está na mesma
   linha que os valores, ou quando o valor fixado não existe na tabela. Nesses
   casos a checagem devolve `not_applicable` com o motivo, e só o grounding
@@ -360,6 +361,60 @@ referência (L5d), ou então recusar.
 Testes: `check:brain-answer`, seção **L0–L12**. O fixture são as linhas reais
 do trecho 72 (p. 20), copiadas de produção por leitura em 17/09/2026, com a
 MJ980CAP e a MJ982CAP como vizinhas-armadilha.
+
+### Associação: cada item, uma linha
+
+A auditoria de 17/09 encontrou a lacuna que a exaustão admitia:
+
+```
+2,07 bar -> 1,08 L/min
+2,76 bar -> 1,01 L/min
+…
+5,52 bar -> 0,66 L/min
+```
+
+Todos os números existem, todos os valores pedidos estão lá e nenhum é
+estranho. Mesmo assim, **todos os pares estão errados**. O grounding e a
+exaustão deixavam isso passar.
+
+`checkAssociation` (em `exhaustiveness.ts`) é a terceira trava. Roda depois
+do grounding e da exaustão, sempre que a síntese passa a pergunta. Vale
+também para a resposta pontual: "0,86 L/min a 40 psi" é rejeitada, porque a
+linha de 40 psi traz 0,77.
+
+1. **Itens.** A resposta é quebrada por linha, `;` e fim de frase (`.`
+   seguido de espaço). Vírgula nunca quebra, porque é decimal.
+2. **Mesma linha.** Um item com par número+unidade de tabela (bar, psi, kPa,
+   L/min, L/ha) e mais de um número só passa se **uma única linha** da
+   evidência trouxer tudo o que ele escreve: os pares, os números soltos e
+   os códigos de peça. "2,07 bar -> 1,08" (vazão sem unidade) também é
+   conferido.
+3. **Enumeração.** Um item de uma unidade só, em que cada número existe com
+   essa unidade ("1,01 e 1,08 L/min", "2,07; 2,76 e 3,45 bar"), é lista de
+   um campo, não relação entre campos, e passa.
+4. **Sujeito.** As linhas candidatas são as do código escrito no item; sem
+   código no item, as do código da pergunta. Por isso "a MJ981CAP entrega
+   0,83 L/min a 30 psi" (valor da MJ982CAP) é rejeitado, e o mesmo fato com
+   "MJ982CAP" passa.
+5. **Só tabela.** Se nenhuma linha candidata traz duas unidades juntas (por
+   exemplo, uma ficha técnica com um valor por linha), não há linha para
+   conferir relação e o item não é julgado por esta trava. Só o grounding
+   vale ali.
+
+Dois pontos no mesmo item ("2,07 bar -> 0,66 L/min e 2,76 bar -> 0,77
+L/min") são rejeitados: nenhuma linha tem os dois, e a relação não é
+provável. O prompt (regra 9a2) pede um ponto por item.
+
+**Ainda fora:**
+
+- uma troca entre valores **da mesma linha** com a mesma unidade, como
+  dois L/ha de velocidades diferentes (a velocidade está só no cabeçalho);
+- um número solto num item de uma unidade só ("2,07 bar -> 2,76"), que é
+  lido como enumeração;
+- relação entre linhas diferentes numa evidência que não é tabela.
+
+Testes: `check:brain-answer`, seção **P1–P9** e as fronteiras PA–PF (198
+asserções no total).
 
 ### Recusa do modelo não é falha
 
@@ -449,7 +504,7 @@ Medidos com os dados de produção, somente leitura:
 | | evidências | o que acontece |
 | --- | --- | --- |
 | "vazão da MJ981CAP a 40 psi" | 1 (Magnojet, `allowed`) | síntese, `[1]` = V41 p. 20 |
-| "quais as vazões da MJ981CAP em bar possíveis?" | 1 (p. 20) | síntese com **os 6 pares**; 5 de 6, ou um ponto da MJ982CAP colado, → descartada (`completeness`) |
+| "quais as vazões da MJ981CAP em bar possíveis?" | 1 (p. 20) | síntese com **os 6 pares**; 5 de 6, ou um ponto da MJ982CAP colado, → descartada (`completeness`); pares trocados → descartada (`association`) |
 | "vazão da MJ981CAP a 5 bar" | 1 (p. 20) | sem interpolação: vizinhos 4,83/5,52 bar citados, ou recusa; "a 5 bar" nunca é afirmado |
 | "vazão da MJ999CAP" | 0 | `no_evidence` — modelo não é chamado |
 | "bateria para T55 e T70P" | 0 (DJI ausente) | `no_evidence` |

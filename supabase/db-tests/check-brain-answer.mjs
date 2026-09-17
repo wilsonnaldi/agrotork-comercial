@@ -807,6 +807,100 @@ confere("L12c provedor falso cola ponto da MJ982CAP → REJEITADO por completene
 confere("L12d a mensagem ao provedor leva as 6 linhas da MJ981CAP inteiras",
   LINHAS_P20.filter((l) => l.startsWith("MJ981CAP")).every((l) => P.buildUserMessage(Q2, LE).includes(l)));
 
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Associação pressão ↔ vazão na mesma linha (P1–P9)\n");
+
+const INVERTIDA = lista(PONTOS.map(([b], i) => [b, PONTOS[PONTOS.length - 1 - i][1]]));
+const UM_PAR_TROCADO = lista(PONTOS.map(([b, v], i) =>
+  i === 1 ? [b, PONTOS[2][1]] : i === 2 ? [b, PONTOS[1][1]] : [b, v]));
+
+// P1
+const p1 = vq(Q2, LISTA_OK);
+confere("P1  lista correta dos 6 pares → PASS", p1.ok === true, p1.problem ?? "ok");
+confere("P1b e a associação conferiu os 6 itens",
+  EX.checkAssociation(Q2, LISTA_OK, LE).checked === 6);
+
+// P2 — o caso da auditoria
+confere("P2  pares invertidos: grounding PASSA (todos os números existem)",
+  GD.checkGrounding(INVERTIDA, LC, LE).ok === true);
+confere("P2b …a exaustão PASSA (todos os valores pedidos estão lá, nenhum estranho)",
+  EX.checkExhaustiveness(Q2, INVERTIDA, LE).status === "complete");
+const p2 = vq(Q2, INVERTIDA);
+confere("P2c …e a ASSOCIAÇÃO reprova", p2.ok === false && p2.kind === "association", p2.problem);
+confere("P2d os 6 itens invertidos são acusados, não só o primeiro",
+  (p2.details ?? []).length === 6, `${(p2.details ?? []).length} acusação(ões)`);
+
+// P3
+const p3 = vq(Q2, UM_PAR_TROCADO);
+confere("P3  troca de um único par (2,76↔3,45) → FAIL association", p3.kind === "association", p3.problem);
+confere("P3b e só os dois itens trocados são acusados",
+  (p3.details ?? []).length === 2 &&
+  (p3.details ?? []).every((d) => d.includes("2,76 bar") || d.includes("3,45 bar")));
+
+// P4
+const p4 = vq(Q2, LISTA_OK.replace("- 4,14 bar -> 0,94 L/min [1]", "- 4,14 bar -> 0,94 L/min (0,95 L/min nominal) [1]"));
+confere("P4  par correto com número inventado ao lado → FAIL no grounding", p4.kind === "grounding", p4.problem);
+
+// P5
+confere("P5  omite um par → FAIL completeness", vq(Q2, CINCO).kind === "completeness");
+
+// P6
+confere("P6  'Qual a vazão da MJ981CAP a 40 psi?' pontual → PASS",
+  vq(Q1, "A MJ981CAP apresenta vazão de 0,77 L/min a 40 psi. [1]").ok === true);
+const p6b = vq(Q1, "A MJ981CAP apresenta vazão de 0,86 L/min a 40 psi. [1]");
+confere("P6b pontual com a vazão da linha vizinha (0,86 a 40 psi) → agora FAIL association",
+  p6b.kind === "association", p6b.problem);
+confere("P6c 'a vazão da MJ981CAP é 0,83 L/min' — número da MJ982CAP atribuído à MJ981CAP → FAIL",
+  vq(Q1, "A MJ981CAP apresenta vazão de 0,83 L/min a 30 psi. [1]").kind === "association");
+confere("P6d o mesmo fato certo da MJ982CAP, com o código dela, passa",
+  vq("Qual a vazão da MJ982CAP a 30 psi?", "A MJ982CAP apresenta vazão de 0,83 L/min a 30 psi. [1]").ok === true);
+
+// P7
+confere("P7  '5 bar' segue sem interpolação: 1,04 → grounding",
+  vq(Q5, "A 5 bar, a MJ981CAP entrega 1,04 L/min. [1]").kind === "grounding");
+confere("P7b vizinhos 4,83/5,52 citados corretamente → PASS", vq(Q5, VIZINHOS).ok === true);
+confere("P7c vizinhos com as vazões trocadas → FAIL association",
+  vq(Q5, VIZINHOS.replace("1,01 L/min", "X").replace("1,08 L/min", "1,01 L/min").replace("X", "1,08 L/min")).kind === "association");
+
+// P8
+const p8 = vq(Q2, INLINE_OK);
+confere("P8  uma linha com os 6 pares separados por ';' → PASS", p8.ok === true, p8.problem ?? "ok");
+const INLINE_TROCADA = INLINE_OK.replace("2,07 bar -> 0,66", "2,07 bar -> 0,77").replace("2,76 bar -> 0,77", "2,76 bar -> 0,66");
+confere("P8b a mesma linha com dois pares trocados → FAIL association",
+  vq(Q2, INLINE_TROCADA).kind === "association");
+confere("P8c dois pontos no mesmo item ('2,07 bar -> 0,66 L/min e 2,76 bar -> 0,77 L/min') → FAIL (não dá para provar a relação)",
+  vq(Q2, lista(PONTOS.slice(2), ["- 2,07 bar -> 0,66 L/min e 2,76 bar -> 0,77 L/min [1]"])).kind === "association");
+
+// P9
+const BULLETS = PONTOS.map(([b, v]) => `- ${b} bar -> ${v} L/min [1]`).join("\n");
+confere("P9  bullets com citação em cada linha, sem abertura → PASS",
+  vq(Q2, BULLETS).ok === true, vq(Q2, BULLETS).problem ?? "ok");
+confere("P9b bullet com a vazão SEM unidade trocada ('2,07 bar: 1,08') → FAIL association",
+  vq(Q2, BULLETS.replace("- 2,07 bar -> 0,66 L/min [1]", "- 2,07 bar: 1,08 [1]").replace("- 5,52 bar -> 1,08 L/min [1]", "- 5,52 bar -> 0,66 L/min [1]")).kind === "association");
+confere("P9c bullets com pressão em bar e psi da mesma linha → PASS",
+  vq(Q2, PONTOS.map(([b, v], i) => `- ${b} bar (${30 + i * 10} psi) -> ${v} L/min [1]`).join("\n")).ok === true);
+
+// fronteiras
+confere("PA  enumeração de um campo só ('1,01 e 1,08 L/min') não é relação entre campos → PASS",
+  vq(Q3, "Vazões da MJ981CAP: 0,66; 0,77; 0,86; 0,94; 1,01 e 1,08 L/min. [1]").ok === true);
+confere("PB  pressões em bar em sequência ('4,83 e 5,52 bar') → PASS",
+  vq(Q4, "A MJ981CAP tem pontos em 2,07; 2,76; 3,45; 4,14; 4,83 e 5,52 bar. [1]").ok === true);
+const FICHA = ev({
+  chunkId: 300, kind: "spec", codes: ["SX100"],
+  content: "Sensor SX100\nPressão máxima: 20 bar\nVazão nominal: 3,5 L/min",
+});
+confere("PC0 a ficha tem um valor por linha (três linhas de verdade)", FICHA.content.split("\n").length === 3);
+confere("PC  ficha técnica sem linha de tabela: a associação não julga (um valor por linha)",
+  A.validateAnswer("O SX100 trabalha até 20 bar com vazão nominal de 3,5 L/min. [1]",
+    A.buildCitations([FICHA]), [FICHA], "Qual a pressão e a vazão do SX100?").ok === true);
+confere("PD  sem a pergunta, o validador segue como antes (a síntese sempre a passa)",
+  A.validateAnswer(INVERTIDA, LC, LE).ok === true && FONTE_SINTESE.includes("input.query"));
+confere("PE  o prompt manda ligar só valores da mesma linha",
+  /UMA MESMA linha da evidência/.test(P.SYSTEM_PROMPT));
+confere("PF  answerItems quebra em linha, ';' e fim de frase — nunca na vírgula decimal",
+  JSON.stringify(EX.answerItems("A: 2,07 bar -> 0,66 L/min; 2,76 bar. Fim 3,45 [1]")) ===
+  JSON.stringify(["A: 2,07 bar -> 0,66 L/min", "2,76 bar", "Fim 3,45"]));
+
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ camada de resposta natural\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);

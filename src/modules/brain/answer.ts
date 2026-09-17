@@ -1,5 +1,5 @@
 import type { KnowledgeEvidence } from "./evidence";
-import { checkExhaustiveness, describeExhaustiveness } from "./exhaustiveness";
+import { checkAssociation, checkExhaustiveness, describeExhaustiveness } from "./exhaustiveness";
 import { checkGrounding, describeFailure } from "./grounding";
 import {
   MAX_CHARS_CONTEXTO,
@@ -239,9 +239,11 @@ export function referencesUsed(texto: string): number[] {
  *  · `grounding` — número, unidade ou código sem lastro na evidência citada;
  *  · `format` — vazio, enorme, citação inexistente, campo proibido;
  *  · `completeness` — a pergunta pediu a lista e a resposta omitiu item, ou
- *    trouxe valor de outra linha. Ver `exhaustiveness.ts`.
+ *    trouxe valor de outra linha. Ver `exhaustiveness.ts`;
+ *  · `association` — cada valor existe, mas o item liga valores de linhas
+ *    diferentes (2,07 bar com a vazão de 5,52 bar).
  */
-export type ValidationProblem = "model_refusal" | "grounding" | "format" | "completeness";
+export type ValidationProblem = "model_refusal" | "grounding" | "format" | "completeness" | "association";
 
 export type ValidationResult =
   | { ok: true }
@@ -347,6 +349,18 @@ export function validateAnswer(
         ok: false, kind: "completeness",
         problem: detalhes[0] ?? "listagem incompleta",
         details: detalhes,
+      };
+    }
+
+    // A terceira: cada item liga valores da MESMA linha. Todos os números
+    // existirem, e todos os pedidos estarem lá, não prova que a vazão está
+    // ao lado da SUA pressão.
+    const associacao = checkAssociation(pergunta, limpo, evidencias);
+    if (associacao.status === "failed") {
+      return {
+        ok: false, kind: "association",
+        problem: associacao.failures[0] ?? "associação entre valores sem lastro",
+        details: associacao.failures,
       };
     }
   }

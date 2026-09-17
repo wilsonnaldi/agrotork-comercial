@@ -184,6 +184,8 @@ export async function answer(
       mode: "extractive",
       warning: validacao.kind === "completeness"
         ? "A resposta gerada não listava todos os valores pedidos e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
+        : validacao.kind === "association"
+        ? "A resposta gerada ligava valores de linhas diferentes da tabela e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
         : "A resposta gerada não passou na conferência e foi descartada. Os trechos encontrados estão abaixo.",
     });
   }

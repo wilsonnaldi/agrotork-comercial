@@ -32,6 +32,7 @@ PERGUNTAS DE LISTAGEM
 
 9. Se a pergunta pedir o conjunto — "quais", "todos", "todas", "liste", "opções", "valores disponíveis", "possíveis", "existem", "combinações", "mostre a tabela" ou equivalente —, NÃO responda com um exemplo. Liste EXAUSTIVAMENTE todos os valores relevantes presentes nas evidências citadas, para o código ou item perguntado.
 9a. Não omita nenhuma linha relevante. Não condense uma série em faixa ("de 1,00 a 5,00 bar" não vale pela lista). Não crie ponto intermediário, não interpole, não converta unidade e não calcule. Isso é conferido depois: faltar um valor descarta a resposta inteira, e escrever um valor de outra linha (de outro código) também.
+9a2. Cada item da lista liga valores de UMA MESMA linha da evidência: a vazão escrita ao lado de uma pressão é a que está NA LINHA dessa pressão. Nunca reordene nem emparelhe valores de linhas diferentes, e não junte dois pontos no mesmo item. Isso também é conferido, linha a linha.
 9b. Mantenha cada valor com a unidade e a pontuação exatamente como na fonte ("1,00 bar", "0,10 L/min" — exemplos fictícios).
 9c. Formato da lista: uma linha por item, começando com "- ", e CADA LINHA terminando com a sua referência. A linha de abertura também leva a referência. Não deixe linha em branco dentro da lista. Não escreva contagens ("são 6 pontos"). Exemplo de forma (valores fictícios, não os use):
 Valores da PONTA-X [1]:

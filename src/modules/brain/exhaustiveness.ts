@@ -1,5 +1,5 @@
 import type { KnowledgeEvidence } from "./evidence";
-import { contemLiteral, contemToken, extractUnitPairs, pareceCodigo } from "./grounding";
+import { contemLiteral, contemToken, extractNumbers, extractUnitPairs, pareceCodigo } from "./grounding";
 
 /**
  * Checagem de EXAUSTÃO para perguntas de listagem.
@@ -233,4 +233,139 @@ export function describeExhaustiveness(r: Extract<ExhaustivenessResult, { status
     ),
     ...r.extraneous.map((x) => `listagem com valor fora das linhas do código consultado: ${x}`),
   ];
+}
+
+// ════════════════════════════════════════════════════════════
+// Associação: cada item afirma valores da MESMA linha
+// ════════════════════════════════════════════════════════════
+
+/**
+ * O buraco que a exaustão não fecha. Presença e pertencimento ao conjunto
+ * não provam relação: a lista
+ *
+ *   2,07 bar -> 1,08 L/min
+ *   2,76 bar -> 1,01 L/min   …
+ *
+ * tem todas as pressões e todas as vazões da MJ981CAP, nenhuma estranha —
+ * e todos os pares errados. Para quem pergunta "qual vazão a qual pressão",
+ * é o erro que importa.
+ *
+ * A regra, sem parser semântico:
+ *
+ *  1. a resposta é quebrada em ITENS — linha, ponto-e-vírgula ou fim de
+ *     frase ("." seguido de espaço). Vírgula não quebra: é decimal;
+ *  2. num item com par número+unidade de tabela (bar, psi, kPa, L/min, L/ha)
+ *     e mais de um número, tudo o que ele escreve — os pares, os números
+ *     soltos e os códigos de peça — tem de existir numa MESMA linha da
+ *     evidência. "2,07 bar -> 1,08 L/min" só passa se houver uma linha com
+ *     2,07 bar E 1,08 L/min;
+ *  3. exceção explícita: item de UMA unidade só, em que todo número existe
+ *     com essa unidade em alguma linha ("1,01 e 1,08 L/min", "2,07; 2,76 e
+ *     3,45 bar") é enumeração de um campo, não relação entre campos;
+ *  4. as linhas candidatas: as que trazem o código escrito no item; sem
+ *     código no item, as do código da pergunta; sem nenhum dos dois, todas;
+ *  5. só vale onde há TABELA: se nenhuma linha candidata traz duas unidades
+ *     diferentes juntas, a evidência não tem linha para conferir relação
+ *     (ficha técnica com um valor por linha) e o item não é julgado aqui.
+ *
+ * Roda depois do grounding e da exaustão. Não converte, não interpola.
+ */
+
+const UNIDADES_DE_LINHA = new Set(["bar", "psi", "kPa", "L/min", "L/ha"]);
+
+/** Os itens de uma resposta, sem os marcadores [n]. */
+export function answerItems(resposta: string): string[] {
+  return resposta
+    .replace(/\[\d{1,3}\]/g, " ")
+    .split(/\r?\n|;|\.\s+/)
+    .map((i) => i.replace(/\s+/g, " ").trim())
+    .filter((i) => /\d/.test(i));
+}
+
+type Linha = { texto: string; pares: Set<string>; unidades: Set<string> };
+
+const temPar = (linha: string, numero: string, unidade: string) =>
+  contemLiteral(linha, `${numero} ${unidade}`) || contemLiteral(linha, `${numero}${unidade}`);
+
+export type AssociationResult =
+  | { status: "ok"; checked: number }
+  | { status: "failed"; checked: number; failures: string[] };
+
+export function checkAssociation(
+  pergunta: string,
+  resposta: string,
+  evidencias: KnowledgeEvidence[],
+): AssociationResult {
+  const codigosDaPergunta = parseListingQuestion(pergunta).codes;
+  const codigosConhecidos = new Set(evidencias.flatMap((e) => e.codes.map((c) => c.toUpperCase())));
+
+  const linhas: Linha[] = [];
+  for (const e of evidencias) {
+    for (const bruta of e.content.split(/\r?\n/)) {
+      const texto = bruta.replace(/\s+/g, " ").trim();
+      const pares = extractUnitPairs(texto).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
+      if (pares.length === 0) continue;
+      linhas.push({
+        texto,
+        pares: new Set(pares.map((p) => `${p.numero} ${p.unidade}`)),
+        unidades: new Set(pares.map((p) => p.unidade)),
+      });
+    }
+  }
+
+  const failures: string[] = [];
+  let checked = 0;
+
+  for (const item of answerItems(resposta)) {
+    const pares = extractUnitPairs(item).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
+    if (pares.length === 0) continue;
+    const numeros = extractNumbers(item);
+    if (numeros.length < 2) continue;
+
+    const codigosDoItem = [
+      ...new Set(
+        [...item.matchAll(/[A-Za-z0-9][A-Za-z0-9-]*/g)]
+          .map((m) => m[0])
+          .filter((t) => pareceCodigo(t) && codigosConhecidos.has(t.toUpperCase())),
+      ),
+    ];
+    const sujeito = codigosDoItem.length > 0 ? codigosDoItem : codigosDaPergunta;
+    const candidatas = sujeito.length > 0
+      ? linhas.filter((l) => sujeito.every((c) => contemToken(l.texto, c)))
+      : linhas;
+
+    // Sem linha de tabela entre as candidatas, não há relação a conferir aqui.
+    if (!candidatas.some((l) => l.unidades.size >= 2)) {
+      if (codigosDoItem.length > 0 && candidatas.length === 0 && linhas.some((l) => l.unidades.size >= 2)) {
+        // O item põe um código numa tabela em que esse código não tem linha.
+        checked += 1;
+        failures.push(`associação sem lastro: "${item.slice(0, 60)}" — nenhuma linha traz ${codigosDoItem.join(", ")} com esses valores`);
+      }
+      continue;
+    }
+    checked += 1;
+
+    const unidades = new Set(pares.map((p) => p.unidade));
+    if (unidades.size === 1) {
+      const [u] = [...unidades] as [string];
+      const enumeracao = numeros.every((n) => candidatas.some((l) => temPar(l.texto, n, u)));
+      if (enumeracao) continue;
+    }
+
+    const mesmaLinha = candidatas.some(
+      (l) =>
+        pares.every((p) => l.pares.has(`${p.numero} ${p.unidade}`)) &&
+        numeros.every((n) => contemLiteral(l.texto, n)),
+    );
+    if (!mesmaLinha) {
+      const sujeitoTxt = sujeito.length > 0 ? ` de ${sujeito.join(", ")}` : "";
+      failures.push(
+        `associação sem lastro: "${item.slice(0, 60)}" — nenhuma linha${sujeitoTxt} traz ${pares
+          .map((p) => `${p.numero} ${p.unidade}`)
+          .join(" com ")}${numeros.length > pares.length ? " e os demais números do item" : ""}`,
+      );
+    }
+  }
+
+  return failures.length === 0 ? { status: "ok", checked } : { status: "failed", checked, failures };
 }

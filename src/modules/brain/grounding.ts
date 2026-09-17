@@ -95,6 +95,11 @@ export function pareceCodigo(token: string): boolean {
  * regra que a conferência usa — exportada para a checagem de exaustão
  * (`exhaustiveness.ts`) não ter um segundo jeito de ler "2,07 bar".
  */
+/** Os literais numéricos soltos de um texto — mesma fronteira da conferência. */
+export function extractNumbers(texto: string): string[] {
+  return [...texto.matchAll(RE_NUMERO)].map((m) => m[1] ?? m[0]);
+}
+
 export function extractUnitPairs(texto: string): { numero: string; unidade: string }[] {
   return [...texto.matchAll(RE_NUM_UNIDADE)].map((m) => ({ numero: m[1] ?? "", unidade: m[2] ?? "" }));
 }
