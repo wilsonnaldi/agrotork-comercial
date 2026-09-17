@@ -104,7 +104,10 @@ SAIDA=$(q -f supabase/operacao/06-remover-memoria-sem-dados.sql 2>&1)
 RESTO=$(q -c "select (select count(*) from pg_tables where schemaname='brain' and tablename in ('knowledge_sources','documents','document_versions','knowledge_ingestions','document_pages','document_chunks','chunk_products','knowledge_queries')) + (select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in ('brain_search','brain_provenance')) + (select count(*) from pg_policies where schemaname='storage' and policyname like 'brain_documents%') + (select count(*) from supabase_migrations.schema_migrations where version like '20260912%')")
 F1=$(q -c "select count(*) from pg_tables where schemaname='brain' and tablename in ('channels','attributions','leads','identities','interactions','opportunities','tasks','events','lead_merges')")
 if [ "$RESTO" = "0" ] && [ "$F1" = "9" ]; then ok "I4b: 06 removeu A+B+calibracao (8 tabelas, 2 funcoes public, 4 policies de storage, 4 registros); Fase 1 com 9 tabelas"; else nok "I4b: resto=$RESTO fase1=$F1"; grep ERROR <<< "$SAIDA" | head -3; fi
-for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/migrations/20260912020000_brain_memoria_busca.sql supabase/migrations/20260912030000_brain_ingestao.sql supabase/migrations/20260912040000_brain_busca_calibracao_piloto.sql; do
+# Reaplicar e voltar ao VERSIONADO, nao a um ponto do meio da cadeia: a
+# 20260915120000 (codigo numerico exato ou nada) redefine search_knowledge
+# depois da calibracao e faz parte do Lote B tanto quanto as outras.
+for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/migrations/20260912020000_brain_memoria_busca.sql supabase/migrations/20260912030000_brain_ingestao.sql supabase/migrations/20260912040000_brain_busca_calibracao_piloto.sql supabase/migrations/20260915120000_brain_busca_codigo_numerico_exato.sql; do
   q -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1 || nok "I4c: reaplicar $f"
 done
 SAIDA=$(suites)
@@ -129,7 +132,8 @@ montar_ate_a() {
   adm -c "drop database if exists $DB" -c "create database $DB" >/dev/null
   q -q -c "create extension if not exists pgcrypto" -f supabase/db-tests/00_supabase_stub.sql >/dev/null 2>&1
   for f in supabase/migrations/*.sql; do
-    case "$f" in *20260912030000*|*20260912040000*) continue;; esac
+    # O Lote B e a cadeia INTEIRA: ingestao, calibracao e o numerico exato.
+    case "$f" in *20260912030000*|*20260912040000*|*20260915120000*) continue;; esac
     q -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1 || { echo "  migration falhou: $f"; return 1; }
   done
   q -q -f supabase/db-tests/registro-producao-20260911.sql >/dev/null 2>&1

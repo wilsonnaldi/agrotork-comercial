@@ -569,15 +569,22 @@ begin
   if v_cfg <> array['search_path=""'] then raise exception 'RAG-H11 FALHOU: proconfig = %', v_cfg; end if;
   -- 2. volatile (altera configuracao de sessao), nao stable
   if v_vol <> 'v' then raise exception 'RAG-H11 FALHOU: volatilidade = %', v_vol; end if;
-  -- 3. corpo byte a byte igual ao versionado: o da migration 20260915120000
-  --    (codigo numerico exato ou nada, ultima redefinicao; presente quando
-  --    brain.query_codes existe) ou, sem ela — Lote A puro, ou depois do
-  --    08-remover-lote-b — o aplicado em producao em 12/09/2026
-  --    (md5 3b54175bfd5a335ff737b799ca3eb3b6).
-  --    Definicoes anteriores desta cadeia, para leitura de historico:
-  --      20260912040000 (calibracao do piloto) = 21b2f43731ab0d17f8f781845aa52830
-  v_esperado := case when to_regprocedure('brain.query_codes(text)') is not null
-                     then '9d4924c582f183cab496207fa95ee44f' else '3b54175bfd5a335ff737b799ca3eb3b6' end;
+  -- 3. corpo byte a byte igual ao versionado. Sao TRES estados legitimos nesta
+  --    cadeia, e o teste tem de saber em qual esta:
+  --      20260915120000 (codigo numerico exato ou nada) = 9d4924c582f183cab496207fa95ee44f
+  --      20260912040000 (calibracao do piloto)          = 21b2f43731ab0d17f8f781845aa52830
+  --      Lote A puro, ou depois do 08-remover-lote-b    = 3b54175bfd5a335ff737b799ca3eb3b6
+  --
+  --    O marcador e o COMENTARIO da funcao, que a mesma migration escreve junto
+  --    com o corpo. `brain.query_codes` NAO serve: quem a cria e a calibracao
+  --    (20260912040000), nao a 20260915120000 — usa-la como prova da ultima
+  --    fazia o estado "calibracao aplicada, numerico exato nao" ser acusado de
+  --    divergencia sendo que era exatamente o versionado daquele ponto.
+  v_esperado := case
+    when obj_description(to_regprocedure('brain.search_knowledge(text, jsonb, integer, boolean)'), 'pg_proc')
+         like '%puramente numerico%'                    then '9d4924c582f183cab496207fa95ee44f'
+    when to_regprocedure('brain.query_codes(text)') is not null then '21b2f43731ab0d17f8f781845aa52830'
+    else '3b54175bfd5a335ff737b799ca3eb3b6' end;
   if v_md5 <> v_esperado then raise exception 'RAG-H11 FALHOU: definicao diverge do versionado (md5 %, esperado %)', v_md5, v_esperado; end if;
 
   -- 4. limiar efetivo 0,35 durante a execucao: 'glyfox' tem similaridade 0,40
