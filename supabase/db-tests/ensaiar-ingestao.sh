@@ -51,7 +51,7 @@ montar() {
   q -q -f supabase/db-tests/registro-producao-20260911.sql >/dev/null 2>&1
   q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260912010000','brain_memoria_esquema'), ('20260912020000','brain_memoria_busca'), ('20260912030000','brain_ingestao'), ('20260912040000','brain_busca_calibracao_piloto') on conflict do nothing" >/dev/null 2>&1
 }
-suites() { for s in 33_brain_memoria 34_brain_memoria_hardening 35_brain_ingestao 36_brain_busca_calibracao 38_brain_vigencia_nao_declarada; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done; }
+suites() { for s in 33_brain_memoria 34_brain_memoria_hardening 35_brain_ingestao 36_brain_busca_calibracao 38_brain_vigencia_nao_declarada 39_brain_query_service; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done; }
 retrato_fase1() { q -q -c "select md5(string_agg(x, ',' order by x)) from (select 'tab:'||tablename as x from pg_tables where schemaname='brain' and tablename in ('channels','attributions','leads','identities','interactions','opportunities','tasks','events','lead_merges') union all select 'trg:'||tgname||'='||tgenabled::text from pg_trigger where tgname like 'trg_brain%') t"; }
 
 echo "▶ I1: migrations + suites 35 e 36"

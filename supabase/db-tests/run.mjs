@@ -88,6 +88,7 @@ const SUITES = [
   ["BRAIN Fase 2: busca calibrada (piloto Magnojet)", "36_brain_busca_calibracao.sql", /C\d+\)|NOTICE/],
   ["BRAIN Fase 2: código numérico exato ou nada", "37_brain_codigo_numerico.sql", /N\d+\)|N-SEG\)|NOTICE/],
   ["BRAIN Fase 2: vigência não declarada", "38_brain_vigencia_nao_declarada.sql", /V\d+[ab]?\)|NOTICE/],
+  ["BRAIN Fase 2: Query Service e Console", "39_brain_query_service.sql", /Q\d+\)|NOTICE/],
 ];
 
 function roda(cmd, args, opcoes = {}) {
