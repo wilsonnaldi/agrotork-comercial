@@ -2,6 +2,7 @@ import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
 import type { Json } from "@/types/db";
+import type { KnowledgeHitRow } from "./evidence";
 import type { KnowledgeQuery } from "./schema";
 
 /**
@@ -12,30 +13,7 @@ import type { KnowledgeQuery } from "./schema";
  * fora do aplicativo (brain/worker).
  */
 
-export type KnowledgeHitRow = {
-  chunk_id: number;
-  score: number;
-  rank_exact: number | null;
-  rank_trgm: number | null;
-  rank_fts: number | null;
-  kind: string;
-  content: string;
-  table_data: Json | null;
-  page_from: number;
-  page_to: number;
-  heading_path: string[];
-  codes: string[];
-  version_id: string;
-  version_label: string;
-  version_status: string;
-  document_id: string;
-  title: string;
-  document_type: string;
-  source_key: string;
-  access_level: string;
-  storage_path: string;
-  file_sha256: string;
-};
+export type { KnowledgeHitRow };
 
 export async function search(input: KnowledgeQuery): Promise<KnowledgeHitRow[]> {
   const supabase = await createClient();

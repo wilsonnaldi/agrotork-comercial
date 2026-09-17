@@ -2,65 +2,36 @@ import "server-only";
 
 import type { Json } from "@/types/db";
 import * as repository from "./repository";
-import type { KnowledgeHitRow } from "./repository";
+import { refusal, toEvidence } from "./evidence";
+import type { KnowledgeAnswer } from "./evidence";
 import type { KnowledgeQuery } from "./schema";
 
 /**
- * Regra da consulta: o que volta para a tela é EVIDÊNCIA com citação, ou
- * a resposta "não encontrei evidência suficiente". Nunca uma resposta
- * inventada. Este módulo não escreve prosa: entrega trechos, página e
- * proveniência para quem for compor a resposta (pessoa ou, mais tarde,
- * um assistente com as mesmas cercas).
+ * Regra da consulta: o que volta para a tela é EVIDÊNCIA com citação, ou a
+ * recusa. Nunca uma resposta inventada. Este módulo não escreve prosa —
+ * entrega trecho, página e proveniência para quem for compor a resposta
+ * (hoje a pessoa; mais tarde, um assistente com as mesmas cercas).
+ *
+ * O fail-closed de verdade está no banco: `brain.search_knowledge` filtra
+ * acesso, vigência e tabela degradada ANTES do ranking, e `public.brain_search`
+ * devolve vazio quando não há usuário ativo. Aqui não se reabre nada — só se
+ * traduz "zero linhas" numa recusa que a tela sabe mostrar.
  */
 
-export const SEM_EVIDENCIA = "Não encontrei documentação suficiente para afirmar isso.";
+export * from "./evidence";
 
-export type KnowledgeEvidence = {
-  chunkId: number;
-  score: number;
-  kind: string;
-  content: string;
-  tableData: Json | null;
-  page: { from: number; to: number };
-  headingPath: string[];
-  codes: string[];
-  version: { id: string; label: string; status: string };
-  document: { id: string; title: string; type: string; sourceKey: string; accessLevel: string };
-  citation: string;
-};
-
-export type KnowledgeAnswer =
-  | { found: true; evidence: KnowledgeEvidence[] }
-  | { found: false; message: string };
-
-function citation(row: KnowledgeHitRow): string {
-  const pages = row.page_from === row.page_to ? `p. ${row.page_from}` : `p. ${row.page_from}–${row.page_to}`;
-  return `${row.title} ${row.version_label}, ${pages}`;
-}
-
-export function toEvidence(row: KnowledgeHitRow): KnowledgeEvidence {
-  return {
-    chunkId: row.chunk_id,
-    score: Number(row.score),
-    kind: row.kind,
-    content: row.content,
-    tableData: row.table_data,
-    page: { from: row.page_from, to: row.page_to },
-    headingPath: row.heading_path ?? [],
-    codes: row.codes ?? [],
-    version: { id: row.version_id, label: row.version_label, status: row.version_status },
-    document: {
-      id: row.document_id, title: row.title, type: row.document_type,
-      sourceKey: row.source_key, accessLevel: row.access_level,
-    },
-    citation: citation(row),
-  };
-}
-
-export async function ask(input: KnowledgeQuery): Promise<KnowledgeAnswer> {
+/**
+ * `comDebug` vem do papel de quem perguntou, nunca da requisição: pedir
+ * debug não é um jeito de virar administrador.
+ */
+export async function ask(input: KnowledgeQuery, comDebug = false): Promise<KnowledgeAnswer> {
   const rows = await repository.search(input);
-  if (rows.length === 0) return { found: false, message: SEM_EVIDENCIA };
-  return { found: true, evidence: rows.map(toEvidence) };
+  if (rows.length === 0) return refusal(input.query, "no_evidence");
+  return {
+    query: input.query,
+    status: "answered",
+    evidence: rows.map((r) => toEvidence(r, comDebug)),
+  };
 }
 
 export async function provenance(chunkId: number): Promise<Json | null> {
