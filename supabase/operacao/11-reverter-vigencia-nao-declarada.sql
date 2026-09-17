@@ -1,5 +1,5 @@
 -- ============================================================
--- 11 · Rollback de 20260917120000_brain_vigencia_nao_declarada
+-- 11 · Rollback de 20260917030427_brain_vigencia_nao_declarada
 -- ============================================================
 -- Restaura brain.stamp_version() na definicao de
 -- 20260912010000_brain_memoria_esquema.sql — byte a byte, incluindo

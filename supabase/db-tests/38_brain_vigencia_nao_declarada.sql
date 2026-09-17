@@ -1,6 +1,6 @@
 -- ============================================================
 -- 38 · BRAIN Fase 2 — vigencia NAO declarada
---      (migration 20260917120000_brain_vigencia_nao_declarada)
+--      (migration 20260917030427_brain_vigencia_nao_declarada)
 -- ============================================================
 -- O defeito que esta suite tranca: ativar uma versao sem inicio de vigencia
 -- fazia o banco carimbar a data da ativacao (ou promover a data tecnica do

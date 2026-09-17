@@ -91,12 +91,12 @@ criar.
 
 ## 4. `valid_from` — era inimplementável em 16/09; foi consertado em 17/09
 
-> **Resolvido.** A migration `20260917120000_brain_vigencia_nao_declarada`
+> **Resolvido.** A migration `20260917030427_brain_vigencia_nao_declarada`
 > tirou o fallback de data do gatilho de ativação. `valid_from = NULL` agora
 > sobrevive e significa "vigência inicial não declarada" — que é exatamente o
 > caso da JR. O ensaio foi atualizado: `document_date = 2026-01-01` (a
 > competência que o PDF declara), `valid_from` NULL, versão ativa e vigente.
-> A migration **não foi aplicada em produção**. O texto abaixo é o
+> A migration foi **aplicada em produção em 17/09/2026**. O texto abaixo é o
 > diagnóstico original, mantido porque é a medição que motivou o conserto.
 
 A rodada pedia para preferir `valid_from = NULL` e só usar uma data com

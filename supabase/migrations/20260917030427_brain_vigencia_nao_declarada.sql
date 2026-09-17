@@ -35,6 +35,21 @@
 -- tocados. A migration nao faz UPDATE em linha nenhuma.
 --
 -- Testes: supabase/db-tests/38_brain_vigencia_nao_declarada.sql (V1-V8).
+--
+-- SOBRE O NUMERO DESTE ARQUIVO. Ele nasceu `20260917120000`. Ao ser aplicada
+-- em producao, a migration foi registrada no ledger do Supabase com o carimbo
+-- do momento da aplicacao — `20260917030427` — e nao com o numero do arquivo.
+-- Ficaram dois numeros para a mesma migration: um no Git, outro no banco.
+-- Isso nao e cosmetico: o CLI decide o que falta aplicar comparando o prefixo
+-- do ARQUIVO com o ledger, entao um `db push` veria `20260917120000` como
+-- pendente e rodaria esta migration de novo, criando uma segunda linha no
+-- ledger para algo que ja esta la.
+--
+-- O arquivo foi renomeado para bater com o ledger. O numero nao e um horario
+-- escolhido: e o carimbo real da aplicacao em producao, e por isso fica.
+-- Nada foi reexecutado — a funcao em producao ja e esta, conferido por
+-- conteudo e nao pelo ledger (md5 sem comentario, os dois lados:
+-- 8830c13918777460cc7bcc8da69bf453).
 -- ============================================================
 
 create or replace function brain.stamp_version()

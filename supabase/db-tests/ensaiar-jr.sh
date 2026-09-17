@@ -48,7 +48,7 @@ export BRAIN_DB_URL="postgresql://$U@/$DB?host=$H&port=$P"
 # --date 2026-01-01 e a COMPETENCIA que o proprio PDF declara ("atualizacao
 # Janeiro 26"), gravada onde ela mora: `document_date`. Ela NAO sobe para
 # `valid_from` — a JR nao informou dia de inicio de vigencia, e desde a
-# migration 20260917120000 o banco nao inventa um. `valid_from` fica NULL, que
+# migration 20260917030427 o banco nao inventa um. `valid_from` fica NULL, que
 # e a verdade: vigencia inicial nao declarada. Ate 16/09 o gatilho carimbava
 # `coalesce(valid_from, document_date, current_date)` e esta linha existia para
 # escolher o mal menor; hoje ela existe so para gravar o que o documento diz.

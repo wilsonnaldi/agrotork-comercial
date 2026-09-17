@@ -82,8 +82,7 @@ Pedido de venda; estoque, compras, financeiro e importação de NF-e existem
 no banco e na interface, mas **sem nenhum dado em produção** — e é isso que
 o congelamento da rodada de consolidação torna barato. 112 produtos ativos e
 precificados, 1 usuário administrador, 0 vendedores, 1 cliente e 2 pedidos
-(todos de teste). 68 migrations aplicadas em produção, a última `20260915120000`; no repositório
-são 69, e a `20260917120000` é a que ainda não subiu.
+(todos de teste). 69 migrations aplicadas em produção, a última `20260917030427`.
 
 AGROTORK BRAIN: Fase 1 (CRM, identidade, eventos, jornada) em produção em
 modo desacoplado — as três pontes `trg_brain_*` ficam desligadas e a
@@ -98,8 +97,8 @@ busca) foi **aplicada em produção em 15/09/2026**, depois de testada em
 PG16/17/18. Rollback pronto em `supabase/operacao/10-…`. Era ela que travava o
 lote ARAG, ingerido no mesmo dia.
 
-A migration `20260917120000` (vigência não declarada) está **pronta e NÃO
-aplicada em produção** — testada em PG16/17/18, rollback em
+A migration `20260917030427` (vigência não declarada) foi **aplicada em
+produção em 17/09/2026** — testada em PG16/17/18, rollback em
 `supabase/operacao/11-…`, suíte `38_brain_vigencia_nao_declarada.sql`. Ela
 tira o fallback de data do gatilho de ativação: `valid_from` deixa de receber
 `coalesce(document_date, current_date)` e NULL passa a significar o que
@@ -111,7 +110,15 @@ auditoria achou um segundo defeito: na supersessão,
 `v.valid_from` e encerrava a versão anterior **no próprio dia em que ela
 começou**; agora ela termina hoje, que é quando de fato deixou de valer. A
 migration é prospectiva — Magnojet e ARAG, já ativos e com data gravada, não
-são tocados.
+foram tocados.
+
+**Armadilha do ledger, já paga:** essa migration nasceu `20260917120000` no
+Git e entrou no ledger do Supabase como `20260917030427` — o carimbo do
+momento da aplicação, não o número do arquivo. O CLI decide o que falta
+aplicar comparando o prefixo do arquivo com o ledger, então o arquivo foi
+renomeado para bater. Migration aplicada por fora do CLI: **conferir o
+`version` que ficou no ledger e alinhar o nome do arquivo na mesma rodada**,
+antes que um `db push` reexecute o que já está lá.
 
 O worker ganhou `--pages` (`1`, `1,3`, `2-4`, `1,3-5`), só para PDF — aba de
 planilha não é página. Três regras que valem para sempre: o número da página
