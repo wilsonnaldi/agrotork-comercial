@@ -48,7 +48,12 @@ export function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInp
   );
 }
 
-export function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+/**
+ * `ComponentProps<"textarea">` em vez de `TextareaHTMLAttributes`: no React 19
+ * `ref` é uma prop comum, e este tipo a inclui. O console do BRAIN precisa do
+ * ref para devolver o foco ao campo depois de limpar.
+ */
+export function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea
       className={cn(

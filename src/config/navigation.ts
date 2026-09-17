@@ -10,6 +10,7 @@ import {
   Wallet,
   ChartColumn,
   Settings,
+  Brain,
   type LucideIcon,
 } from "lucide-react";
 import type { Permission } from "./permissions";
@@ -39,5 +40,8 @@ export const NAV_ITEMS: NavItem[] = [
   { label: "Entradas",   shortLabel: "Entradas", href: "/compras",       icon: PackagePlus,     permission: "purchases.manage", mobile: false },
   { label: "Financeiro", shortLabel: "Financ.",  href: "/financeiro",    icon: Wallet,          permission: "financial.manage", mobile: false },
   { label: "Relatórios", shortLabel: "Relat.",   href: "/relatorios",    icon: ChartColumn,     permission: "reports.read",     mobile: false },
+  // `mobile: false` de propósito: a barra do celular já tem 5 itens marcados
+  // para 4 lugares (pendência aberta). O BRAIN entra pela sidebar e pelo menu.
+  { label: "BRAIN",      shortLabel: "BRAIN",    href: "/brain",         icon: Brain,           permission: "knowledge.query",  mobile: false },
   { label: "Configurações", shortLabel: "Config.", href: "/configuracoes", icon: Settings,      permission: "settings.manage",  mobile: false },
 ];
