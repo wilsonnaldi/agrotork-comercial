@@ -51,7 +51,7 @@ montar() {
   q -q -f supabase/db-tests/registro-producao-20260911.sql >/dev/null 2>&1
   q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260912010000','brain_memoria_esquema'), ('20260912020000','brain_memoria_busca'), ('20260912030000','brain_ingestao'), ('20260912040000','brain_busca_calibracao_piloto') on conflict do nothing" >/dev/null 2>&1
 }
-suites() { for s in 33_brain_memoria 34_brain_memoria_hardening 35_brain_ingestao 36_brain_busca_calibracao 38_brain_vigencia_nao_declarada 39_brain_query_service; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done; }
+suites() { for s in 33_brain_memoria 34_brain_memoria_hardening 35_brain_ingestao 36_brain_busca_calibracao 38_brain_vigencia_nao_declarada 39_brain_query_service 40_brain_processamento_externo; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done; }
 retrato_fase1() { q -q -c "select md5(string_agg(x, ',' order by x)) from (select 'tab:'||tablename as x from pg_tables where schemaname='brain' and tablename in ('channels','attributions','leads','identities','interactions','opportunities','tasks','events','lead_merges') union all select 'trg:'||tgname||'='||tgenabled::text from pg_trigger where tgname like 'trg_brain%') t"; }
 
 echo "▶ I1: migrations + suites 35 e 36"
@@ -107,12 +107,12 @@ if [ "$RESTO" = "0" ] && [ "$F1" = "9" ]; then ok "I4b: 06 removeu A+B+calibraca
 # Reaplicar e voltar ao VERSIONADO, nao a um ponto do meio da cadeia: a
 # 20260915120000 (codigo numerico exato ou nada) redefine search_knowledge
 # depois da calibracao e faz parte do Lote B tanto quanto as outras.
-for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/migrations/20260912020000_brain_memoria_busca.sql supabase/migrations/20260912030000_brain_ingestao.sql supabase/migrations/20260912040000_brain_busca_calibracao_piloto.sql supabase/migrations/20260915120000_brain_busca_codigo_numerico_exato.sql supabase/migrations/20260917030427_brain_vigencia_nao_declarada.sql; do
+for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/migrations/20260912020000_brain_memoria_busca.sql supabase/migrations/20260912030000_brain_ingestao.sql supabase/migrations/20260912040000_brain_busca_calibracao_piloto.sql supabase/migrations/20260915120000_brain_busca_codigo_numerico_exato.sql supabase/migrations/20260917030427_brain_vigencia_nao_declarada.sql supabase/migrations/20260918120000_brain_politica_processamento_externo.sql; do
   q -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1 || nok "I4c: reaplicar $f"
 done
 SAIDA=$(suites)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "80" ] && [ "$E" = "0" ]; then ok "I4c: reaplicado; suites 33/34/35/36/38 passam (80 asserções, 0 erro)"; else nok "I4c: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$N" = "99" ] && [ "$E" = "0" ]; then ok "I4c: reaplicado; suites 33/34/35/36/38/39/40 passam (99 asserções, 0 erro)"; else nok "I4c: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ I5: nada de vetor; nenhum documento real"
 VEC=$(q -c "select (select count(*) from pg_extension where extname='vector') + (select count(*) from information_schema.columns where table_schema='brain' and udt_name in ('vector','halfvec','sparsevec')) + (select count(*) from pg_indexes where schemaname='brain' and (indexdef ilike '%hnsw%' or indexdef ilike '%ivfflat%')) + (select count(*) from pg_enum e join pg_type t on t.oid=e.enumtypid join pg_namespace n on n.oid=t.typnamespace where n.nspname='brain' and e.enumlabel ilike '%embed%')")

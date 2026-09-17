@@ -16,7 +16,8 @@
     "import:validar": "node supabase/importacao/validar.mjs",
     "import:sql": "node supabase/importacao/gerar-sql.mjs",
     "check:nfe": "node --experimental-strip-types supabase/db-tests/check-nfe.mjs",
-    "check:brain": "node --experimental-strip-types supabase/db-tests/check-brain.mjs"
+    "check:brain": "node --experimental-strip-types supabase/db-tests/check-brain.mjs",
+    "check:brain-answer": "node --experimental-strip-types supabase/db-tests/check-brain-answer.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
