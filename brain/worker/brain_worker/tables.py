@@ -395,9 +395,26 @@ def audit_table(t: TechnicalTable) -> list[str]:
     if header_rows:
         issues.append(f"{header_rows} linha(s) de cabecalho caida(s) como dados")
     # cabecalho feito de numeros: a primeira linha de dados foi engolida como cabecalho
-    numeric_labels = sum(1 for h in (t.labels or t.headers) if parse_number(h) is not None)
+    rotulos_crus = list(t.labels or t.headers)
+    numeric_labels = sum(1 for h in rotulos_crus if parse_number(h) is not None)
     if width and numeric_labels >= width / 2:
         issues.append(f"{numeric_labels} de {width} cabecalhos sao numeros (linha de dados engolida)")
+    # ...e a versao que a contagem de numeros nao pega: cabecalho que carrega
+    # DINHEIRO. Um cabecalho NOMEIA a coluna ("VALOR UNITARIO", "Pgto a
+    # vista"); ele nunca E um preco. Quando "R$ 5.600,00" aparece como rotulo,
+    # o que esta ali e uma linha de produto que a reconstrucao promoveu a
+    # cabecalho — tipico de tabela comercial cujo cabecalho aparece uma vez so
+    # e cujos blocos seguintes sao continuacao visual sem cabecalho proprio.
+    # Basta UM: preco em rotulo nao acontece por acaso.
+    #
+    # O teste e o SIMBOLO, nao o parse: ha PDF que quebra "R$ 5.600,00" em
+    # "R$ 5 .600,00", e um parse estrito deixaria passar justamente o caso que
+    # motivou a regra.
+    dinheiro_no_cabecalho = [h for h in rotulos_crus
+                             if isinstance(h, str) and _HAS_CURRENCY.search(h)]
+    if dinheiro_no_cabecalho:
+        issues.append(f"{len(dinheiro_no_cabecalho)} cabecalho(s) com valor monetario "
+                      f"(linha de dados engolida como cabecalho)")
     generic = sum(1 for h in t.headers if re.fullmatch(r"col_\d+(?:_\d+)?", h))
     if width and generic > width / 2:
         issues.append(f"{generic} de {width} colunas sem cabecalho")

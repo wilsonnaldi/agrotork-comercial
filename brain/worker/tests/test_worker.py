@@ -525,3 +525,56 @@ def test_w31_stacked_split_is_conservative():
     dois_blocos = [["a", "b"], ["1", "2"], [], ["c", "d"], ["3", "4"]]
     partes = split_stacked(dois_blocos)
     assert len(partes) == 2 and partes[0][0] == 0 and partes[1][0] == 3
+
+
+# ── W32–W34 · cabeçalho que é, na verdade, uma linha de dados ──────────
+
+def _tabela(headers, rows, labels=None, units=None):
+    return TechnicalTable(headers, rows, units or {}, 1, [], labels or list(headers))
+
+
+def test_w32_preco_no_cabecalho_denuncia_linha_engolida():
+    """Um cabeçalho NOMEIA a coluna; ele nunca É um preço. Quando a tabela
+    traz o cabeçalho uma vez só e os blocos seguintes são continuação visual,
+    a reconstrução promove a primeira linha de produto a cabeçalho — e o
+    produto some dos dados. O sinal genérico disso é dinheiro no rótulo."""
+    from brain_worker.tables import audit_table, fatal_issues
+    engolida = _tabela(
+        ["col_0", "LINHA_LE", "1243", "84368000", "DRONE_MIX_130L", "R_5_600_00", "R_8_200_00", "col_7"],
+        [[None, None, 1361, 84368000, "DRONE MIX 200L LE", "R$ 6 .200,00", "R$ 9 .500,00", None]],
+        labels=["", 'LINHA "LE"', "1243", "84368000", "DRONE MIX 130L LE",
+                "R$ 5 .600,00", "R$ 8 .200,00", ""])
+    issues = audit_table(engolida)
+    assert any("valor monetario" in i for i in issues), issues
+    # e é FATAL: tabela com um produto faltando não pode ser evidência
+    assert fatal_issues(issues)
+
+
+def test_w33_preco_quebrado_por_espaco_tambem_e_pego():
+    """O PDF da JR quebra "R$ 5.600,00" em "R$ 5 .600,00". Um teste que
+    dependesse de parse numérico deixaria passar justamente o caso que
+    motivou a regra — por isso o sinal é o símbolo da moeda."""
+    from brain_worker.tables import audit_table
+    assert not is_money("R$ 5 .600,00")          # o parse de fato falha
+    t = _tabela(["a", "b"], [[1, 2]], labels=["CÓDIGO", "R$ 5 .600,00"])
+    assert any("valor monetario" in i for i in audit_table(t))
+
+
+def test_w34_cabecalho_comercial_legitimo_nao_e_falso_positivo():
+    """"VALOR UNITARIO" e "Pgto à vista" nomeiam dinheiro sem carregar
+    dinheiro. Nenhum dos três corpos reais pode virar degradado por isto."""
+    from brain_worker.tables import audit_table
+    arag = _tabela(
+        ["QUANTIDADE", "DESCRICAO", "COD", "VALOR_UNITARIO", "VALOR_TOTAL"],
+        [[1, "SENSOR PRESSAO", 466113200, 1098.0, 1098]],
+        labels=["QUANTIDADE", "DESCRIÇÃO", "COD", "VALOR UNITARIO", "VALOR TOTAL"])
+    dji = _tabela(
+        ["col_0", "Pgto_faturado1", "Pgto_a_vista"],
+        [["SUBDEALER REVENDA", 165500.0, 161900.0]],
+        labels=["", "Pgto faturado¹", "Pgto à vista"])
+    magnojet = _tabela(
+        ["CODIGO_PONTAS", "BAR", "PSI", "L_ha@12"],
+        [["MJ981CAP", 2.76, 40, 77]],
+        labels=["CÓDIGO PONTAS", "BAR", "PSI", "12 km/h"])
+    for t in (arag, dji, magnojet):
+        assert not any("valor monetario" in i for i in audit_table(t)), t.labels
