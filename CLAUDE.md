@@ -82,7 +82,8 @@ Pedido de venda; estoque, compras, financeiro e importação de NF-e existem
 no banco e na interface, mas **sem nenhum dado em produção** — e é isso que
 o congelamento da rodada de consolidação torna barato. 112 produtos ativos e
 precificados, 1 usuário administrador, 0 vendedores, 1 cliente e 2 pedidos
-(todos de teste). 69 migrations aplicadas em produção, a última `20260917030427`.
+(todos de teste). 69 migrations aplicadas em produção, a última `20260917030427`; no
+repositório são 70, e a `20260918120000` é a que ainda não subiu.
 
 AGROTORK BRAIN: Fase 1 (CRM, identidade, eventos, jornada) em produção em
 modo desacoplado — as três pontes `trg_brain_*` ficam desligadas e a
@@ -152,6 +153,30 @@ admin — não é escondido por CSS —, e quem decide é o papel de quem pergun
 nunca a requisição. Testes: `npm run check:brain` (29 asserções) e a suíte 39
 (Q1–Q16, contra `public.brain_search`, que é a porta que o app usa). A trilha
 em `brain.knowledge_queries` já existia e não precisou de ajuste.
+
+Em 17/09 veio a **Answer v1**: a resposta natural com citações
+(`docs/brain/fase-2-answer-v1.md`). O modelo NÃO é fonte de verdade — ele
+recebe trechos que o BRAIN já achou e já autorizou, e redige. Cadeia: busca →
+Evidence Gate → **gate de processamento externo** → prompt → provedor →
+Answer Validator. Recusou em qualquer ponto, a resposta vira **extractiva**
+(a citação de cada trecho, montada localmente, sem modelo) com o motivo na
+tela, e as evidências continuam visíveis.
+
+**A fronteira que não se cruza:** `RLS` responde "esta pessoa pode LER isto?";
+`brain.external_processing_for` responde "isto pode SAIR daqui?". São
+perguntas diferentes. O orçamento ARAG é `commercial`/`forbidden`: um
+administrador consulta e **nenhum provedor externo recebe**. Só `allowed`
+sai — `approved_provider_only` exigiria um provedor formalmente aprovado, e
+não há nenhum. **Ausência de política é proibição**, e **uma evidência
+proibida bloqueia a síntese inteira** (mandar só a parte liberada moldaria a
+resposta pelo que ficou de fora). Suíte `40_brain_processamento_externo.sql`.
+
+Dois gates abertos: a **credencial** do provedor (`BRAIN_LLM_PROVIDER` /
+`BRAIN_LLM_API_KEY` / `BRAIN_LLM_MODEL`, todas de servidor — `NEXT_PUBLIC_`
+aqui mandaria a chave para o navegador) e a **migration `20260918120000`**
+(`public.brain_external_processing`), testada e **não aplicada**. Sem ela o
+gate fecha em tudo: seguro, mas silencia a síntese até para o Magnojet.
+Testes: `npm run check:brain-answer` (52 asserções, com provedor falso).
 
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
 apontam para caminhos que ainda não existem), Lote C não iniciado, cinco
