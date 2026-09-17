@@ -6,12 +6,25 @@
 Preparação do lote da tabela de preços JR Soluções, feita inteiramente fora de
 produção em 16/09/2026.
 
-**Resultado: BLOQUEADO.** Não é problema de governança — essa parte está
-limpa. É a extração deste PDF que não está boa o bastante, e o ensaio
-`ensaiar-jr.sh` existe justamente para dizer isso com número.
+**Resultado: BLOQUEADO — e agora o bloqueio tem um endereço só: o arquivo.**
 
-Golden **5/10**, adversariais **8/12**. As sete falhas são todas do mesmo
-tronco, descrito em §5.
+Em 16/09 o lote estava golden 5/10 e adversariais 8/12, e a suspeita era que
+o motor precisasse de conserto. Em 17/09 o motor foi consertado (§11) e a
+conta ficou assim:
+
+| | 16/09 | 17/09 | |
+| --- | --- | --- | --- |
+| Adversariais | 8/12 | **11/12** | o motor melhorou |
+| Golden | 5/10 | **3/10** | e é assim que tinha de ser |
+| Tabelas `trusted` com produto faltando | 6 | **0** | |
+
+O golden **caiu de propósito**. Antes, quatro provas passavam lendo tabelas
+que a busca aceitava como confiáveis e que tinham um produto a menos e nomes
+de coluna que eram valores de outro produto. Agora essas tabelas são
+corretamente recusadas — e o sistema prefere não responder a responder daquilo.
+Golden menor, integridade maior.
+
+O que **não** se resolve no motor está em §5.6.
 
 Reproduzir:
 
@@ -137,10 +150,10 @@ labels = ['', 'LINHA "LE" AGITAÇÃO HIDRÁULICA', '1243', '84368000',
 O produto 1243 não está em `rows`: ele **é** o cabeçalho. São 9 produtos
 perdidos assim — a diferença entre 38 e 29.
 
-### 5.2 E seis dessas tabelas passam como `trusted`
+### 5.2 E seis dessas tabelas passavam como `trusted` — corrigido em 17/09
 
-Este é o achado mais sério. O auditor tem a regra certa
-(`tables.py:399`), mas o limiar não pega este caso:
+Este era o achado mais sério. O auditor tinha a regra certa, mas o limiar não
+pegava este caso:
 
 ```python
 numeric_labels = sum(1 for h in (t.labels or t.headers) if parse_number(h) is not None)
@@ -153,8 +166,11 @@ tem **2** células numéricas (código e NCM) — as outras são texto. Então o
 sinal não dispara e a tabela entra como **confiável**.
 
 Resultado: 6 tabelas com um produto faltando e nomes de coluna que são valores
-de outro produto **seriam aceitas pela busca como evidência**. É pior que
-degradada: degradada é recusada; esta é servida.
+de outro produto **eram aceitas pela busca como evidência**. Pior que
+degradada: degradada é recusada; aquela era servida.
+
+**Corrigido** — ver §11.1. Hoje as 9 tabelas degradam corretamente e nenhuma
+com produto faltando segue `trusted`.
 
 ### 5.3 O código do produto não vira código; o NCM vira
 
@@ -182,8 +198,11 @@ Medido direto na função:
 não identifica (classificação fiscal compartilhada por 30 produtos) responde
 pelo braço de código em 4 trechos.
 
-Isto é a **fronteira de `query_codes`** que o lote DJI já tinha apontado
-(`fase-2-consolidado.md` §2), agora com falha demonstrável — não estética.
+**Corrigido do lado da extração** — ver §11.2. O NCM saiu de `codes` e o
+braço exato deixou de responder por ele (medido: de 4 trechos para 0).
+
+Sobre a **fronteira de `query_codes`**: ela não precisou ser mexida. Ver
+§11.3 — com os códigos extraídos, buscar "2141" já funciona.
 
 ### 5.4 Dois produtos estão fisicamente sobrepostos no PDF
 
@@ -207,6 +226,26 @@ sobreposição, ou gerando o PDF de novo a partir da planilha.
 Na mesma coluna convivem `'R$ 8 .200,00'` (string) e `10200.0` (número), além
 de `'R$ 3 30,00'` e `'R$ 5 40,00'` — o `R$ 330,00` com espaço no meio. Não
 impede a leitura, mas obriga quem consome a tratar dois tipos na mesma coluna.
+
+### 5.6 Por que as 9 linhas não se recuperam: o PDF não tem cabeçalho limpo
+
+O cabeçalho verdadeiro (`CÓDIGO NCM PRODUTO REVENDAS SUGERIDO`) aparece **uma
+vez só**, no topo — e essa única ocorrência está **fundida com as duas linhas
+sobrepostas do §5.4**. Os rótulos da primeira tabela saem assim:
+
+```
+['', '', 'CÓDIGO 1296', 'NCM 84368000',
+ 'PRODUTO REVENDAS DRONE MIX 130L LT NEW 2x18lpm 12volts R$ 5 .600,00', …]
+```
+
+Não existe, em lugar nenhum do arquivo, uma linha de cabeçalho íntegra. Para
+recuperar as 9 linhas seria preciso **adivinhar** onde termina a palavra do
+cabeçalho e começa o dado, dentro de células que já carregam dois produtos
+sobrepostos. Isso é inventar conteúdo, e não se faz.
+
+**A correção é a montante:** pedir à JR um PDF sem sobreposição, ou gerar o
+PDF de novo a partir da planilha. Com um cabeçalho legítimo, a cadeia inteira
+funciona — é o que os testes W35 e §11.3 demonstram em tabela com cabeçalho.
 
 ## 6. Semântica comercial
 
@@ -314,25 +353,93 @@ O roteiro imprimiu o caminho de Storage antes de apagar e avisou que a fonte
 ficou órfã, deixando a remoção dela como decisão humana. Magnojet e ARAG não
 foram tocados (não existem naquele banco; em produção o roteiro é por slug).
 
-## 11. O que falta para destravar
+## 11. O que foi consertado no motor (17/09/2026)
 
-Em ordem de importância:
+Dois commits, cada um com teste próprio, nenhum específico da JR.
 
-1. **Corrigir a promoção da primeira linha a cabeçalho** quando o bloco não
-   tem cabeçalho próprio — ou, no mínimo, **fazer o auditor marcar como
-   degradada** a tabela cujo cabeçalho contém código e NCM. Hoje 6 tabelas
-   passam como confiáveis com um produto faltando.
-2. **Fazer o código do produto virar código.** Duas frentes: reconhecer a
-   coluna `CÓDIGO` mesmo quando o cabeçalho foi engolido, e rever a janela de
-   7–9 dígitos de `query_codes` para caber código de 3–4 dígitos sem passar a
-   tratar ano e quantidade como peça. A segunda é mudança de busca e precisa
-   de migration, teste e GO próprio — **não cabia nesta rodada**.
-3. **Decidir o que fazer com o NCM.** Ele não deveria identificar peça. Uma
-   saída sem mexer na busca é não colocar NCM em `codes` e deixá-lo só no
-   `table_data`.
-4. **Pedir um PDF sem sobreposição** para recuperar 1296 e 1363, ou gerar de
-   novo a partir da planilha de origem.
+### 11.1 `fix(worker): detecta linha de dados engolida em cabeçalho`
 
-Nenhum desses quatro é urgente: o lote não está em produção e o ERP já tem os
-38 produtos com o custo certo. O que este ensaio garante é que, quando forem
-resolvidos, dá para medir.
+Regra nova, genérica: **um cabeçalho NOMEIA a coluna; ele nunca É um preço.**
+Se o símbolo de moeda aparece num rótulo, o que está ali é uma linha de
+produto que a reconstrução promoveu a cabeçalho. Basta um — preço em rótulo
+não acontece por acaso.
+
+O teste é o **símbolo**, não o parse numérico: este PDF quebra
+`R$ 5.600,00` em `R$ 5 .600,00`, e um parse estrito deixaria passar justamente
+o caso que motivou a regra.
+
+`"engolida"` já está em `FATAL_MARKERS`, então a tabela vira `degraded/fatal`
+e a busca a recusa. **Não há tentativa de recuperar a linha** — fail-closed
+correto primeiro.
+
+Efeito medido: JR de 3 para **9** degradadas, **0** tabelas com produto
+faltando em `trusted`. Nos corpos que já existiam, **nenhuma degradação nova**:
+Magnojet segue em 56, DJI em 2, ARAG em 0. W34 trava isso com os cabeçalhos
+reais dos três.
+
+### 11.2 `fix(worker): NCM é classificação fiscal, não código de peça`
+
+Quando a tabela **declara** uma coluna como NCM/NBM/CEST/HS code, os valores
+dela saem de `codes`. Estrutural, não regex — o documento já disse o que
+aquilo é.
+
+Precedência explícita: se o mesmo valor também aparece numa coluna declarada
+de **código**, ele fica (W36). O NCM continua inteiro em `table_data`.
+
+Efeito medido: `84368000` deixou de responder pelo braço exato — de 4 trechos
+para **0**.
+
+### 11.3 `query_codes` não precisou mudar
+
+A hipótese era que a janela de 7–9 dígitos teria de se abrir para caber código
+de 3–4. **Testado ponta a ponta com os códigos já extraídos corretamente:**
+
+| busca | resultado |
+| --- | --- |
+| `2141` | **1 hit**, trecho certo, `rank_trgm=1 rank_fts=1` |
+| `879` | **1 hit**, trecho certo |
+| `qual o preço do 2141?` | **1 hit** |
+| `84368000` (NCM) | **0** |
+
+O código curto **é encontrado** — pelos braços de prosa, não pelo braço de
+código. O que muda sem alargar a janela é o **rank**, não a recuperação.
+
+Alargar `query_codes` é mexer numa regra transversal do BRAIN, com migration
+e efeito sobre Magnojet, ARAG e DJI. Fazer isso sem um documento que prove a
+necessidade seria especulação. Fica registrado, não feito.
+
+### 11.4 Herança de cabeçalho: implementada, medida, descartada
+
+Tentei recuperar as 9 linhas fazendo o bloco de continuação herdar o cabeçalho
+do bloco anterior. **Não dispara neste documento**, e o motivo é o §5.6: a
+única ocorrência do cabeçalho verdadeiro está fundida com as linhas
+sobrepostas, então não existe cabeçalho limpo para herdar. Removi em vez de
+deixar código que nenhum corpo exercita.
+
+
+## 12. O que falta para destravar
+
+Três dos quatro itens que esta seção listava em 16/09 foram resolvidos em
+17/09 (§11). O que sobrou é um item só — e ele não está no código.
+
+1. **Pedir um PDF sem sobreposição**, ou gerar o PDF de novo a partir da
+   planilha de origem. É a única correção que recupera as 9 linhas perdidas
+   e os produtos 1296 e 1363, e é a única que o motor não pode fazer por
+   conta própria sem adivinhar conteúdo (§5.6). **Este é o bloqueio.**
+
+Resolvidos, para registro:
+
+- ~~Fazer o auditor marcar como degradada a tabela cujo cabeçalho contém
+  valor de produto~~ — §11.1. Hoje 0 tabelas passam confiáveis com produto
+  faltando.
+- ~~Decidir o que fazer com o NCM~~ — §11.2. Coluna fiscal declarada não
+  alimenta `codes`; o NCM segue inteiro em `table_data`.
+- ~~Rever a janela de 7–9 dígitos de `query_codes`~~ — §11.3. Medido: não
+  precisa. O código curto é recuperado pelos braços de prosa; o que muda é o
+  rank. Alargar a janela é mexer em regra transversal do BRAIN e não tem
+  documento que prove a necessidade. Fica registrado como fronteira
+  conhecida, não como pendência.
+
+Nada disso é urgente: o lote não está em produção e o ERP já tem os 38
+produtos com o custo certo. O que este ensaio garante é que, quando o arquivo
+chegar corrigido, dá para medir no mesmo dia.
