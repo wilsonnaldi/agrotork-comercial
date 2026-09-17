@@ -156,15 +156,28 @@ export async function answer(
   }
 
   // ── Answer Validator ──────────────────────────────────────
-  const validacao = validateAnswer(texto, citacoes);
+  const validacao = validateAnswer(texto, citacoes, aceitas);
   if (!validacao.ok) {
+    // O modelo dizer "a documentação não permite concluir" não é falha dele
+    // nem nossa: é a resposta certa. Vira `no_evidence`, com as evidências
+    // na tela para a pessoa julgar.
+    if (validacao.kind === "model_refusal") {
+      registrar({
+        query: input.query, evidencesRetrieved: rows.length, evidencesSent: aceitas.length,
+        provider: meta.provider, model: meta.model, durationMs: meta.durationMs,
+        outcome: "model_refusal",
+      });
+      return { ...refusal(input.query, "no_evidence"), evidence: evidencias, mode: "none" };
+    }
+
     registrar({
       query: input.query, evidencesRetrieved: rows.length, evidencesSent: aceitas.length,
       provider: meta.provider, model: meta.model, durationMs: meta.durationMs,
-      outcome: `answer_rejected: ${validacao.problem}`,
+      outcome: `answer_rejected (${validacao.kind}): ${validacao.details?.join(" | ") ?? validacao.problem}`,
     });
     // Não se limpa uma alucinação em silêncio: a resposta é descartada
-    // inteira e o usuário recebe a matéria-prima, que é verificável.
+    // inteira e o usuário recebe a matéria-prima, que é verificável. Um
+    // número trocado NÃO vira número certo aqui — vira resposta descartada.
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoes,

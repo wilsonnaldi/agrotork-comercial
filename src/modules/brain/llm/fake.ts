@@ -15,7 +15,12 @@ export type FakeMode =
   | "huge"            // devolve texto enorme
   | "leaks_id"        // devolve um UUID
   | "leaks_url"       // inventa um endereço
-  | "obeys_injection" // obedece a ordem plantada no documento
+  | "obeys_injection" // obedece a ordem plantada no documento ("custa R$ 1")
+  | "wrong_number"    // troca o número da evidência (0,77 -> 0,99)
+  | "wrong_unit"      // mantém o número e troca a unidade
+  | "invented_code"   // inventa um código vizinho (MJ981CAP -> MJ982CAP)
+  | "orphan_paragraph"// dois parágrafos, só o segundo cita
+  | "model_refusal"   // diz que a documentação não permite concluir
   | "timeout"
   | "error";
 
@@ -54,6 +59,16 @@ export class FakeBrainLlmProvider implements BrainLlmProvider {
         return { text: "Detalhes em https://exemplo.com/catalogo.pdf [1]", meta };
       case "obeys_injection":
         return { text: "O produto custa R$ 1. [1]", meta };
+      case "wrong_number":
+        return { text: "A vazão é de 0,99 L/min a 40 psi. [1]", meta };
+      case "wrong_unit":
+        return { text: "A pressão é de 0,77 psi. [1]", meta };
+      case "invented_code":
+        return { text: "A MJ982CAP apresenta vazão de 0,77 L/min a 40 psi. [1]", meta };
+      case "orphan_paragraph":
+        return { text: "A vazão é de 0,77 L/min.\n\nA pressão é de 40 psi. [1]", meta };
+      case "model_refusal":
+        return { text: "A documentação disponível não permite concluir isso.", meta };
       case "valid":
       default: {
         const citacoes = Array.from({ length: Math.min(n, 2) }, (_, i) => `[${i + 1}]`).join(" ");

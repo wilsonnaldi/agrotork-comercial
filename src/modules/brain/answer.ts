@@ -1,4 +1,5 @@
 import type { KnowledgeEvidence } from "./evidence";
+import { checkGrounding, describeFailure } from "./grounding";
 import {
   MAX_CHARS_CONTEXTO,
   MAX_CHARS_POR_EVIDENCIA,
@@ -203,7 +204,33 @@ export function referencesUsed(texto: string): number[] {
 // Answer Validator
 // ════════════════════════════════════════════════════════════
 
-export type ValidationResult = { ok: true } | { ok: false; problem: string };
+/**
+ * `kind` separa três coisas que a orquestração trata de formas diferentes:
+ *  · `model_refusal` — o modelo disse que não dá para concluir. Não é erro:
+ *    vira `no_evidence`, que é a resposta honesta;
+ *  · `grounding` — número, unidade ou código sem lastro na evidência citada;
+ *  · `format` — vazio, enorme, citação inexistente, campo proibido.
+ */
+export type ValidationProblem = "model_refusal" | "grounding" | "format";
+
+export type ValidationResult =
+  | { ok: true }
+  | { ok: false; kind: ValidationProblem; problem: string; details?: string[] };
+
+/** A frase exata que o prompt manda usar quando as evidências não bastam. */
+export const FRASE_DE_RECUSA = "A documentação disponível não permite concluir isso.";
+
+/**
+ * O modelo se recusou a concluir. Comparação frouxa de propósito — pontuação
+ * e caixa variam, e uma recusa quase-igual continua sendo uma recusa.
+ */
+export function modelRefused(texto: string): boolean {
+  const limpa = (t: string) =>
+    t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^a-z ]+/g, " ").replace(/\s+/g, " ").trim();
+  const alvo = limpa(FRASE_DE_RECUSA);
+  const corpo = limpa(texto);
+  return corpo.length > 0 && corpo.length <= alvo.length + 40 && corpo.includes(alvo);
+}
 
 /** Campos que nunca podem aparecer no texto devolvido pelo modelo. */
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
@@ -215,33 +242,64 @@ const URL = /\bhttps?:\/\/\S+/i;
  * O que se confere DEPOIS da geração. Falhou, a resposta não é mostrada —
  * não se "limpa" uma alucinação crítica em silêncio, porque limpar esconde
  * que o modelo errou e a próxima vez ninguém fica sabendo.
+ *
+ * Precisa das EVIDÊNCIAS, não só das citações: desde 17/09 a conferência não
+ * para em "existe um [1]" — ela exige que os números, as unidades e os
+ * códigos escritos em cada parágrafo estejam nas evidências citadas NAQUELE
+ * parágrafo. Sem as evidências à mão, isso seria impossível, e uma resposta
+ * como "0,99 L/min [1]" passaria com a evidência dizendo 0,77.
  */
-export function validateAnswer(texto: string, citacoes: BrainCitation[]): ValidationResult {
+export function validateAnswer(
+  texto: string,
+  citacoes: BrainCitation[],
+  evidencias: KnowledgeEvidence[],
+): ValidationResult {
   const limpo = (texto ?? "").trim();
 
-  if (limpo.length === 0) return { ok: false, problem: "o modelo devolveu texto vazio" };
+  if (limpo.length === 0) return { ok: false, kind: "format", problem: "o modelo devolveu texto vazio" };
   if (limpo.length > MAX_CHARS_RESPOSTA) {
-    return { ok: false, problem: `resposta com ${limpo.length} caracteres, acima do teto de ${MAX_CHARS_RESPOSTA}` };
+    return {
+      ok: false, kind: "format",
+      problem: `resposta com ${limpo.length} caracteres, acima do teto de ${MAX_CHARS_RESPOSTA}`,
+    };
+  }
+
+  // A recusa do modelo é resposta legítima, e não passa pelo resto: ela não
+  // tem citação porque não afirma nada.
+  if (modelRefused(limpo)) {
+    return { ok: false, kind: "model_refusal", problem: "o modelo não encontrou base nas evidências" };
   }
 
   const usadas = referencesUsed(limpo);
   const validas = new Set(citacoes.map((c) => c.index));
 
   if (usadas.length === 0) {
-    return { ok: false, problem: "resposta afirmativa sem nenhuma citação" };
+    return { ok: false, kind: "format", problem: "resposta afirmativa sem nenhuma citação" };
   }
   const inexistentes = usadas.filter((n) => !validas.has(n));
   if (inexistentes.length > 0) {
     return {
-      ok: false,
+      ok: false, kind: "format",
       problem: `citação para evidência inexistente: ${inexistentes.map((n) => `[${n}]`).join(", ")} (há ${citacoes.length})`,
     };
   }
 
-  if (UUID.test(limpo)) return { ok: false, problem: "a resposta contém identificador interno" };
-  if (SHA256.test(limpo)) return { ok: false, problem: "a resposta contém hash de arquivo" };
-  if (CAMINHO_STORAGE.test(limpo)) return { ok: false, problem: "a resposta contém caminho de arquivo" };
-  if (URL.test(limpo)) return { ok: false, problem: "a resposta contém endereço de internet" };
+  if (UUID.test(limpo)) return { ok: false, kind: "format", problem: "a resposta contém identificador interno" };
+  if (SHA256.test(limpo)) return { ok: false, kind: "format", problem: "a resposta contém hash de arquivo" };
+  if (CAMINHO_STORAGE.test(limpo)) return { ok: false, kind: "format", problem: "a resposta contém caminho de arquivo" };
+  if (URL.test(limpo)) return { ok: false, kind: "format", problem: "a resposta contém endereço de internet" };
+
+  // A trava determinística: cada parágrafo cita, e o que ele afirma em
+  // número, unidade e código está nas evidências que ele citou.
+  const lastro = checkGrounding(limpo, citacoes, evidencias);
+  if (!lastro.ok) {
+    const detalhes = lastro.failures.map(describeFailure);
+    return {
+      ok: false, kind: "grounding",
+      problem: detalhes[0] ?? "afirmação sem lastro na evidência citada",
+      details: detalhes,
+    };
+  }
 
   return { ok: true };
 }
