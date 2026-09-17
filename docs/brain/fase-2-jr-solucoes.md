@@ -89,10 +89,18 @@ criar.
 `jr-solucoes-tabela-revendas` · "Tabela de preços para revendas — JR Soluções"
 · `price_list` · `commercial`.
 
-## 4. `valid_from` — a preferência arquitetural não é implementável
+## 4. `valid_from` — era inimplementável em 16/09; foi consertado em 17/09
+
+> **Resolvido.** A migration `20260917120000_brain_vigencia_nao_declarada`
+> tirou o fallback de data do gatilho de ativação. `valid_from = NULL` agora
+> sobrevive e significa "vigência inicial não declarada" — que é exatamente o
+> caso da JR. O ensaio foi atualizado: `document_date = 2026-01-01` (a
+> competência que o PDF declara), `valid_from` NULL, versão ativa e vigente.
+> A migration **não foi aplicada em produção**. O texto abaixo é o
+> diagnóstico original, mantido porque é a medição que motivou o conserto.
 
 A rodada pedia para preferir `valid_from = NULL` e só usar uma data com
-necessidade técnica comprovada. **Testei, e NULL não sobrevive à ativação.**
+necessidade técnica comprovada. **Testei, e NULL não sobrevivia à ativação.**
 
 `20260912010000_brain_memoria_esquema.sql:315`:
 
@@ -115,15 +123,36 @@ Confirmei também que, antes da ativação, `register_version` de fato deixa
 `valid_from` nulo, e que com nulo a busca funciona (`current_version` bate, a
 CTE de vigência aceita `valid_from is null`). O problema é só a ativação.
 
-**Decisão, com a necessidade técnica comprovada que a rodada exigia:**
-`document_date = 2026-01-01`, e `metadata.provenance_note` registrando:
+**Decisão de 16/09, com a necessidade técnica comprovada que a rodada
+exigia:** `document_date = 2026-01-01`, e `metadata.provenance_note`
+registrando:
 
 - a competência **JAN/26 é declarada pelo documento**;
 - **nenhum dia oficial de início de vigência foi informado** pela JR;
 - `2026-01-01` é o primeiro dia da competência declarada, escolhido porque o
-  schema carimba `current_date` se nada for informado;
+  schema carimbava `current_date` se nada fosse informado;
 - as datas técnicas do arquivo (04/02/2026) **não foram promovidas** a
   vigência comercial.
+
+### 4.1 O que mudou em 17/09
+
+O terceiro item acima era uma escolha feita **contra** o banco, não com ele.
+Ela deixou de ser necessária.
+
+| | 16/09 | 17/09 |
+| --- | --- | --- |
+| `document_date` | 2026-01-01 | 2026-01-01 — a competência declarada |
+| `valid_from` depois de ativar | 2026-01-01 (promovido) | **NULL** — não declarado |
+| se não houvesse `--date` | 2026-09-16 (dia da ativação) | **NULL** |
+
+A JR declara a competência e não declara dia de início. Agora o banco guarda
+as duas coisas separadas, e nenhuma delas é inventada. A versão continua
+`active` e continua sendo a que `current_version()` devolve: **"não
+declarado" não é "inválido"** — a leitura sempre soube disso (`valid_from is
+null or valid_from <= current_date`), era a gravação que atropelava.
+
+A prova L do ensaio passou a exigir esse estado inteiro, e a suíte 38
+(`38_brain_vigencia_nao_declarada.sql`) tranca os oito casos.
 
 ## 5. O que bloqueia: a extração
 

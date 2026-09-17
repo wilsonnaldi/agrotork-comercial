@@ -104,19 +104,36 @@ Testado em banco descartável com as migrations reais:
   `ingestion_start` declare `pages_total = 1`. A função recusa `completed`
   quando as páginas gravadas ficam abaixo do total declarado.
 
-**O que NÃO suporta: o worker.** `brain_worker ingest` não tem opção de
-subconjunto de páginas — ele ingere o arquivo inteiro. Essa é a limitação
-real, e ela é do worker, não do schema.
+### O worker também suporta — desde 17/09/2026
 
-Duas saídas, nenhuma inventando schema:
+Quando este documento foi escrito, `brain_worker ingest` só sabia ingerir o
+arquivo inteiro, e a saída era um **documento de passagem**: ingerir tudo num
+descartável, copiar a página 1 para a versão DJI pelas mesmas funções
+`brain.ingestion_*`, apagar o descartável. Funcionava, e está registrado aqui
+porque foi assim que o golden 10/10 foi medido pela primeira vez.
 
-- **(a) Documento de passagem** — ingerir o arquivo inteiro num documento
-  descartável, copiar a página 1 e os trechos dela para a versão DJI pelas
-  mesmas funções `brain.ingestion_*`, e apagar o documento de passagem. É o
-  que o ensaio já faz hoje, e é a mesma técnica do lote ARAG: nada é digitado
-  à mão e o PDF original não é tocado. **Recomendada para a ingestão.**
-- **(b) `--pages` no worker** — mais limpo a longo prazo, mas é mudança de
-  código com testes próprios. Fica como rodada futura, não como pré-requisito.
+Agora é nativo: `--pages 1`. Uma linha no comando, e o recorte deixa de ser
+uma coreografia de três passos com um documento fantasma no meio.
+
+A diferença não é só de conforto. A passagem declarava `page_count = 1` para
+um arquivo de **4 páginas** — quem fosse conferir a citação abriria um PDF
+que não bate com o que o banco diz. Com `--pages`:
+
+| | passagem (16/09) | `--pages 1` (17/09) |
+| --- | --- | --- |
+| `page_count` | 1 | **4** — o arquivo não encolhe |
+| recorte declarado | em nenhum lugar | `metadata.ingested_pages = [1]` |
+| páginas lidas | 4 (e 3 descartadas depois) | **1** |
+| documento fantasma | 1, criado e apagado | nenhum |
+| trechos na V15.1 | 7 | 7 — **o mesmo conteúdo** |
+
+O número da página continua sendo o físico: pedir 1 e 4 dá p.1 e p.4, nunca
+p.1 e p.2. É o que mantém a citação verdadeira.
+
+A técnica da passagem continua registrada como **legado** — serve quando o
+recorte não é por página (um subconjunto de trechos dentro de uma página, por
+exemplo), e foi ela que provou que o schema aguentava isto sem nenhuma coluna
+nova.
 
 O que **não** se faz: recortar o PDF, ou publicar Ddock/GranDdock/Zait/RTK
 South sob o título "Tabela Subdealer DJI".

@@ -82,7 +82,8 @@ Pedido de venda; estoque, compras, financeiro e importação de NF-e existem
 no banco e na interface, mas **sem nenhum dado em produção** — e é isso que
 o congelamento da rodada de consolidação torna barato. 112 produtos ativos e
 precificados, 1 usuário administrador, 0 vendedores, 1 cliente e 2 pedidos
-(todos de teste). 68 migrations aplicadas, a última `20260915120000`.
+(todos de teste). 68 migrations aplicadas em produção, a última `20260915120000`; no repositório
+são 69, e a `20260917120000` é a que ainda não subiu.
 
 AGROTORK BRAIN: Fase 1 (CRM, identidade, eventos, jornada) em produção em
 modo desacoplado — as três pontes `trg_brain_*` ficam desligadas e a
@@ -97,10 +98,38 @@ busca) foi **aplicada em produção em 15/09/2026**, depois de testada em
 PG16/17/18. Rollback pronto em `supabase/operacao/10-…`. Era ela que travava o
 lote ARAG, ingerido no mesmo dia.
 
+A migration `20260917120000` (vigência não declarada) está **pronta e NÃO
+aplicada em produção** — testada em PG16/17/18, rollback em
+`supabase/operacao/11-…`, suíte `38_brain_vigencia_nao_declarada.sql`. Ela
+tira o fallback de data do gatilho de ativação: `valid_from` deixa de receber
+`coalesce(document_date, current_date)` e NULL passa a significar o que
+sempre deveria — **vigência inicial não declarada**, e não "use hoje". A
+leitura já estava certa desde o Lote A (`valid_from is null or valid_from <=
+current_date`); quem inventava data era só aquele gatilho. De quebra, a
+auditoria achou um segundo defeito: na supersessão,
+`greatest(new.valid_from - 1, v.valid_from)` com a nova sem data colapsava em
+`v.valid_from` e encerrava a versão anterior **no próprio dia em que ela
+começou**; agora ela termina hoje, que é quando de fato deixou de valer. A
+migration é prospectiva — Magnojet e ARAG, já ativos e com data gravada, não
+são tocados.
+
+O worker ganhou `--pages` (`1`, `1,3`, `2-4`, `1,3-5`), só para PDF — aba de
+planilha não é página. Três regras que valem para sempre: o número da página
+é o **físico** (pedir 1 e 4 dá p.1 e p.4, nunca p.1 e p.2, porque a citação
+tem de levar alguém à página certa do arquivo original); `page_count` é o
+tamanho do **arquivo**, não do recorte, e o recorte fica em
+`metadata.ingested_pages`; e `knowledge_ingestions.pages_total` continua
+sendo o que a ingestão processou, porque é o que `ingestion_finish` cobra.
+Página fora da seleção não é lida — não gera texto, tabela, trecho nem
+código. Com isso o **documento de passagem** da V15.1 DJI deixou de ser o
+caminho: o ensaio usa `--pages 1`, o mesmo conteúdo (7 trechos) sai com
+`page_count = 4` em vez de 1, e nenhum documento fantasma é criado e apagado.
+
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
 apontam para caminhos que ainda não existem), Lote C não iniciado, cinco
 falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no modo desacoplado), e a
-barra do celular com 5 itens marcados para 4 lugares.
+barra do celular com 5 itens marcados para 4 lugares. O `--pages` do worker
+deixou de ser pendência em 17/09.
 
 O lote **DJI Subdealer** está tecnicamente pronto — golden 9/9, adversariais
 16/16 e golden final 10/10 com a cadeia V14.11 → V15.1 → V16.2 — e **travado
@@ -108,7 +137,8 @@ por governança**: falta a ALLCOMP confirmar rótulos e vigências. Ver
 `docs/brain/fase-2-dji-governanca.md`. Dois pontos que não se negociam nesse
 lote: a fonte é `allcomp` (`distributor`), não `dji` — a DJI é a marca, não a
 autora da tabela; e da V15.1 só a **página 1** é evidência DJI, porque as
-páginas 2–4 são Ddock/GranDdock (faturado pela Zait) e RTK South/Sunnav.
+páginas 2–4 são Ddock/GranDdock (faturado pela Zait) e RTK South/Sunnav —
+hoje recortada com `--pages 1`, não mais por documento de passagem.
 
 Retrato consolidado da Fase 2, com o próximo lote e o estado de cada
 pendência: `docs/brain/fase-2-consolidado.md` (16/09/2026). Um aviso que saiu
