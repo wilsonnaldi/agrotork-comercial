@@ -190,6 +190,18 @@ ARAG `forbidden`. **Ela também chegou ao ledger com o carimbo da hora**
 (nasceu `20260918120000` no Git) — a segunda vez seguida, e por isso a
 armadilha virou regra em "Armadilhas já pagas".
 
+**Limites de contexto corrigidos (17/09, antes de liberar a chave):** o teto
+por evidência era 2.000 caracteres, justificado por "o worker fatia em 1.400".
+Isso vale para texto — **tabela entra inteira**. Medido em produção: 56 dos 780
+trechos passam de 2.000, o maior tem 16.754, e o da p.20 do Magnojet tem 6.614
+com o `MJ985CAP` depois do caractere 5.000. O teto antigo entregaria ao modelo
+uma tabela cortada antes da resposta e produziria `no_evidence` FALSO — o pior
+tipo, porque parece integridade. Agora: 20.000 por evidência, 3 evidências,
+62.000 de contexto, e **evidência acima do teto é descartada inteira, nunca
+truncada** (segue visível na tela; se for a única, o provedor não é chamado).
+O `recorta()` do `renderEvidence` saiu, e o orçamento perdeu a exceção que
+deixava a primeira evidência estourá-lo.
+
 Resta **um** gate: a **credencial** do provedor (`BRAIN_LLM_PROVIDER` /
 `BRAIN_LLM_API_KEY` / `BRAIN_LLM_MODEL`, todas de servidor — `NEXT_PUBLIC_`
 aqui mandaria a chave para o navegador). Sem ela o console responde de forma

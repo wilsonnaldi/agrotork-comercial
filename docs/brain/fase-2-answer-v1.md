@@ -282,15 +282,61 @@ porque não afirma nada; tratá-la como erro de formato confundiria quem lê.
 
 ## 7. Limites
 
-Nenhum número chutado — `limits.ts` explica cada um:
+Nenhum número chutado — `limits.ts` explica cada um.
 
-| | | por quê |
-| --- | --- | --- |
-| evidências na síntese | 5 | o retrieval traz 10; acima de 5 o modelo costura o que só se parece |
-| caracteres por evidência | 2000 | o worker fatia em 1400, então **nunca corta trecho real** — é cerca contra anomalia, e quando corta, avisa |
-| contexto total | 11000 | 5 × 2000 + cabeçalhos |
-| resposta | 4000 | acima disso o modelo saiu do papel |
-| timeout | 30 s | acima disso a pessoa já desistiu |
+> **Revisados em 17/09/2026.** Os anteriores se apoiavam numa premissa falsa,
+> e a medição do corpus a derrubou. Está contada logo abaixo.
+
+| | antes | agora | por quê |
+| --- | --- | --- | --- |
+| evidências na síntese | 5 | **3** | cada uma pode ser 10× maior; três tabelas inteiras já são contexto grande |
+| caracteres por evidência | 2000 | **20.000** | cobre o maior trecho do corpus (16.754) com ~19% de folga |
+| contexto total | 11.000 | **62.000** | 3 × (20.000 + 200), com margem |
+| resposta | 4000 | 4000 | acima disso o modelo saiu do papel |
+| timeout | 30 s | 30 s | acima disso a pessoa já desistiu |
+
+### A premissa que estava errada
+
+O teto de 2.000 vinha com esta justificativa: *"o worker fatia em `MAX = 1400`
+caracteres, então 2.000 nunca corta um trecho real"*.
+
+Vale para **texto**. O chunker corta parágrafo; **tabela entra inteira**, do
+tamanho que o documento a traz. Medido em produção, com os dois documentos
+ativos:
+
+| | |
+| --- | --- |
+| trechos no total | 780 |
+| acima de 2.000 caracteres | **56** — todos tabelas |
+| trecho da p.20 do Catálogo Magnojet | **6.614** caracteres |
+| maior trecho do corpus | **16.754** caracteres |
+
+Naquele trecho da p.20, a linha do `MJ981CAP` a 40 psi começa no caractere
+**1.401** — passava por pouco. A do `MJ985CAP` começa depois do **5.000**: com
+o teto antigo, perguntar pelo MJ985CAP entregava ao modelo uma tabela cortada
+antes da resposta, e ele responderia — corretamente — que a documentação não
+permite concluir, **com a evidência inteira na tela e ninguém entendendo por
+quê**. Um `no_evidence` falso, que é o pior tipo: parece integridade.
+
+### Evidência não vai pela metade
+
+O teto agora **descarta**, não corta:
+
+- acima de `MAX_CHARS_POR_EVIDENCIA`, a evidência sai inteira da síntese, com
+  o motivo nomeado em `dropped` ("evidência acima do limite de contexto do
+  provider");
+- ela **continua na tela**, inteira, para a pessoa ler;
+- se for a única apta, **o provedor não é chamado**;
+- o `recorta()` que existia em `renderEvidence` foi **removido**. Quem decide
+  se uma evidência cabe é o gate, e a decisão dele é sim ou não, nunca "um
+  pedaço". Uma tabela cortada ao meio faz o modelo responder com segurança
+  sobre a metade que viu, e a linha perguntada costuma estar na outra.
+
+E o orçamento de contexto perdeu a **exceção da primeira evidência**. Havia um
+`&& escolhidas.length > 0` que deixava a primeira estourar o orçamento
+sozinha — uma regra criada para nunca devolver lista vazia, e que na prática
+dizia "o limite vale para todo mundo menos para quem vier na frente". Se nada
+couber, a resposta é não sintetizar.
 
 ## 8. Console v1
 
