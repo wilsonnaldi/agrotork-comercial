@@ -25,3 +25,4 @@ remote_schema*.txt
 # e entrar no Git recria a divergencia entre historico e banco.
 supabase/migrations/*_remote_schema.sql
 .nfe-check-*/
+.provider-check-*/

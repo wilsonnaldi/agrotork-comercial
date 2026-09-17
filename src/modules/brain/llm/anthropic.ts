@@ -11,6 +11,21 @@ import { ProviderError } from "./provider";
  * `server-only`: a chave nunca chega ao navegador. Ela é lida de
  * `BRAIN_LLM_API_KEY` no servidor, não é escrita em log nenhum e não aparece
  * em mensagem de erro — `ProviderError` carrega só a categoria da falha.
+ * Ela viaja apenas no cabeçalho `x-api-key`, nunca no corpo.
+ *
+ * SEM PARÂMETRO DE AMOSTRAGEM. O corpo leva só `model`, `max_tokens`,
+ * `system` e `messages`. Havia aqui um `temperature: 0`, com a justificativa
+ * de que "síntese documental não é lugar de variedade" — a intenção estava
+ * certa, o meio estava errado: no Claude Sonnet 5, `temperature`, `top_p` e
+ * `top_k` em valor não-padrão são recusados com HTTP 400. Ou seja, aquele
+ * zero não deixava a resposta mais estável; deixava a chamada impossível, e
+ * a síntese cairia sempre no extractivo com um erro que parecia de rede.
+ *
+ * O que garante que a resposta não invente não é a temperatura: é o
+ * `grounding.ts`, que confere cada número e cada código contra as evidências
+ * citadas, e o `validateAnswer`, que barra o parágrafo sem lastro. Esses
+ * conferem o texto DEPOIS de pronto, e por isso valem mais do que qualquer
+ * ajuste de amostragem.
  */
 
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
@@ -44,9 +59,10 @@ export class AnthropicProvider implements BrainLlmProvider {
           "anthropic-version": VERSAO_API,
         },
         body: JSON.stringify({
+          // SÓ O NECESSÁRIO. Nada de `temperature`, `top_p`, `top_k`,
+          // `thinking` ou `budget_tokens` — ver o bloco de comentário acima.
           model: this.model,
           max_tokens: this.maxTokens,
-          temperature: 0,   // síntese documental não é lugar de variedade
           system: input.systemPrompt,
           messages: [{ role: "user", content: input.userMessage }],
         }),
