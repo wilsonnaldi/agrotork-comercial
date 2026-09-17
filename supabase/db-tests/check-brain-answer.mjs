@@ -103,7 +103,9 @@ const muitas = A.assessEvidence(PERGUNTA, Array.from({ length: 9 }, (_, i) => ev
 confere(`A7 corta em ${L.MAX_EVIDENCIAS_SINTESE} evidências`,
   muitas.accepted.length === L.MAX_EVIDENCIAS_SINTESE, `aceitou ${muitas.accepted.length} de 9`);
 confere("A7 e as demais aparecem como descartadas, com motivo",
-  muitas.dropped.length === 4 && muitas.dropped.every((d) => /além das/.test(d.why)));
+  muitas.dropped.length === 9 - L.MAX_EVIDENCIAS_SINTESE &&
+  muitas.dropped.every((d) => /além das/.test(d.why)),
+  `${muitas.dropped.length} descartada(s)`);
 
 // ════════════════════════════════════════════════════════════
 process.stdout.write("▶ External Processing Gate\n");
@@ -164,9 +166,13 @@ confere("C7 nada de id, caminho ou hash vai para o provedor",
 confere("C8 vai o que o usuário já veria: fonte, documento, versão, página, tipo",
   render.includes("Fonte: Magnojet") && render.includes("Versão: V41") && render.includes("Página: 20"));
 
+// C9 — o `recorta()` SAIU. O render não corta mais nada: quem decide se uma
+// evidência cabe é o gate, e a decisão dele é sim ou não, nunca "um pedaço".
+// Se algo acima do teto chegasse aqui, seria defeito do gate, e o render
+// entrega inteiro em vez de disfarçar (T5/T6 provam que não chega).
 const gigante = P.renderEvidence([ev({ content: "x".repeat(L.MAX_CHARS_POR_EVIDENCIA + 500) })]);
-confere("C9 trecho acima do teto é cortado COM aviso",
-  gigante.includes("[…trecho truncado…]") && gigante.length < L.MAX_CHARS_POR_EVIDENCIA + 600);
+confere("C9 renderEvidence NÃO trunca — nem quando o conteúdo é enorme",
+  !gigante.includes("truncado") && gigante.includes("x".repeat(L.MAX_CHARS_POR_EVIDENCIA + 500)));
 
 // ════════════════════════════════════════════════════════════
 process.stdout.write("▶ Answer Validator\n");
@@ -436,6 +442,143 @@ confere("I6 recusa do modelo → model_refusal, não erro",
   (await geraCom("model_refusal", RC, RE_)).kind === "model_refusal");
 confere("I7 resposta boa continua passando",
   (await geraCom("valid", A.buildCitations([REAL, REAL]), [REAL, REAL])).ok === true);
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Contexto: tabela grande vai inteira ou não vai (T1–T9)\n");
+
+/**
+ * Fixture do tamanho do maior trecho do corpus. Reproduz a FORMA da tabela
+ * de litros por hectare da p.20 do Catálogo Magnojet — mesmo cabeçalho,
+ * mesmas seis pressões por ponta, mesmas colunas de velocidade — para o
+ * teste bater no formato real, não num texto qualquer com o tamanho certo.
+ *
+ * O que importa: MJ981CAP aparece cedo e MJ985CAP aparece bem depois do
+ * caractere 5.000. Com o teto antigo de 2.000, perguntar pelo MJ985CAP
+ * entregava ao modelo uma tabela cortada antes da resposta.
+ */
+function tabelaMagnojet(pontas = 15) {
+  const PRESSOES = [
+    ["2,07 bar", "30 psi", "207 kPa"], ["2,76 bar", "40 psi", "276 kPa"],
+    ["3,45 bar", "50 psi", "345 kPa"], ["4,14 bar", "60 psi", "414 kPa"],
+    ["4,83 bar", "70 psi", "483 kPa"], ["5,52 bar", "80 psi", "552 kPa"],
+  ];
+  const VAZAO = ["0,5", "0,58", "0,64", "0,7", "0,76", "0,81"];
+  const linhas = [
+    "LITROS POR HECTARE (ESPAÇAMENTO 50CM)",
+    "CÓDIGO PONTAS GOTAS BAR PSI kPa L/min 4 km/h 5 km/h 6 km/h 7 km/h 8 km/h 9 km/h 10 km/h 12 km/h 14 km/h 16 km/h 18 km/h 20 km/h 25 km/h",
+  ];
+  for (let p = 0; p < pontas; p++) {
+    const codigo = `MJ98${p}CAP`;
+    for (let i = 0; i < PRESSOES.length; i++) {
+      const [bar, psi, kpa] = PRESSOES[i];
+      // A vazão do MJ981CAP a 40 psi é a do documento real: 0,77 L/min.
+      const vazao = p === 1 && i === 1 ? "0,77" : p === 5 && i === 1 ? "1,53" : VAZAO[i];
+      const lha = Array.from({ length: 13 }, (_, k) => `${100 + p * 7 + i * 3 + k} L/ha`).join(" ");
+      linhas.push(`${codigo} MUG-CV 0${p + 1} MALHA 50 UG ${bar} ${psi} ${kpa} ${vazao} L/min ${lha}`);
+    }
+  }
+  return linhas.join("\n");
+}
+
+const TABELA = tabelaMagnojet();
+const posicao981 = TABELA.indexOf("MJ981CAP MUG-CV 02 MALHA 50 UG 2,76 bar 40 psi");
+const posicao985 = TABELA.indexOf("MJ985CAP MUG-CV 06 MALHA 50 UG 2,76 bar 40 psi");
+
+confere("fixture tem o tamanho do maior trecho do corpus",
+  TABELA.length > 15_000 && TABELA.length < 20_000, `${TABELA.length} caracteres (produção: 16.754)`);
+confere("MJ981CAP aparece cedo, MJ985CAP bem depois de 5.000",
+  posicao981 > 0 && posicao981 < 2000 && posicao985 > 5000,
+  `MJ981CAP no ${posicao981}, MJ985CAP no ${posicao985}`);
+
+const grande = ev({ chunkId: 72, content: TABELA, codes: ["MJ981CAP", "MJ985CAP"], kind: "table" });
+
+// T1 — a tabela de ~16.7k entra inteira
+const t1 = A.assessEvidence("Qual a vazão da MJ985CAP a 40 psi?", [grande]);
+confere("T1 tabela de 16,7 mil caracteres é ACEITA inteira",
+  t1.sufficient === true && t1.accepted.length === 1 &&
+  t1.accepted[0].content.length === TABELA.length,
+  `aceita com ${t1.accepted[0]?.content.length ?? 0} caracteres`);
+
+// T2/T3 — as duas linhas chegam ao provedor
+const msgGrande = P.buildUserMessage("Qual a vazão da MJ985CAP a 40 psi?", t1.accepted);
+confere("T2 a linha do MJ981CAP a 40 psi chega ao provedor",
+  msgGrande.includes("MJ981CAP MUG-CV 02 MALHA 50 UG 2,76 bar 40 psi 276 kPa 0,77 L/min"));
+confere("T3 a linha do MJ985CAP, depois do caractere 5.000, TAMBÉM chega",
+  msgGrande.includes("MJ985CAP MUG-CV 06 MALHA 50 UG 2,76 bar 40 psi 276 kPa 1,53 L/min"));
+
+// T4 — nenhum marcador de truncamento
+confere("T4 nenhum marcador de truncamento na mensagem",
+  !msgGrande.includes("truncado") && !msgGrande.includes("…trecho") && !msgGrande.includes("[...]"));
+confere("T4b e o conteúdo vai byte a byte igual ao da evidência",
+  msgGrande.includes(TABELA));
+
+// T5 — acima do teto, descartada inteira
+const acimaDoTeto = ev({ chunkId: 99, content: "x".repeat(L.MAX_CHARS_POR_EVIDENCIA + 1) + " MJ981CAP" });
+const t5 = A.assessEvidence("MJ981CAP", [acimaDoTeto]);
+confere("T5 evidência de 20.001 caracteres é DESCARTADA, não cortada",
+  t5.sufficient === false && /acima do limite de contexto do provider/.test(t5.dropped[0].why),
+  t5.dropped[0].why);
+
+// T6 — sendo a única, o provedor não seria chamado
+confere("T6 sendo a única evidência apta, a síntese não acontece",
+  t5.sufficient === false && t5.accepted.length === 0);
+
+// exatamente no teto ainda entra
+const noLimite = ev({ chunkId: 98, content: "MJ981CAP " + "y".repeat(L.MAX_CHARS_POR_EVIDENCIA - 9) });
+confere("T5b exatamente no teto (20.000) ainda entra inteira",
+  A.assessEvidence("MJ981CAP", [noLimite]).accepted[0]?.content.length === L.MAX_CHARS_POR_EVIDENCIA);
+
+// T7/T8 — três entram, a quarta fica fora
+const quatro = [1, 2, 3, 4].map((i) => ev({ chunkId: i, content: `Ponta MJ981CAP bloco ${i}: 0,77 L/min a 40 psi.` }));
+const t7 = A.assessEvidence("Qual a vazão da MJ981CAP a 40 psi?", quatro);
+confere(`T7 três evidências válidas passam (teto ${L.MAX_EVIDENCIAS_SINTESE})`,
+  t7.accepted.length === L.MAX_EVIDENCIAS_SINTESE);
+confere("T8 a quarta fica fora, com motivo nomeado",
+  t7.dropped.length === 1 && t7.dropped[0].chunkId === 4 && /além das/.test(t7.dropped[0].why));
+
+// T9 — o orçamento total nunca estoura
+const tresGrandes = [1, 2, 3].map((i) => ev({ chunkId: i, content: TABELA }));
+const t9 = A.assessEvidence("Qual a vazão da MJ985CAP a 40 psi?", tresGrandes);
+const somaContexto = t9.accepted.reduce((s, e) => s + e.content.length + 200, 0);
+confere("T9 três tabelas grandes cabem, e o contexto fica abaixo do teto",
+  t9.accepted.length === 3 && somaContexto <= L.MAX_CHARS_CONTEXTO,
+  `${somaContexto} de ${L.MAX_CHARS_CONTEXTO}`);
+confere("T9b os três tetos são coerentes entre si",
+  L.MAX_EVIDENCIAS_SINTESE * (L.MAX_CHARS_POR_EVIDENCIA + 200) <= L.MAX_CHARS_CONTEXTO,
+  `${L.MAX_EVIDENCIAS_SINTESE} × (${L.MAX_CHARS_POR_EVIDENCIA} + 200) ≤ ${L.MAX_CHARS_CONTEXTO}`);
+
+// T9c — sem exceção para a primeira evidência
+const umaSoQueNaoCabe = ev({ chunkId: 7, content: "MJ981CAP " + "z".repeat(L.MAX_CHARS_POR_EVIDENCIA - 9) });
+const orcamentoApertado = A.assessEvidence("MJ981CAP", [umaSoQueNaoCabe, umaSoQueNaoCabe, umaSoQueNaoCabe]);
+confere("T9c a primeira evidência NÃO tem passe livre no orçamento",
+  orcamentoApertado.accepted.reduce((s, e) => s + e.content.length + 200, 0) <= L.MAX_CHARS_CONTEXTO);
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ O caso que motivou a correção\n");
+
+const PERGUNTA_985 = "Qual a vazão da MJ985CAP a 40 psi?";
+const gate985 = A.assessEvidence(PERGUNTA_985, [grande]);
+const enviado = P.renderEvidence(gate985.accepted);
+
+confere("R7 a evidência usada na síntese contém a linha do MJ985CAP",
+  enviado.includes("MJ985CAP MUG-CV 06 MALHA 50 UG 2,76 bar 40 psi 276 kPa 1,53 L/min"));
+confere("R7b com o teto antigo de 2.000 ela NÃO chegaria",
+  TABELA.slice(0, 2000).includes("MJ985CAP") === false,
+  "os primeiros 2.000 caracteres não alcançam o MJ985CAP");
+confere("R7c e a resposta com o número certo passa no validador",
+  A.validateAnswer("A MJ985CAP entrega 1,53 L/min a 40 psi. [1]",
+    A.buildCitations(gate985.accepted), gate985.accepted).ok === true);
+confere("R7d enquanto o número da linha errada é rejeitado",
+  A.validateAnswer("A MJ985CAP entrega 9,99 L/min a 40 psi. [1]",
+    A.buildCitations(gate985.accepted), gate985.accepted).ok === false);
+
+// renderEvidence não trunca no fluxo normal — prova por invariante
+const todasAsEvidencias = [grande, ...quatro, noLimite];
+const aprovadas = A.assessEvidence("MJ981CAP 0,77 L/min 40 psi", todasAsEvidencias).accepted;
+confere("R8 renderEvidence preserva o comprimento de cada evidência aprovada",
+  aprovadas.every((e) => P.renderEvidence([e]).includes(e.content)));
+confere("R8b e o pipeline nunca entrega ao render algo acima do teto",
+  aprovadas.every((e) => e.content.length <= L.MAX_CHARS_POR_EVIDENCIA));
 
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ camada de resposta natural\n" : `✗ ${falhas} falha(s)\n`);
