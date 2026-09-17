@@ -2172,6 +2172,15 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      brain_external_processing: {
+        Args: {
+          p_document_ids: string[]
+        }
+        Returns: {
+          document_id: string
+          policy: string
+        }[]
+      }
       brain_provenance: {
         Args: {
           p_chunk_id: number

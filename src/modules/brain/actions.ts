@@ -4,6 +4,8 @@ import { can } from "@/config/permissions";
 import { getSessionUser } from "@/lib/auth/session";
 import { knowledgeQuerySchema } from "./schema";
 import * as service from "./service";
+import * as synthesis from "./synthesis";
+import type { BrainNaturalAnswer } from "./answer";
 import type { KnowledgeAnswer } from "./service";
 import type { Json } from "@/types/db";
 
@@ -55,6 +57,49 @@ export async function askKnowledgeAction(input: unknown): Promise<KnowledgeActio
   } catch {
     // Genérica de propósito: mensagem de erro do banco descreve o que existe.
     return { answer: service.refusal(parsed.data.query, "error") };
+  }
+}
+
+/**
+ * Resposta natural com citações (Answer v1). Mesma porta, mesmas cercas: a
+ * sessão e o papel valem igual, e o que muda é o que vem depois da busca.
+ *
+ * Qualquer recusa volta com as evidências que o usuário PODE ver — a síntese
+ * nunca esconde a matéria-prima, nem quando ela própria não aconteceu.
+ */
+export async function askBrainAction(input: unknown): Promise<{ answer: BrainNaturalAnswer }> {
+  const bruto = input as { query?: unknown };
+  const perguntaCrua = typeof bruto?.query === "string" ? bruto.query : "";
+
+  const user = await getSessionUser();
+  if (!user || !can(user.profile.role, "knowledge.query")) {
+    return {
+      answer: {
+        query: perguntaCrua, status: "forbidden", evidence: [],
+        refusalReason: service.SEM_PERMISSAO, mode: "none",
+      },
+    };
+  }
+
+  const parsed = knowledgeQuerySchema.safeParse(input);
+  if (!parsed.success) {
+    return {
+      answer: {
+        query: perguntaCrua, status: "error", evidence: [],
+        refusalReason: parsed.error.issues[0]?.message ?? "Consulta inválida.", mode: "none",
+      },
+    };
+  }
+
+  try {
+    return { answer: await synthesis.answer(parsed.data, { isAdmin: user.profile.role === "admin" }) };
+  } catch {
+    return {
+      answer: {
+        query: parsed.data.query, status: "error", evidence: [],
+        refusalReason: service.ERRO_CONSULTA, mode: "none",
+      },
+    };
   }
 }
 
