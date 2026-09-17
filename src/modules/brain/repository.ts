@@ -29,7 +29,7 @@ export async function search(input: KnowledgeQuery): Promise<KnowledgeHitRow[]> 
 
 /**
  * Política de processamento externo de cada documento
- * (`public.brain_external_processing`, migration 20260918120000).
+ * (`public.brain_external_processing`, migration 20260917054004).
  *
  * Devolve um MAPA, e o que não estiver nele é proibido — quem decide isso é
  * `assessExternalProcessing`. Por isso o erro aqui não sobe: banco fora do ar,

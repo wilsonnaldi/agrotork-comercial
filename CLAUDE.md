@@ -82,8 +82,7 @@ Pedido de venda; estoque, compras, financeiro e importação de NF-e existem
 no banco e na interface, mas **sem nenhum dado em produção** — e é isso que
 o congelamento da rodada de consolidação torna barato. 112 produtos ativos e
 precificados, 1 usuário administrador, 0 vendedores, 1 cliente e 2 pedidos
-(todos de teste). 69 migrations aplicadas em produção, a última `20260917030427`; no
-repositório são 70, e a `20260918120000` é a que ainda não subiu.
+(todos de teste). 70 migrations aplicadas em produção, a última `20260917054004`.
 
 AGROTORK BRAIN: Fase 1 (CRM, identidade, eventos, jornada) em produção em
 modo desacoplado — as três pontes `trg_brain_*` ficam desligadas e a
@@ -113,13 +112,14 @@ começou**; agora ela termina hoje, que é quando de fato deixou de valer. A
 migration é prospectiva — Magnojet e ARAG, já ativos e com data gravada, não
 foram tocados.
 
-**Armadilha do ledger, já paga:** essa migration nasceu `20260917120000` no
-Git e entrou no ledger do Supabase como `20260917030427` — o carimbo do
-momento da aplicação, não o número do arquivo. O CLI decide o que falta
-aplicar comparando o prefixo do arquivo com o ledger, então o arquivo foi
-renomeado para bater. Migration aplicada por fora do CLI: **conferir o
-`version` que ficou no ledger e alinhar o nome do arquivo na mesma rodada**,
-antes que um `db push` reexecute o que já está lá.
+**Armadilha do ledger, paga duas vezes:** `20260917030427` nasceu
+`20260917120000` no Git, e `20260917054004` nasceu `20260918120000`. As duas
+entraram no ledger com o **carimbo do momento da aplicação**, não com o número
+do arquivo. Não é coincidência: toda migration aplicada por fora do CLI ganha
+a hora. O CLI decide o que falta aplicar comparando o prefixo do ARQUIVO com o
+ledger, então nome fora de sincronia faz um `db push` reexecutar o que já está
+lá. **Aplicou por fora? Confira o `version` do ledger e renomeie o arquivo na
+MESMA rodada.**
 
 O worker ganhou `--pages` (`1`, `1,3`, `2-4`, `1,3-5`), só para PDF — aba de
 planilha não é página. Três regras que valem para sempre: o número da página
@@ -183,12 +183,18 @@ cai nela. O que o grounding **não** faz está escrito: ele não entende a frase
 então uma relação errada entre dois números que ambos existem continua sendo
 responsabilidade do prompt.
 
-Dois gates abertos: a **credencial** do provedor (`BRAIN_LLM_PROVIDER` /
+A migration `20260917054004` (`public.brain_external_processing`) foi
+**aplicada em produção em 17/09/2026** e auditada: `security invoker`, RLS
+preservado, `anon` sem EXECUTE, e a chamada real dando Magnojet `allowed` e
+ARAG `forbidden`. **Ela também chegou ao ledger com o carimbo da hora**
+(nasceu `20260918120000` no Git) — a segunda vez seguida, e por isso a
+armadilha virou regra em "Armadilhas já pagas".
+
+Resta **um** gate: a **credencial** do provedor (`BRAIN_LLM_PROVIDER` /
 `BRAIN_LLM_API_KEY` / `BRAIN_LLM_MODEL`, todas de servidor — `NEXT_PUBLIC_`
-aqui mandaria a chave para o navegador) e a **migration `20260918120000`**
-(`public.brain_external_processing`), testada e **não aplicada**. Sem ela o
-gate fecha em tudo: seguro, mas silencia a síntese até para o Magnojet.
-Testes: `npm run check:brain-answer` (52 asserções, com provedor falso).
+aqui mandaria a chave para o navegador). Sem ela o console responde de forma
+extractiva e diz por quê. Testes: `npm run check:brain-answer` (96 asserções,
+com provedor falso).
 
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
 apontam para caminhos que ainda não existem), Lote C não iniciado, cinco

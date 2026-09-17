@@ -37,6 +37,21 @@
 -- ser enviado a um provedor externo. As duas coisas ao mesmo tempo.
 --
 -- Testes: supabase/db-tests/40_brain_processamento_externo.sql (P1-P8).
+--
+-- SOBRE O NUMERO DESTE ARQUIVO. Ele nasceu `20260918120000`. Ao ser aplicada
+-- em producao, a migration foi registrada no ledger do Supabase com o carimbo
+-- do momento da aplicacao — `20260917054004` — e nao com o numero do arquivo.
+-- O arquivo foi renomeado para bater com o ledger, porque o CLI decide o que
+-- falta aplicar comparando o prefixo do ARQUIVO com o ledger: mantido o nome
+-- antigo, um `db push` veria esta migration como pendente e a rodaria de novo.
+--
+-- E a SEGUNDA vez que isto acontece (a primeira foi a 20260917030427). Nao e
+-- coincidencia: toda migration aplicada por fora do CLI ganha o carimbo da
+-- hora. A regra ficou registrada em CLAUDE.md — conferir o `version` do
+-- ledger e alinhar o arquivo na MESMA rodada da aplicacao.
+--
+-- O numero nao e um horario escolhido: e o carimbo real da aplicacao em
+-- producao (17/09/2026), e por isso fica. Nada foi reexecutado.
 -- ============================================================
 
 create or replace function public.brain_external_processing(p_document_ids uuid[])

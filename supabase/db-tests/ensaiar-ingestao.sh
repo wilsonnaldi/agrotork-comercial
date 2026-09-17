@@ -107,7 +107,7 @@ if [ "$RESTO" = "0" ] && [ "$F1" = "9" ]; then ok "I4b: 06 removeu A+B+calibraca
 # Reaplicar e voltar ao VERSIONADO, nao a um ponto do meio da cadeia: a
 # 20260915120000 (codigo numerico exato ou nada) redefine search_knowledge
 # depois da calibracao e faz parte do Lote B tanto quanto as outras.
-for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/migrations/20260912020000_brain_memoria_busca.sql supabase/migrations/20260912030000_brain_ingestao.sql supabase/migrations/20260912040000_brain_busca_calibracao_piloto.sql supabase/migrations/20260915120000_brain_busca_codigo_numerico_exato.sql supabase/migrations/20260917030427_brain_vigencia_nao_declarada.sql supabase/migrations/20260918120000_brain_politica_processamento_externo.sql; do
+for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/migrations/20260912020000_brain_memoria_busca.sql supabase/migrations/20260912030000_brain_ingestao.sql supabase/migrations/20260912040000_brain_busca_calibracao_piloto.sql supabase/migrations/20260915120000_brain_busca_codigo_numerico_exato.sql supabase/migrations/20260917030427_brain_vigencia_nao_declarada.sql supabase/migrations/20260917054004_brain_politica_processamento_externo.sql; do
   q -q -v ON_ERROR_STOP=1 -f "$f" >/dev/null 2>&1 || nok "I4c: reaplicar $f"
 done
 SAIDA=$(suites)

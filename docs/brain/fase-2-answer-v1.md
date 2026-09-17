@@ -95,11 +95,17 @@ Três decisões do gate que vale registrar:
 Bloqueado, a resposta vira **extractiva**: a citação de cada trecho, montada
 localmente, sem modelo nenhum — e os trechos inteiros logo abaixo.
 
-**Migration nova:** `20260918120000_brain_politica_processamento_externo`
-cria `public.brain_external_processing(uuid[])`, um invólucro mínimo de
+**Migration:** `20260917054004_brain_politica_processamento_externo` cria
+`public.brain_external_processing(uuid[])`, um invólucro mínimo de
 `brain.external_processing_for` (o schema `brain` não é exposto ao
 PostgREST). `security invoker`, em lote para não ser N+1, e documento
-invisível não volta na lista. **Testada, não aplicada em produção.**
+invisível não volta na lista. **Aplicada em produção em 17/09/2026** e
+auditada: invoker, `search_path` vazio, `anon` sem EXECUTE, e a chamada real
+com a sessão do administrador dando Magnojet `allowed` e ARAG `forbidden`.
+
+O arquivo nasceu `20260918120000` e foi renomeado para bater com o ledger,
+que registrou o carimbo da hora da aplicação — a mesma armadilha da
+`20260917030427`, agora virada regra em `CLAUDE.md`.
 
 ## 4. Prompt
 
@@ -325,9 +331,7 @@ conhecimento geral como fallback · deploy · ingestão · escrita em produção
 
 ## 11. O que falta
 
-1. **credencial do provedor** — único gate entre o que está pronto e a
-   resposta redigida de verdade;
-2. **aplicar `20260918120000`** em produção, com GO explícito. Sem ela o gate
-   fecha em tudo, o que é seguro mas silencia a síntese até para o Magnojet;
-3. depois: bucket `brain-documents`, para a citação virar link para a página
+1. **credencial do provedor** — o único gate que resta entre o que está
+   pronto e a resposta redigida de verdade;
+2. depois: bucket `brain-documents`, para a citação virar link para a página
    do arquivo.
