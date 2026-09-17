@@ -1,4 +1,5 @@
 import type { KnowledgeEvidence } from "./evidence";
+import { checkExhaustiveness, describeExhaustiveness } from "./exhaustiveness";
 import { checkGrounding, describeFailure } from "./grounding";
 import {
   MAX_CHARS_CONTEXTO,
@@ -236,9 +237,11 @@ export function referencesUsed(texto: string): number[] {
  *  · `model_refusal` — o modelo disse que não dá para concluir. Não é erro:
  *    vira `no_evidence`, que é a resposta honesta;
  *  · `grounding` — número, unidade ou código sem lastro na evidência citada;
- *  · `format` — vazio, enorme, citação inexistente, campo proibido.
+ *  · `format` — vazio, enorme, citação inexistente, campo proibido;
+ *  · `completeness` — a pergunta pediu a lista e a resposta omitiu item, ou
+ *    trouxe valor de outra linha. Ver `exhaustiveness.ts`.
  */
-export type ValidationProblem = "model_refusal" | "grounding" | "format";
+export type ValidationProblem = "model_refusal" | "grounding" | "format" | "completeness";
 
 export type ValidationResult =
   | { ok: true }
@@ -275,11 +278,17 @@ const URL = /\bhttps?:\/\/\S+/i;
  * códigos escritos em cada parágrafo estejam nas evidências citadas NAQUELE
  * parágrafo. Sem as evidências à mão, isso seria impossível, e uma resposta
  * como "0,99 L/min [1]" passaria com a evidência dizendo 0,77.
+ *
+ * Com a PERGUNTA (desde a rodada de listagem), confere também a exaustão:
+ * se ela pede "quais/todas/liste…", a resposta não pode omitir valor das
+ * linhas do código consultado. A síntese sempre passa a pergunta; o
+ * parâmetro é opcional só para os testes de grounding isolado.
  */
 export function validateAnswer(
   texto: string,
   citacoes: BrainCitation[],
   evidencias: KnowledgeEvidence[],
+  pergunta?: string,
 ): ValidationResult {
   const limpo = (texto ?? "").trim();
 
@@ -326,6 +335,20 @@ export function validateAnswer(
       problem: detalhes[0] ?? "afirmação sem lastro na evidência citada",
       details: detalhes,
     };
+  }
+
+  // A segunda trava, só para listagem: nada inventado já está provado;
+  // agora, nada omitido. Roda DEPOIS do grounding e não o substitui.
+  if (pergunta !== undefined) {
+    const exaustao = checkExhaustiveness(pergunta, limpo, evidencias);
+    if (exaustao.status === "incomplete") {
+      const detalhes = describeExhaustiveness(exaustao);
+      return {
+        ok: false, kind: "completeness",
+        problem: detalhes[0] ?? "listagem incompleta",
+        details: detalhes,
+      };
+    }
   }
 
   return { ok: true };

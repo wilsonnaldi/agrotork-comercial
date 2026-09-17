@@ -156,7 +156,7 @@ export async function answer(
   }
 
   // ── Answer Validator ──────────────────────────────────────
-  const validacao = validateAnswer(texto, citacoes, aceitas);
+  const validacao = validateAnswer(texto, citacoes, aceitas, input.query);
   if (!validacao.ok) {
     // O modelo dizer "a documentação não permite concluir" não é falha dele
     // nem nossa: é a resposta certa. Vira `no_evidence`, com as evidências
@@ -182,7 +182,9 @@ export async function answer(
       answer: extractiveAnswer(aceitas),
       citations: citacoes,
       mode: "extractive",
-      warning: "A resposta gerada não passou na conferência e foi descartada. Os trechos encontrados estão abaixo.",
+      warning: validacao.kind === "completeness"
+        ? "A resposta gerada não listava todos os valores pedidos e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
+        : "A resposta gerada não passou na conferência e foi descartada. Os trechos encontrados estão abaixo.",
     });
   }
 

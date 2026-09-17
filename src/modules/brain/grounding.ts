@@ -90,6 +90,15 @@ export function pareceCodigo(token: string): boolean {
   return token.replace(/\D/g, "").length >= 5;
 }
 
+/**
+ * Os pares número + unidade de um texto, na ordem em que aparecem. Mesma
+ * regra que a conferência usa — exportada para a checagem de exaustão
+ * (`exhaustiveness.ts`) não ter um segundo jeito de ler "2,07 bar".
+ */
+export function extractUnitPairs(texto: string): { numero: string; unidade: string }[] {
+  return [...texto.matchAll(RE_NUM_UNIDADE)].map((m) => ({ numero: m[1] ?? "", unidade: m[2] ?? "" }));
+}
+
 // ════════════════════════════════════════════════════════════
 // O que a evidência sustenta
 // ════════════════════════════════════════════════════════════
