@@ -171,6 +171,18 @@ não há nenhum. **Ausência de política é proibição**, e **uma evidência
 proibida bloqueia a síntese inteira** (mandar só a parte liberada moldaria a
 resposta pelo que ficou de fora). Suíte `40_brain_processamento_externo.sql`.
 
+**Grounding determinístico (17/09, depois da auditoria):** o validador não
+para em "existe um [1]". Cada parágrafo precisa das próprias citações, e todo
+número, par número+unidade, moeda+número e código escritos nele têm de existir
+**escritos igual** em alguma evidência que aquele parágrafo citou. Sem
+conversão: `0.77` não vale por `0,77`, `41 psi` não vale por `40 psi`,
+`MJ982CAP` não vale por `MJ981CAP`. Falhou, descarta a resposta inteira — não
+conserta número. Isso fecha a classe que mais custa caro (preço, vazão,
+pressão, código) e faz a injeção obedecida ser rejeitada mesmo quando o modelo
+cai nela. O que o grounding **não** faz está escrito: ele não entende a frase,
+então uma relação errada entre dois números que ambos existem continua sendo
+responsabilidade do prompt.
+
 Dois gates abertos: a **credencial** do provedor (`BRAIN_LLM_PROVIDER` /
 `BRAIN_LLM_API_KEY` / `BRAIN_LLM_MODEL`, todas de servidor — `NEXT_PUBLIC_`
 aqui mandaria a chave para o navegador) e a **migration `20260918120000`**
