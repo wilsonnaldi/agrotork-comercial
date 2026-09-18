@@ -1,6 +1,6 @@
 import type { KnowledgeEvidence } from "./evidence";
 import { parseListingQuestion, type ListingField } from "./exhaustiveness";
-import { contemLiteral, contemToken, extractUnitPairs, pareceCodigo } from "./grounding";
+import { contemLiteral, contemToken, extractUnitPairs, pareceCodigo, type AllowedLiteral } from "./grounding";
 
 /**
  * Comparação entre códigos — a quarta trava, e a primeira capacidade em que
@@ -80,6 +80,18 @@ export type ProductBlock = {
   missing: boolean;
 };
 
+/**
+ * De onde saiu uma parcela do cálculo. É o que transforma um número
+ * derivado em prova: sem isto, "0,76 L/min" é só um número que o sistema
+ * afirma ter calculado, e o parágrafo podia citar qualquer evidência.
+ */
+export type DerivedSource = {
+  code: string;
+  numero: string;
+  unidade: string;
+  evidenceIndex: number;
+};
+
 export type DerivedValue = {
   tipo: "diferenca" | "percentual";
   de: string;
@@ -87,6 +99,13 @@ export type DerivedValue = {
   unidade: string;
   /** O literal, em português, que a resposta pode escrever. */
   texto: string;
+  /**
+   * As DUAS parcelas, com a evidência de cada uma. O parágrafo que escrever
+   * `texto` precisa ter citado todas as evidências daqui — se as parcelas
+   * moram na mesma evidência, é uma citação só; se vêm de documentos
+   * diferentes, são as duas.
+   */
+  sources: DerivedSource[];
 };
 
 export type ComparisonPlan =
@@ -195,10 +214,14 @@ export function planComparison(pergunta: string, evidencias: KnowledgeEvidence[]
           // pergunta fixou ("a 40 psi" dá 0 psi de diferença, sempre). Fora
           // isso, dois valores iguais o modelo descreve como iguais, sem
           // precisar de um número calculado.
+          const fontes: DerivedSource[] = [
+            { code: blocks[i]!.code, numero: a.numero, unidade: a.unidade, evidenceIndex: a.evidenceIndex },
+            { code: blocks[j]!.code, numero: b.numero, unidade: b.unidade, evidenceIndex: b.evidenceIndex },
+          ];
           if (d && paraNumero(d.texto) !== 0) {
             derived.push({
               tipo: "diferenca", de: blocks[i]!.code, para: blocks[j]!.code,
-              unidade, texto: `${d.texto} ${d.unidade}`,
+              unidade, texto: `${d.texto} ${d.unidade}`, sources: fontes,
             });
           }
           if (spec.wantsPercent) {
@@ -206,7 +229,7 @@ export function planComparison(pergunta: string, evidencias: KnowledgeEvidence[]
             if (p) {
               derived.push({
                 tipo: "percentual", de: blocks[i]!.code, para: blocks[j]!.code,
-                unidade: "%", texto: `${p}%`,
+                unidade: "%", texto: `${p}%`, sources: fontes,
               });
             }
           }
@@ -228,9 +251,17 @@ export function planComparison(pergunta: string, evidencias: KnowledgeEvidence[]
  *    atribuir valor a ele: `checkComparison` barra qualquer número posto ao
  *    lado de um produto sem linha.
  */
-export function derivedLiterals(plan: ComparisonPlan): string[] {
+export function derivedLiterals(plan: ComparisonPlan): AllowedLiteral[] {
   if (plan.status !== "ready") return [];
-  return [...plan.derived.map((d) => d.texto), ...plan.spec.codes];
+  return [
+    ...plan.derived.map((d) => ({
+      texto: d.texto,
+      requires: [...new Set(d.sources.map((f) => f.evidenceIndex))].sort((x, y) => x - y),
+    })),
+    // Os códigos da pergunta não dependem de evidência nenhuma: eles vieram
+    // da pergunta. `requires: []` é essa exceção, e ela é só isto.
+    ...plan.spec.codes.map((code) => ({ texto: code, requires: [] })),
+  ];
 }
 
 // ════════════════════════════════════════════════════════════
@@ -244,23 +275,79 @@ export type ComparisonResult =
 
 const UNIDADES_DE_LINHA = new Set(["bar", "psi", "kPa", "L/min", "L/ha"]);
 
-/** Itens da resposta: linha, ";" ou fim de frase — igual à associação. */
-function itens(resposta: string): string[] {
-  return resposta
-    .replace(/\[\d{1,3}\]/g, " ")
-    .split(/\r?\n|;|\.\s+/)
-    .map((i) => i.replace(/\s+/g, " ").trim())
-    .filter((i) => i.length > 0);
+/** A citação como o validador a recebe: o número entre colchetes e a evidência. */
+export type CitacaoRef = { index: number; evidenceIndex: number };
+
+/**
+ * Um item da resposta COM as citações que valem para ele.
+ *
+ * Por que as citações vêm junto. Até a auditoria de 18/09 a conferência
+ * apagava os `[n]` antes de olhar o item, e perguntava só "existe alguma
+ * evidência que sustente isto?". Com duas evidências trazendo o mesmo
+ * número para produtos diferentes, "MJ981CAP: 0,77 L/min [2]" passava: o
+ * grounding via 0,77 em [2] e a comparação via 0,77 numa linha da MJ981CAP
+ * em [1]. Duas provas verdadeiras, e nenhuma delas a prova pedida.
+ *
+ * `evidencias` são as do próprio item; vazio, herda as do PARÁGRAFO — mesma
+ * unidade do grounding, que já diz que duas afirmações no mesmo parágrafo
+ * compartilham as citações dele.
+ */
+type Item = { texto: string; citadas: number[]; evidencias: Set<number> };
+
+function itens(resposta: string, citacoes: CitacaoRef[]): Item[] {
+  const daCitacao = new Map(citacoes.map((c) => [c.index, c.evidenceIndex]));
+  const lidas = (trecho: string) => {
+    const numeros: number[] = [];
+    const evid = new Set<number>();
+    for (const m of trecho.matchAll(/\[(\d{1,3})\]/g)) {
+      const n = Number(m[1]);
+      if (!numeros.includes(n)) numeros.push(n);
+      const e = daCitacao.get(n);
+      if (e !== undefined) evid.add(e);
+    }
+    return { numeros: numeros.sort((a, b) => a - b), evid };
+  };
+
+  const saida: Item[] = [];
+  for (const paragrafo of resposta.split(/\n\s*\n/)) {
+    const doParagrafo = lidas(paragrafo);
+    for (const bruto of paragrafo.split(/\r?\n|;|\.\s+/)) {
+      const proprias = lidas(bruto);
+      const texto = bruto.replace(/\[\d{1,3}\]/g, " ").replace(/\s+/g, " ").trim();
+      if (texto.length === 0) continue;
+      const tem = proprias.evid.size > 0 ? proprias : doParagrafo;
+      saida.push({ texto, citadas: tem.numeros, evidencias: tem.evid });
+    }
+  }
+  return saida;
+}
+
+/** Os códigos comparados que aparecem num item, na ordem em que aparecem. */
+function codigosDoItem(texto: string, conhecidos: Set<string>): { code: string; pos: number }[] {
+  const achados: { code: string; pos: number }[] = [];
+  for (const m of texto.matchAll(/[A-Za-z0-9][A-Za-z0-9-]*/g)) {
+    const t = m[0];
+    if (!pareceCodigo(t)) continue;
+    if (!conhecidos.has(t.toUpperCase())) continue;
+    if (achados.some((a) => a.code.toUpperCase() === t.toUpperCase())) continue;
+    achados.push({ code: t, pos: m.index ?? 0 });
+  }
+  return achados;
 }
 
 /**
  * A conferência específica da comparação. Roda DEPOIS do grounding, da
  * exaustão e da associação, e não substitui nenhuma delas.
+ *
+ * Precisa das CITAÇÕES desde 18/09: sem elas, provar que o número existe e
+ * provar que o produto tem aquele número são duas verificações que podem se
+ * apoiar em evidências diferentes — e duas meias-provas não fazem uma prova.
  */
 export function checkComparison(
   pergunta: string,
   resposta: string,
   evidencias: KnowledgeEvidence[],
+  citacoes: CitacaoRef[],
 ): ComparisonResult {
   const plan = planComparison(pergunta, evidencias);
   if (plan.status === "not_applicable") return { status: "not_applicable", reason: plan.reason };
@@ -270,49 +357,84 @@ export function checkComparison(
 
   const failures: string[] = [];
   const porCodigo = new Map(plan.blocks.map((b) => [b.code.toUpperCase(), b]));
+  const conhecidos = new Set(plan.blocks.map((b) => b.code.toUpperCase()));
+  const partes = itens(resposta, citacoes);
 
-  // 1. Identidade: valor escrito ao lado de um código tem de ser DAQUELE código.
+  // 1. Identidade + proveniência: o valor escrito ao lado de um código tem de
+  //    ser DAQUELE código, e tem de estar na evidência que o item citou.
   let conferidos = 0;
-  for (const item of itens(resposta)) {
-    const codigosDoItem = [...new Set(
-      [...item.matchAll(/[A-Za-z0-9][A-Za-z0-9-]*/g)].map((m) => m[0]).filter(pareceCodigo),
-    )].filter((c) => porCodigo.has(c.toUpperCase()));
-    if (codigosDoItem.length !== 1) continue;   // item sem dono único não afirma identidade
-    const bloco = porCodigo.get(codigosDoItem[0]!.toUpperCase())!;
-    const pares = extractUnitPairs(item).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
+  for (const item of partes) {
+    const codigos = codigosDoItem(item.texto, conhecidos);
+    if (codigos.length !== 1) continue;   // item sem dono único não afirma identidade
+    const bloco = porCodigo.get(codigos[0]!.code.toUpperCase())!;
+    const linhasDele = linesForCode(bloco.code, plan.spec.codes, evidencias);
+    const pares = extractUnitPairs(item.texto).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
+
     for (const par of pares) {
       conferidos += 1;
-      const daLinhaDele = bloco.values.some((v) => v.numero === par.numero && v.unidade === par.unidade) ||
-        linesForCode(bloco.code, plan.spec.codes, evidencias).some(
-          (l) => contemLiteral(l.texto, `${par.numero} ${par.unidade}`),
-        );
-      if (!daLinhaDele) {
+      // (a) existe uma linha DESSE código com esse valor — e quais evidências a têm
+      const provam = new Set<number>([
+        ...bloco.values
+          .filter((v) => v.numero === par.numero && v.unidade === par.unidade)
+          .map((v) => v.evidenceIndex),
+        ...linhasDele
+          .filter((l) => contemLiteral(l.texto, `${par.numero} ${par.unidade}`))
+          .map((l) => l.evidenceIndex),
+      ]);
+      if (provam.size === 0) {
         failures.push(
           `valor de outro produto atribuído a ${bloco.code}: "${par.numero} ${par.unidade}" não está em nenhuma linha desse código`,
         );
+        continue;
+      }
+      // (b) e o item citou pelo menos uma dessas evidências. Citar OUTRA que
+      //     por acaso tem o mesmo número é a prova cruzada, e é o que fecha aqui.
+      if (item.evidencias.size > 0 && ![...provam].some((i) => item.evidencias.has(i))) {
+        failures.push(
+          `${bloco.code}: "${par.numero} ${par.unidade}" existe na documentação, mas não na evidência citada nesse item (${item.citadas.map((c) => `[${c}]`).join("") || "nenhuma"})`,
+        );
       }
     }
+
     if (bloco.missing && pares.length > 0) {
       failures.push(`${bloco.code} não tem evidência para o que foi pedido, mas a resposta apresenta valor para ele`);
     }
   }
 
-  // 1b. Diferença escrita = diferença calculada. Um número que por acaso
-  //     existe noutra linha da tabela (0,86 L/min é a MJ981CAP a 3,45 bar)
-  //     passaria no grounding e mentiria aqui.
-  const permitidosDerivados = new Set(plan.derived.map((d) => d.texto));
-  for (const item of itens(resposta)) {
-    if (!/diferen[çc]a|a mais|a menos|por cento|percentual/i.test(item)) continue;
-    for (const par of extractUnitPairs(item)) {
+  // 1b. Diferença escrita = diferença calculada, e citada de onde saiu. Um
+  //     número que por acaso existe noutra linha da tabela (0,86 L/min é a
+  //     MJ981CAP a 3,45 bar) passaria no grounding e mentiria aqui.
+  for (const item of partes) {
+    if (!/diferen[çc]a|a mais|a menos|por cento|percentual/i.test(item.texto)) continue;
+    for (const par of extractUnitPairs(item.texto)) {
       if (!UNIDADES_DE_LINHA.has(par.unidade) && par.unidade !== "%") continue;
       const texto = `${par.numero} ${par.unidade}`;
       const colado = `${par.numero}${par.unidade}`;
-      if (permitidosDerivados.has(texto) || permitidosDerivados.has(colado)) continue;
-      failures.push(
-        plan.derived.length === 0
-          ? `a resposta anuncia "${texto}" como diferença, e o sistema não calculou diferença nenhuma`
-          : `diferença "${texto}" não confere com o cálculo do sistema (${[...permitidosDerivados].join(", ")})`,
+      const casa = plan.derived.filter((d) => d.texto === texto || d.texto === colado);
+      if (casa.length === 0) {
+        failures.push(
+          plan.derived.length === 0
+            ? `a resposta anuncia "${texto}" como diferença, e o sistema não calculou diferença nenhuma`
+            : `diferença "${texto}" não confere com o cálculo do sistema (${plan.derived.map((d) => d.texto).join(", ")})`,
+        );
+        continue;
+      }
+      // A conta é de parcelas que estavam em evidências concretas. Escrever o
+      // resultado sem citá-las é apresentar um total sem as parcelas.
+      if (item.evidencias.size === 0) continue;   // parágrafo sem citação: o grounding já reprova
+      const cobre = casa.some((d) =>
+        [...new Set(d.sources.map((f) => f.evidenceIndex))].every((i) => item.evidencias.has(i)),
       );
+      if (!cobre) {
+        const exigidas = [...new Set(casa[0]!.sources.map((f) => f.evidenceIndex))];
+        const nomes = exigidas
+          .map((i) => citacoes.find((c) => c.evidenceIndex === i))
+          .map((c) => (c ? `[${c.index}]` : "?"))
+          .join("");
+        failures.push(
+          `a diferença "${texto}" foi calculada sobre ${casa[0]!.sources.map((f) => `${f.code} ${f.numero} ${f.unidade}`).join(" e ")}, e o item não cita ${nomes} — cita ${item.citadas.map((c) => `[${c}]`).join("") || "nada"}`,
+        );
+      }
     }
   }
 

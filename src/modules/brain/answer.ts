@@ -379,7 +379,7 @@ export function validateAnswer(
 
     // A quarta: numa comparação, cada valor pertence ao SEU produto, nenhum
     // produto some, e comparação incompleta não anuncia diferença.
-    const comparacao = checkComparison(pergunta, limpo, evidencias);
+    const comparacao = checkComparison(pergunta, limpo, evidencias, citacoes);
     if (comparacao.status === "failed") {
       return {
         ok: false, kind: "comparison",
