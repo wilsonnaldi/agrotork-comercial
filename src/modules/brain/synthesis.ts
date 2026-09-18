@@ -7,6 +7,7 @@ import {
   validateAnswer,
   type BrainNaturalAnswer,
 } from "./answer";
+import { MAX_CODIGOS_COMPARADOS, planComparison } from "./comparison";
 import { assessExternalProcessing, parsePolicy, type EvidenceRef } from "./external-processing";
 import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } from "./evidence";
 import { TIMEOUT_PROVIDER_MS } from "./limits";
@@ -127,6 +128,29 @@ export async function answer(
     });
   }
 
+  // ── comparação: o cálculo é nosso, não do modelo ──────────
+  // O plano sai das MESMAS evidências que vão ao provedor, com a mesma
+  // função que o validador usa depois. Se os dois discordassem, a resposta
+  // seria descartada — eles não discordam porque é o mesmo código.
+  const plano = planComparison(input.query, aceitas);
+  if (plano.status === "too_many") {
+    registrar({
+      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
+      provider: null, model: null, durationMs: null,
+      outcome: `comparison_too_many: ${plano.codes.length}`,
+    });
+    return base({
+      answer: extractiveAnswer(aceitas),
+      citations: citacoes,
+      mode: "extractive",
+      comparison: true,
+      warning: `A pergunta compara ${plano.codes.length} códigos, acima do limite de ${MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`,
+    });
+  }
+  const calculos = plano.status === "ready"
+    ? plano.derived.map((d) => `${d.tipo === "percentual" ? "Variação percentual" : "Diferença"} entre ${d.de} e ${d.para}: ${d.texto}`)
+    : [];
+
   let texto: string;
   let meta: { provider: string; model: string; durationMs: number };
   try {
@@ -134,7 +158,7 @@ export async function answer(
       question: input.query,
       evidence: aceitas,
       systemPrompt: SYSTEM_PROMPT,
-      userMessage: buildUserMessage(input.query, aceitas),
+      userMessage: buildUserMessage(input.query, aceitas, calculos),
       timeoutMs: TIMEOUT_PROVIDER_MS,
     });
     texto = saida.text;
@@ -182,7 +206,10 @@ export async function answer(
       answer: extractiveAnswer(aceitas),
       citations: citacoes,
       mode: "extractive",
-      warning: validacao.kind === "completeness"
+      comparison: plano.status === "ready" || undefined,
+      warning: validacao.kind === "comparison"
+        ? "A resposta gerada misturou valores entre os produtos comparados e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
+        : validacao.kind === "completeness"
         ? "A resposta gerada não listava todos os valores pedidos e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
         : validacao.kind === "association"
         ? "A resposta gerada ligava valores de linhas diferentes da tabela e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
@@ -199,6 +226,7 @@ export async function answer(
     answer: texto.trim(),
     citations: citacoes,
     mode: "synthesized",
+    comparison: plano.status === "ready" || undefined,
     warning: avaliacao.dropped.length > 0
       ? `${avaliacao.dropped.length} trecho(s) recuperado(s) ficaram fora da síntese.`
       : undefined,

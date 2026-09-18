@@ -198,6 +198,15 @@ export function checkGrounding(
   texto: string,
   citacoes: { index: number; evidenceIndex: number }[],
   evidencias: KnowledgeEvidence[],
+  /**
+   * Literais que NÃO estão no documento e mesmo assim podem ser escritos:
+   * hoje, só os valores derivados que o próprio sistema calculou a partir de
+   * valores já validados (a diferença de uma comparação — ver
+   * `comparison.ts`). A lista chega pronta de quem calculou; este arquivo
+   * não deriva nada por conta própria, e com a lista vazia — o caso normal —
+   * a regra é exatamente a de antes: o que não está no documento não passa.
+   */
+  derivados: string[] = [],
 ): GroundingResult {
   const porIndice = new Map(citacoes.map((c) => [c.index, evidencias[c.evidenceIndex]]));
   const failures: GroundingFailure[] = [];
@@ -221,7 +230,7 @@ export function checkGrounding(
     if (palheiros.length === 0) return;   // citação inexistente: outro teste pega
 
     const sustentado = (valor: string, comparador: (p: string, v: string) => boolean) =>
-      palheiros.some((p) => comparador(p, valor));
+      palheiros.some((p) => comparador(p, valor)) || derivados.some((d) => comparador(d, valor));
 
     // Os marcadores [1], [2] são ponteiros, não fatos: saem antes de
     // qualquer extração, senão o "1" viraria um número a sustentar.
