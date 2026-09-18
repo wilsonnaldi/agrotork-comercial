@@ -165,7 +165,7 @@ const Q_SEIS = "Compare MJ980CAP, MJ981CAP, MJ982CAP, MJ983CAP, MJ984CAP e MJ985
 confere("C13b e não falha em silêncio: a resposta que tentar é reprovada",
   vq(Q_SEIS, CERTA).ok === false, vq(Q_SEIS, CERTA).problem);
 confere("C13c a checagem nomeia o limite",
-  C.checkComparison(Q_SEIS, CERTA, EV).failures[0].includes("acima do limite de 5"));
+  C.checkComparison(Q_SEIS, CERTA, EV, CIT).failures[0].includes("acima do limite de 5"));
 
 // ════════════════════════════════════════════════════════════
 process.stdout.write("▶ Vazamento entre produtos (C2, C14)\n");
@@ -236,10 +236,19 @@ confere("C11b e escrever percentual sem pedido → grounding reprova",
   vq(Q_40PSI, `${CERTA}\n- A MJ985CAP entrega 98,7% a mais [1]`).ok === false);
 confere("C11c diferença errada (0,86) → grounding reprova, mesmo com o número existindo na tabela",
   vq(Q_40PSI, CERTA.replace("Diferença: 0,76 L/min", "Diferença: 0,86 L/min")).ok === false);
+// C11d mudou de forma nesta rodada: `derivedLiterals` não devolve mais
+// strings soltas, e sim o literal COM as evidências que o sustentam. A
+// asserção antiga (`.join(" · ")`) provava a lista; esta prova a condição,
+// que é o que passou a importar.
 confere("C11d o que escapa do documento é só o cálculo do sistema e os códigos da pergunta",
-  C.derivedLiterals(plano).join(" · ") === "0,76 L/min · MJ981CAP · MJ985CAP" &&
+  C.derivedLiterals(plano).map((d) => d.texto).join(" · ") === "0,76 L/min · MJ981CAP · MJ985CAP" &&
   C.derivedLiterals({ status: "not_applicable", reason: "x" }).length === 0,
-  C.derivedLiterals(plano).join(" · "));
+  C.derivedLiterals(plano).map((d) => d.texto).join(" · "));
+confere("C11d2 e o derivado carrega a evidência de origem; o código da pergunta não exige nenhuma",
+  C.derivedLiterals(plano).find((d) => d.texto === "0,76 L/min").requires.join() === "0" &&
+  C.derivedLiterals(plano).find((d) => d.texto === "MJ999CAP") === undefined &&
+  C.derivedLiterals(plano).find((d) => d.texto === "MJ981CAP").requires.length === 0,
+  JSON.stringify(C.derivedLiterals(plano)));
 confere("C11e o código liberado NÃO libera valor: número ao lado do produto sem linha continua reprovado",
   vq(Q_999, "- MJ981CAP: 0,77 L/min [1]\n- MJ999CAP: 0,86 L/min [1]").kind === "comparison");
 
@@ -247,7 +256,7 @@ confere("C11e o código liberado NÃO libera valor: número ao lado do produto s
 process.stdout.write("▶ Intenção indevida e prompt (C12)\n");
 
 confere("C12 dois códigos sem gatilho: a checagem de comparação não se aplica",
-  C.checkComparison("Tenho MJ981CAP e MJ985CAP em estoque?", "A MJ981CAP entrega 0,77 L/min. [1]", EV).status === "not_applicable");
+  C.checkComparison("Tenho MJ981CAP e MJ985CAP em estoque?", "A MJ981CAP entrega 0,77 L/min. [1]", EV, CIT).status === "not_applicable");
 confere("C12b e a resposta pontual de sempre continua passando",
   A.validateAnswer("A vazão da MJ981CAP a 40 psi é 0,77 L/min. [1]", CIT, EV, "Qual a vazão da MJ981CAP a 40 psi?").ok === true);
 confere("C12c o prompt manda um bloco por código e proíbe recomendar o melhor",
@@ -288,6 +297,204 @@ confere("L2  e a linha própria continua valendo",
   C.linesForCode("MJ981CAP", ["MJ981CAP", "MJ985CAP"], EV).length === 3);
 confere("L3  o pino da pergunta ('a 40 psi') corta para uma linha por produto",
   plano.blocks.every((b) => new Set(b.values.map((v) => v.linha)).size === 1));
+
+// ════════════════════════════════════════════════════════════
+// HARDENING 18/09 — a prova tem de ser A prova
+//
+// Tudo abaixo nasceu de uma auditoria que não achou número errado: achou
+// prova certa no lugar errado. São três buracos, e os três têm a mesma
+// forma — duas verificações verdadeiras, cada uma olhando para um lado,
+// e nenhuma delas provando o que a frase afirma.
+// ════════════════════════════════════════════════════════════
+
+// Uma segunda evidência que repete os MESMOS números para OUTROS produtos.
+// É o fixture adversarial desta rodada: com ele, todo número da resposta
+// existe em duas evidências, e citar a errada deixa de ser inofensivo.
+const P21 = [
+  "LITROS POR HECTARE (ESPAÇAMENTO 50CM)",
+  "CÓDIGO PONTAS GOTAS BAR PSI kPa L/min 4 km/h 5 km/h 6 km/h",
+  LINHA("MJ811CAP", "01", "2,76", "40", "276", "0,77", "230 L/ha 184 L/ha 153 L/ha"),
+  LINHA("MJ815CAP", "03", "2,76", "40", "276", "1,53", "460 L/ha 368 L/ha 307 L/ha"),
+].join("\n");
+const GEMEA = ev({
+  chunkId: 73, content: P21, codes: ["MJ811CAP", "MJ815CAP"], page: { from: 21, to: 21 },
+  citation: "Magnojet — Catálogo Magnojet V41 · p. 21",
+});
+const EV2 = [MAG, GEMEA];
+
+// E um par de evidências que separa os dois produtos em DOCUMENTOS
+// diferentes: aqui a diferença nasce de duas fontes, e uma citação só
+// deixa metade da conta sem mostrar.
+const SO_981 = ["LITROS POR HECTARE", "CÓDIGO BAR PSI kPa L/min",
+  LINHA("MJ981CAP", "02", "2,76", "40", "276", "0,77", "230 L/ha")].join("\n");
+const SO_985 = ["LITROS POR HECTARE", "CÓDIGO BAR PSI kPa L/min",
+  LINHA("MJ985CAP", "04", "2,76", "40", "276", "1,53", "460 L/ha")].join("\n");
+const DOC_A = ev({ chunkId: 80, content: SO_981, codes: ["MJ981CAP"] });
+const DOC_B = ev({
+  chunkId: 81, content: SO_985, codes: ["MJ985CAP"], page: { from: 21, to: 21 },
+  document: { title: "Tabela complementar Magnojet", type: "catalog" },
+  citation: "Magnojet — Tabela complementar Magnojet V41 · p. 21",
+});
+const EVD = [DOC_A, DOC_B];
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Proveniência do valor derivado (P1–P4)\n");
+
+const planoD = C.planComparison(Q_40PSI, EVD);
+confere("P0  o derivado guarda de onde veio cada parcela: código, número, unidade e evidência",
+  planoD.derived.length === 1 &&
+  planoD.derived[0].sources.length === 2 &&
+  planoD.derived[0].sources[0].code === "MJ981CAP" && planoD.derived[0].sources[0].numero === "0,77" &&
+  planoD.derived[0].sources[0].evidenceIndex === 0 &&
+  planoD.derived[0].sources[1].code === "MJ985CAP" && planoD.derived[0].sources[1].numero === "1,53" &&
+  planoD.derived[0].sources[1].evidenceIndex === 1,
+  JSON.stringify(planoD.derived[0]?.sources));
+confere("P0b e o literal liberado exige as DUAS evidências de origem",
+  C.derivedLiterals(planoD).find((d) => d.texto === "0,76 L/min").requires.join(",") === "0,1");
+
+confere("P1  derivado correto, com a citação da origem → PASSA",
+  vq(Q_40PSI, CERTA).ok === true, vq(Q_40PSI, CERTA).problem ?? "ok");
+
+const P2_ERRADA = [
+  "MJ981CAP: 0,77 L/min [1]",
+  "MJ985CAP: 1,53 L/min [1]",
+  "Diferença: 0,76 L/min [2]",
+].join("\n");
+const r2 = vq(Q_40PSI, P2_ERRADA, EV2);
+confere("P2  derivado correto, citação errada → REPROVADO", r2.ok === false && r2.kind === "comparison", r2.problem);
+confere("P2b e o motivo diz de onde a conta saiu e o que o item citou",
+  (r2.details ?? [])[0].includes("MJ981CAP 0,77 L/min") && (r2.details ?? [])[0].includes("cita [2]"),
+  (r2.details ?? [])[0]);
+
+const P3_METADE = [
+  "MJ981CAP: 0,77 L/min [1]",
+  "MJ985CAP: 1,53 L/min [2]",
+  "Diferença: 0,76 L/min [1]",
+].join("\n");
+const r3 = vq(Q_40PSI, P3_METADE, EVD);
+confere("P3  derivado de DOIS documentos com só um citado → REPROVADO",
+  r3.ok === false && r3.kind === "comparison", r3.problem);
+
+const P4_INTEIRA = [
+  "MJ981CAP: 0,77 L/min [1]",
+  "MJ985CAP: 1,53 L/min [2]",
+  "Diferença: 0,76 L/min [1][2]",
+].join("\n");
+confere("P4  o mesmo caso, citando as duas → PASSA",
+  vq(Q_40PSI, P4_INTEIRA, EVD).ok === true, vq(Q_40PSI, P4_INTEIRA, EVD).problem ?? "ok");
+
+const P4b = ["MJ981CAP: 0,77 L/min [1]", "MJ985CAP: 1,53 L/min [2]", "", "Diferença: 0,76 L/min [1]"].join("\n");
+confere("P4b em parágrafo próprio e sem as duas citações, o GROUNDING já barra antes",
+  vq(Q_40PSI, P4b, EVD).kind === "grounding", vq(Q_40PSI, P4b, EVD).problem);
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Tripla produto + valor + citação (P5, P6, P14, P15)\n");
+
+confere("P5b o fixture é honesto: 0,77 e 1,53 existem NAS DUAS evidências",
+  P21.includes("0,77 L/min") && P21.includes("1,53 L/min") &&
+  P20.includes("0,77 L/min") && P20.includes("1,53 L/min"));
+
+const P5_CRUZADA = [
+  "MJ981CAP: 0,77 L/min [2]",
+  "MJ985CAP: 1,53 L/min [1]",
+].join("\n");
+const r5 = vq(Q_40PSI, P5_CRUZADA, EV2);
+confere("P5  valor certo do produto certo, mas citando a evidência que NÃO o sustenta → REPROVADO",
+  r5.ok === false && r5.kind === "comparison", r5.problem);
+confere("P5c o grounding sozinho deixaria passar: 0,77 L/min está mesmo em [2]",
+  A.validateAnswer(P5_CRUZADA, A.buildCitations(EV2), EV2).ok === true,
+  "sem a pergunta, não há comparação a conferir");
+
+const P6_CERTA = [
+  "MJ981CAP: 0,77 L/min [1]",
+  "MJ985CAP: 1,53 L/min [1]",
+].join("\n");
+confere("P6  o mesmo valor com a citação certa → PASSA",
+  vq(Q_40PSI, P6_CERTA, EV2).ok === true, vq(Q_40PSI, P6_CERTA, EV2).problem ?? "ok");
+
+const P14_CRUZADA = [
+  "MJ981CAP: 0,77 L/min [1]",
+  "MJ985CAP: 1,53 L/min [2]",
+].join("\n");
+confere("P14 a prova cruzada do outro lado (1,53 é da MJ815CAP em [2]) → REPROVADO",
+  vq(Q_40PSI, P14_CRUZADA, EV2).kind === "comparison", vq(Q_40PSI, P14_CRUZADA, EV2).problem);
+
+confere("P15 produto, valor e citação todos certos → PASSA",
+  vq(Q_40PSI, `${P6_CERTA}\nDiferença: 0,76 L/min [1]`, EV2).ok === true,
+  vq(Q_40PSI, `${P6_CERTA}\nDiferença: 0,76 L/min [1]`, EV2).problem ?? "ok");
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Maior, menor e igual (P7–P13)\n");
+
+const Q_MAIOR = "Qual tem maior vazão a 40 psi: MJ981CAP ou MJ985CAP?";
+const Q_MENOR = "Qual tem menor vazão a 40 psi: MJ981CAP ou MJ985CAP?";
+
+confere("P7a a intenção relacional é lida da pergunta, e só quando ela pergunta QUAL",
+  C.parseRelationalIntent(Q_MAIOR) === "greater" &&
+  C.parseRelationalIntent(Q_MENOR) === "lower" &&
+  C.parseRelationalIntent(Q_40PSI) === null &&
+  C.parseRelationalIntent("Quanto a MJ985CAP entrega a mais que a MJ981CAP a 40 psi?") === null,
+  "quanto pede tamanho, não vencedor");
+
+const relacao = C.relate(C.planComparison(Q_MAIOR, EV));
+confere("P7b a relação sai dos valores validados, em código: 1,53 > 0,77",
+  relacao.status === "ready" && relacao.unidade === "L/min" &&
+  relacao.maiores.join() === "MJ985CAP" && relacao.menores.join() === "MJ981CAP" &&
+  relacao.todosIguais === false,
+  JSON.stringify(relacao));
+
+const VALORES = "MJ981CAP: 0,77 L/min [1]\nMJ985CAP: 1,53 L/min [1]";
+confere("P7  pergunta pede o maior, resposta aponta a MJ985CAP → PASSA",
+  vq(Q_MAIOR, `A MJ985CAP tem maior vazão a 40 psi [1].\n${VALORES}`).ok === true,
+  vq(Q_MAIOR, `A MJ985CAP tem maior vazão a 40 psi [1].\n${VALORES}`).problem ?? "ok");
+
+const r8 = vq(Q_MAIOR, `A MJ981CAP tem maior vazão a 40 psi [1].\n${VALORES}`);
+confere("P8  mesmos números, resposta aponta a MJ981CAP → REPROVADO", r8.kind === "comparison", r8.problem);
+
+const r9 = vq(Q_MENOR, `A MJ985CAP tem menor vazão a 40 psi [1].\n${VALORES}`);
+confere("P9  pergunta pede o menor, resposta aponta o maior → REPROVADO", r9.kind === "comparison", r9.problem);
+confere("P9b e apontar o menor de verdade passa",
+  vq(Q_MENOR, `A MJ981CAP tem menor vazão a 40 psi [1].\n${VALORES}`).ok === true);
+confere("P9c a forma 'A tem maior X que B' também é lida",
+  vq(Q_MAIOR, `A MJ985CAP tem maior vazão que a MJ981CAP [1].\n${VALORES}`).ok === true &&
+  vq(Q_MAIOR, `A MJ981CAP tem maior vazão que a MJ985CAP [1].\n${VALORES}`).kind === "comparison");
+confere("P9d perguntou qual é o maior e a resposta não conclui → REPROVADO",
+  vq(Q_MAIOR, VALORES).kind === "comparison", vq(Q_MAIOR, VALORES).problem);
+
+// valores iguais
+const EMPATE = [
+  "LITROS POR HECTARE (ESPAÇAMENTO 50CM)",
+  "CÓDIGO PONTAS GOTAS BAR PSI kPa L/min 4 km/h",
+  LINHA("MJ981CAP", "02", "2,76", "40", "276", "1,53", "460 L/ha"),
+  LINHA("MJ985CAP", "04", "2,76", "40", "276", "1,53", "460 L/ha"),
+].join("\n");
+const EVE = [ev({ content: EMPATE, codes: ["MJ981CAP", "MJ985CAP"] })];
+const planoE = C.planComparison(Q_MAIOR, EVE);
+const relE = C.relate(planoE);
+confere("P10a empate: nenhuma diferença é calculada e a relação diz iguais",
+  planoE.derived.length === 0 && relE.status === "ready" && relE.todosIguais === true &&
+  relE.maiores.length === 0 && relE.menores.length === 0,
+  JSON.stringify(relE));
+const IGUAIS = "MJ981CAP: 1,53 L/min [1]\nMJ985CAP: 1,53 L/min [1]";
+confere("P10 valores iguais e a resposta diz que são iguais → PASSA",
+  vq(Q_MAIOR, `${IGUAIS}\nAs duas vazões são iguais a 40 psi [1]`, EVE).ok === true,
+  vq(Q_MAIOR, `${IGUAIS}\nAs duas vazões são iguais a 40 psi [1]`, EVE).problem ?? "ok");
+const r11 = vq(Q_MAIOR, `${IGUAIS}\nA MJ985CAP tem maior vazão [1]`, EVE);
+confere("P11 valores iguais e a resposta declara um como maior → REPROVADO",
+  r11.kind === "comparison", r11.problem);
+
+confere("P12 pergunta que NÃO pede maior/menor não exige conclusão relacional → PASSA",
+  vq(Q_40PSI, CERTA).ok === true && C.parseRelationalIntent(Q_40PSI) === null);
+
+const Q_MAIOR_999 = "Qual tem maior vazão a 40 psi: MJ981CAP ou MJ999CAP?";
+const r13 = vq(Q_MAIOR_999, "MJ981CAP: 0,77 L/min [1]\nNão encontrei documentação para a MJ999CAP [1]\nA MJ981CAP tem maior vazão [1]");
+confere("P13 comparação incompleta e a resposta declara um maior → REPROVADO",
+  r13.kind === "comparison", r13.problem);
+confere("P13b e a resposta honesta, que declara a falta e não conclui, passa",
+  vq(Q_MAIOR_999, "MJ981CAP: 0,77 L/min [1]\nNão encontrei documentação suficiente para a MJ999CAP nesse critério [1]").ok === true);
+confere("P13c dois valores por produto (pergunta sem ponto fixado) não ordena nada",
+  C.relate(C.planComparison("Qual tem maior vazão: MJ981CAP ou MJ985CAP?", EV)).status === "not_applicable",
+  C.relate(C.planComparison("Qual tem maior vazão: MJ981CAP ou MJ985CAP?", EV)).reason);
 
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ comparação entre códigos\n" : `✗ ${falhas} falha(s)\n`);

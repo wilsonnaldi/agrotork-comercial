@@ -250,7 +250,24 @@ conversão), vai pronta ao modelo no bloco `CÁLCULOS VERIFICADOS` e é o único
 número fora do documento que o grounding aceita; diferença errada reprova
 mesmo existindo na tabela. Sem evidência para um dos códigos não há
 diferença nem vencedor, e omitir um produto reprova. Teto de 5 códigos por
-consulta. Testes: `npm run check:brain-comparison`.
+consulta.
+
+**Hardening da comparação (18/09, depois da auditoria):** a auditoria não
+achou número errado — achou **prova certa no lugar errado**, três vezes com
+a mesma forma. (1) O derivado era liberado globalmente: `Diferença: 0,76
+L/min [2]` passava com as parcelas em `[1]`. Agora `DerivedValue` carrega
+`sources` e o literal só vale no parágrafo que citou **todas** as evidências
+de origem — uma citação se as parcelas moram juntas, duas se vêm de
+documentos diferentes. (2) Produto, valor e citação eram provados separado:
+com duas evidências trazendo `0,77 L/min` para produtos diferentes,
+`MJ981CAP: 0,77 L/min [2]` passava no grounding E na comparação, e nenhuma
+das duas era a prova pedida; `checkComparison` recebe as citações e confere
+a **tripla**. (3) Quem é maior era decidido pelo modelo em palavras;
+`relate()` deriva a relação dos valores já validados e só quando ela existe
+(completa, mesma unidade, um valor por produto) — apontar o lado errado,
+declarar vencedor num empate ou não concluir quando a pergunta pergunta
+QUAL reprovam. Não é ranking: não existe "melhor". Testes:
+`npm run check:brain-comparison` (74 asserções, P0–P15).
 
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
 apontam para caminhos que ainda não existem), Lote C não iniciado, cinco

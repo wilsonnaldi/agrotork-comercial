@@ -631,5 +631,60 @@ parcialmente. A política mais restritiva vale para o conjunto.
 **UX.** Selo "Comparação" ao lado do estado, blocos empilhados (no celular
 já é a forma natural), citação por linha. Nada do console foi redesenhado.
 
-Testes: `npm run check:brain-comparison` (44 asserções) — C1 a C15, mais
-intenção, identidade de linha e o bloco de cálculos no prompt.
+### 12.1 Hardening pré-deploy (18/09/2026)
+
+A auditoria independente da Comparison v1 não achou número errado. Achou
+**prova certa no lugar errado** — e os três buracos tinham a mesma forma:
+duas verificações verdadeiras, cada uma olhando para um lado, nenhuma delas
+provando o que a frase afirma.
+
+**A proveniência do valor derivado.** `derivedLiterals` devolvia strings
+soltas e o grounding aceitava aquele literal em qualquer parágrafo. A
+resposta podia escrever `Diferença: 0,76 L/min [2]` com as parcelas em
+`[1]`: o número certo, a prova errada. Agora `DerivedValue` carrega
+`sources` — código, número, unidade e a evidência de cada parcela — e o
+literal liberado vem com a condição (`AllowedLiteral.requires`): **o
+parágrafo só pode escrevê-lo se tiver citado todas as evidências de
+origem**. Mesma evidência para as duas parcelas: uma citação basta.
+Documentos diferentes: as duas citações. Os códigos da pergunta continuam
+liberados com `requires: []`, que é a única exceção e existe para a frase
+"não encontrei documentação para a MJ999CAP" ser possível.
+
+**A tripla produto + valor + citação.** O grounding provava que o número
+existe na evidência citada; a comparação provava que o produto tem aquele
+número em alguma evidência. Com duas evidências trazendo `0,77 L/min` para
+produtos diferentes, `MJ981CAP: 0,77 L/min [2]` passava nas duas — e
+nenhuma era a prova pedida, porque `[2]` não sustenta MJ981CAP = 0,77.
+`checkComparison` passa a receber as citações e a exigir que o item cite
+uma evidência que contenha uma linha **daquele código** com **aquele
+valor**. Item sem citação própria herda as do parágrafo, que é a unidade
+que o grounding já usa.
+
+**Maior, menor e igual.** Quem é maior era decidido pelo modelo em
+palavras, e nada conferia a palavra — apesar de os dois números já estarem
+validados linha a linha. `relate()` deriva a relação dos `ProductValue`
+validados e **só quando ela existe**: comparação completa, mesma unidade,
+um valor por produto. Pergunta sem ponto de operação fixado dá três vazões
+por produto, e aí não há um maior — há três; o sistema não conclui, que é
+diferente de concluir errado. Reprovam: apontar o lado errado, declarar
+vencedor num empate, dizer "iguais" com valores diferentes, declarar ordem
+sem base para ordenar, e não concluir nada quando a pergunta pergunta QUAL.
+
+A leitura da afirmação é conservadora de propósito: item com um código e um
+comparativo é afirmação; com dois códigos, só na forma "A … maior … B".
+Fora disso não é lido como afirmação — melhor não julgar do que reprovar
+quem escreveu certo. **Isto não é ranking**: não existe "melhor", não
+existe ordem de preferência, é a relação numérica entre dois valores da
+mesma grandeza. `"Quanto a MJ985CAP entrega a mais"` não pede vencedor:
+pede o tamanho da diferença, que o derivado já responde.
+
+**Limitações conhecidas, e escritas para não virarem promessa.** A relação
+só é conferida quando há exatamente uma grandeza com um valor por produto.
+Comparativo em construção fora das duas formas lidas não é conferido — não
+é reprovado nem aprovado: é ignorado. E a herança de citação por parágrafo
+é deliberadamente conservadora: quanto mais o modelo separa em parágrafos,
+mais estrito fica o conjunto de evidências exigido.
+
+Testes: `npm run check:brain-comparison` (74 asserções) — C1 a C15 e L1 a
+L3 como antes, mais P0–P15: proveniência do derivado, prova cruzada entre
+evidências gêmeas e as relações maior/menor/igual.
