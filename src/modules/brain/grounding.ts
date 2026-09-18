@@ -175,6 +175,25 @@ export type GroundingFailure = {
 
 export type GroundingResult = { ok: true } | { ok: false; failures: GroundingFailure[] };
 
+/**
+ * Um literal que o sistema autoriza a resposta a escrever mesmo sem estar no
+ * documento — e a CONDIÇÃO para isso.
+ *
+ * `requires` são os índices (base 0) das evidências que sustentam o literal.
+ * O parágrafo que o escrever precisa ter citado TODAS elas. Um valor
+ * derivado nasce de valores que estavam em evidências concretas; se o
+ * parágrafo não cita essas evidências, ele afirma um número calculado sem
+ * mostrar de onde vieram as parcelas — e "0,76 L/min [2]" com as parcelas
+ * em [1] é uma conta que o leitor não tem como conferir.
+ *
+ * `requires: []` é a exceção deliberada, e hoje só serve para uma coisa: os
+ * CÓDIGOS da própria pergunta. Sem isso, "não encontrei documentação para a
+ * MJ999CAP" seria reprovado como código inventado, e a resposta honesta
+ * ficaria impossível de escrever. Escrever o código não autoriza atribuir
+ * valor a ele — quem barra isso é `checkComparison`.
+ */
+export type AllowedLiteral = { texto: string; requires: number[] };
+
 /** Os números entre colchetes de UM trecho de texto. */
 function citacoesDoTrecho(trecho: string): number[] {
   const achados = new Set<number>();
@@ -198,8 +217,26 @@ export function checkGrounding(
   texto: string,
   citacoes: { index: number; evidenceIndex: number }[],
   evidencias: KnowledgeEvidence[],
+  /**
+   * Literais que NÃO estão no documento e mesmo assim podem ser escritos:
+   * hoje, só os valores derivados que o próprio sistema calculou a partir de
+   * valores já validados (a diferença de uma comparação — ver
+   * `comparison.ts`) e os códigos da própria pergunta. A lista chega pronta
+   * de quem calculou; este arquivo não deriva nada por conta própria, e com
+   * a lista vazia — o caso normal — a regra é exatamente a de antes: o que
+   * não está no documento não passa.
+   *
+   * Cada item carrega as evidências que o sustentam (`requires`), e vale
+   * SÓ no parágrafo que citou todas elas. Antes da auditoria de 18/09 esta
+   * lista era de strings soltas, liberadas no texto inteiro: "0,76 L/min [2]"
+   * passava mesmo com as parcelas em [1]. O número estava certo e a prova
+   * estava errada, que é o tipo de acerto que não se pode repetir de
+   * propósito.
+   */
+  derivados: AllowedLiteral[] = [],
 ): GroundingResult {
   const porIndice = new Map(citacoes.map((c) => [c.index, evidencias[c.evidenceIndex]]));
+  const evidenciaDaCitacao = new Map(citacoes.map((c) => [c.index, c.evidenceIndex]));
   const failures: GroundingFailure[] = [];
 
   const paragrafos = texto.split(/\n\s*\n/);
@@ -220,8 +257,18 @@ export function checkGrounding(
       .map(haystackOf);
     if (palheiros.length === 0) return;   // citação inexistente: outro teste pega
 
+    // Os derivados que ESTE parágrafo pode usar: os que têm todas as suas
+    // evidências de origem entre as citadas aqui.
+    const evidenciasCitadas = new Set(
+      citadas.map((c) => evidenciaDaCitacao.get(c)).filter((i): i is number => i !== undefined),
+    );
+    const derivadosDoParagrafo = derivados.filter((d) =>
+      d.requires.every((i) => evidenciasCitadas.has(i)),
+    );
+
     const sustentado = (valor: string, comparador: (p: string, v: string) => boolean) =>
-      palheiros.some((p) => comparador(p, valor));
+      palheiros.some((p) => comparador(p, valor)) ||
+      derivadosDoParagrafo.some((d) => comparador(d.texto, valor));
 
     // Os marcadores [1], [2] são ponteiros, não fatos: saem antes de
     // qualquer extração, senão o "1" viraria um número a sustentar.

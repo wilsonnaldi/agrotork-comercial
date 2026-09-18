@@ -158,6 +158,9 @@ confere("R2  texto longo e citação quebram linha em vez de estourar",
 confere("R3  o botão Consultar ocupa a largura no celular e encolhe no desktop",
   CONSOLE.includes('className="w-full sm:w-auto"'));
 
+confere("U13 comparação ganha selo próprio, sem redesenhar o console",
+  CONSOLE.includes('resposta.comparison && <Badge tone="info">Comparação</Badge>'));
+
 // ════════════════════════════════════════════════════════════
 process.stdout.write("▶ Contraste (WCAG AA, texto normal ≥ 4,5:1)\n");
 

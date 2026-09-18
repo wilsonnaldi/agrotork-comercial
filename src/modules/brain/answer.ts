@@ -1,4 +1,5 @@
 import type { KnowledgeEvidence } from "./evidence";
+import { checkComparison, derivedLiterals, planComparison } from "./comparison";
 import { checkAssociation, checkExhaustiveness, describeExhaustiveness } from "./exhaustiveness";
 import { checkGrounding, describeFailure } from "./grounding";
 import {
@@ -49,6 +50,8 @@ export type BrainNaturalAnswer = {
   warning?: string;
   /** Como a resposta foi produzida. `extractive` = sem modelo externo. */
   mode?: "synthesized" | "extractive" | "none";
+  /** A pergunta comparou códigos — a tela mostra o selo e empilha os blocos. */
+  comparison?: boolean;
 };
 
 // ════════════════════════════════════════════════════════════
@@ -241,9 +244,13 @@ export function referencesUsed(texto: string): number[] {
  *  · `completeness` — a pergunta pediu a lista e a resposta omitiu item, ou
  *    trouxe valor de outra linha. Ver `exhaustiveness.ts`;
  *  · `association` — cada valor existe, mas o item liga valores de linhas
- *    diferentes (2,07 bar com a vazão de 5,52 bar).
+ *    diferentes (2,07 bar com a vazão de 5,52 bar);
+ *  · `comparison` — numa comparação, o valor de um produto foi atribuído a
+ *    outro, um dos produtos sumiu da resposta, ou uma comparação incompleta
+ *    anunciou diferença.
  */
-export type ValidationProblem = "model_refusal" | "grounding" | "format" | "completeness" | "association";
+export type ValidationProblem =
+  | "model_refusal" | "grounding" | "format" | "completeness" | "association" | "comparison";
 
 export type ValidationResult =
   | { ok: true }
@@ -327,9 +334,15 @@ export function validateAnswer(
   if (CAMINHO_STORAGE.test(limpo)) return { ok: false, kind: "format", problem: "a resposta contém caminho de arquivo" };
   if (URL.test(limpo)) return { ok: false, kind: "format", problem: "a resposta contém endereço de internet" };
 
+  // Numa comparação, o sistema calcula a diferença ANTES do modelo escrever
+  // (ver `comparison.ts`) e é esse literal — e só ele — que o grounding
+  // aceita além do que está no documento.
+  const plano = pergunta !== undefined ? planComparison(pergunta, evidencias) : null;
+  const derivados = plano ? derivedLiterals(plano) : [];
+
   // A trava determinística: cada parágrafo cita, e o que ele afirma em
   // número, unidade e código está nas evidências que ele citou.
-  const lastro = checkGrounding(limpo, citacoes, evidencias);
+  const lastro = checkGrounding(limpo, citacoes, evidencias, derivados);
   if (!lastro.ok) {
     const detalhes = lastro.failures.map(describeFailure);
     return {
@@ -361,6 +374,17 @@ export function validateAnswer(
         ok: false, kind: "association",
         problem: associacao.failures[0] ?? "associação entre valores sem lastro",
         details: associacao.failures,
+      };
+    }
+
+    // A quarta: numa comparação, cada valor pertence ao SEU produto, nenhum
+    // produto some, e comparação incompleta não anuncia diferença.
+    const comparacao = checkComparison(pergunta, limpo, evidencias, citacoes);
+    if (comparacao.status === "failed") {
+      return {
+        ok: false, kind: "comparison",
+        problem: comparacao.failures[0] ?? "comparação sem lastro",
+        details: comparacao.failures,
       };
     }
   }
