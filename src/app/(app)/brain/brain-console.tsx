@@ -10,23 +10,19 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/field";
 import { askBrainAction } from "@/modules/brain/actions";
 import type { BrainCitation, BrainNaturalAnswer } from "@/modules/brain/answer";
+import {
+  codigoConsultado,
+  ehTabular,
+  estadoDaResposta,
+  formatarSetas,
+  NIVEL_DE_ACESSO,
+  parseAnswer,
+  ROTULO_DO_ESTADO,
+  rotuloDeFontes,
+  rotuloDeTrechos,
+  TIPO_DE_TRECHO,
+} from "@/modules/brain/presentation";
 import type { KnowledgeEvidence } from "@/modules/brain/service";
-
-/** Rótulos de nível de acesso. `internal` é o nível do vendedor. */
-const NIVEL: Record<string, { texto: string; tom: "neutral" | "info" | "warning" | "danger" }> = {
-  public: { texto: "Público", tom: "neutral" },
-  internal: { texto: "Interno", tom: "info" },
-  commercial: { texto: "Comercial", tom: "warning" },
-  admin: { texto: "Administrativo", tom: "danger" },
-};
-
-const TIPO_DE_TRECHO: Record<string, string> = {
-  text: "Texto",
-  heading: "Título",
-  list: "Lista",
-  table: "Tabela",
-  price_table: "Tabela de preços",
-};
 
 const EXEMPLOS = [
   "Qual a vazão da MJ981CAP a 40 psi?",
@@ -57,7 +53,7 @@ function CopiarTrecho({ texto }: { texto: string }) {
 }
 
 function CartaoDeEvidencia({ evidencia, numero }: { evidencia: KnowledgeEvidence; numero: number }) {
-  const nivel = NIVEL[evidencia.accessLevel] ?? { texto: evidencia.accessLevel, tom: "neutral" as const };
+  const nivel = NIVEL_DE_ACESSO[evidencia.accessLevel] ?? { texto: evidencia.accessLevel, tom: "neutral" as const };
   const paginas =
     evidencia.page.from === evidencia.page.to
       ? `p. ${evidencia.page.from}`
@@ -86,7 +82,19 @@ function CartaoDeEvidencia({ evidencia, numero }: { evidencia: KnowledgeEvidence
           </p>
         )}
 
-        <p className="whitespace-pre-wrap text-sm leading-relaxed text-graphite">{evidencia.content}</p>
+        {ehTabular(evidencia.kind) ? (
+          // Linha de tabela é longa por natureza: rola na horizontal dentro do
+          // card, em vez de esticar a página no celular.
+          <div className="-mx-1 overflow-x-auto px-1">
+            <pre className="w-max min-w-full font-sans text-sm leading-relaxed whitespace-pre text-graphite">
+              {evidencia.content}
+            </pre>
+          </div>
+        ) : (
+          <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-graphite">
+            {evidencia.content}
+          </p>
+        )}
 
         {evidencia.codes.length > 0 && (
           <div className="flex flex-wrap gap-1.5">
@@ -136,7 +144,7 @@ function CartaoDeEvidencia({ evidencia, numero }: { evidencia: KnowledgeEvidence
  * evidência e o destaca por um instante — a citação tem de levar a pessoa à
  * matéria-prima, senão é enfeite.
  */
-function RespostaComCitacoes({
+function LinhaComCitacoes({
   texto,
   citacoes,
   aoClicar,
@@ -146,9 +154,9 @@ function RespostaComCitacoes({
   aoClicar: (evidenceIndex: number) => void;
 }) {
   const porIndice = new Map(citacoes.map((c) => [c.index, c]));
-  const partes = texto.split(/(\[\d{1,3}\])/g);
+  const partes = formatarSetas(texto).split(/(\[\d{1,3}\])/g);
   return (
-    <p className="whitespace-pre-wrap text-base leading-relaxed text-graphite">
+    <>
       {partes.map((parte, i) => {
         const m = /^\[(\d{1,3})\]$/.exec(parte);
         const citacao = m ? porIndice.get(Number(m[1])) : undefined;
@@ -159,14 +167,81 @@ function RespostaComCitacoes({
             type="button"
             onClick={() => aoClicar(citacao.evidenceIndex)}
             title={citacao.label}
-            className="mx-0.5 inline-flex min-h-6 items-center rounded bg-brand-soft px-1.5 align-baseline text-xs font-medium text-brand-deep transition-colors hover:bg-brand hover:text-white"
+            aria-label={`Evidência ${citacao.index}: ${citacao.label}`}
+            className="inline-flex min-h-5 items-center rounded bg-brand-soft px-1 align-baseline text-[0.7rem] leading-none font-medium text-brand-deep transition-colors hover:bg-brand hover:text-white focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-1 focus-visible:outline-none"
           >
             {citacao.index}
           </button>
         );
       })}
-    </p>
+    </>
   );
+}
+
+/**
+ * A resposta na tela. O texto validado NÃO é reescrito: `parseAnswer` só
+ * decide o que é abertura, o que é item de lista e o que é parágrafo, e
+ * todos os marcadores [n] continuam onde o modelo os escreveu — menores e
+ * mais discretos, porque repetidos em cada linha eles cansam, mas presentes,
+ * porque são o lastro.
+ */
+function RespostaComCitacoes({
+  texto,
+  citacoes,
+  aoClicar,
+}: {
+  texto: string;
+  citacoes: BrainCitation[];
+  aoClicar: (evidenceIndex: number) => void;
+}) {
+  const blocos = parseAnswer(texto);
+  const itens = blocos.filter((b) => b.tipo === "item");
+  const linha = (t: string) => <LinhaComCitacoes texto={t} citacoes={citacoes} aoClicar={aoClicar} />;
+
+  if (itens.length === 0) {
+    return (
+      <div className="space-y-2 text-base leading-relaxed text-graphite">
+        {blocos.map((b, i) => (
+          <p key={i} className="break-words">{linha(b.texto)}</p>
+        ))}
+      </div>
+    );
+  }
+
+  // Com lista, a leitura melhora agrupando: abertura, itens, e o que vier
+  // depois. A ordem dos blocos é a da resposta, sempre.
+  const elementos: React.ReactNode[] = [];
+  let acumulados: { tipo: string; texto: string }[] = [];
+  const despejarItens = (chave: number) => {
+    if (acumulados.length === 0) return;
+    elementos.push(
+      <ul key={`ul-${chave}`} className="space-y-1.5">
+        {acumulados.map((item, i) => (
+          <li key={i} className="flex gap-2 break-words">
+            <span className="mt-2 size-1.5 shrink-0 rounded-full bg-brand/70" aria-hidden />
+            <span className="min-w-0">{linha(item.texto)}</span>
+          </li>
+        ))}
+      </ul>,
+    );
+    acumulados = [];
+  };
+
+  blocos.forEach((b, i) => {
+    if (b.tipo === "item") {
+      acumulados.push(b);
+      return;
+    }
+    despejarItens(i);
+    elementos.push(
+      <p key={i} className={b.tipo === "lead" ? "font-medium break-words" : "break-words"}>
+        {linha(b.texto)}
+      </p>,
+    );
+  });
+  despejarItens(blocos.length);
+
+  return <div className="space-y-3 text-base leading-relaxed text-graphite">{elementos}</div>;
 }
 
 /**
@@ -217,6 +292,9 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
 
   const recusado = resposta !== null && resposta.status !== "answered";
   const temEvidencia = (resposta?.evidence.length ?? 0) > 0;
+  const estado = resposta ? estadoDaResposta(resposta.status, resposta.mode) : null;
+  const codigo = resposta ? codigoConsultado(resposta.query) : null;
+  const citacoes = resposta?.citations ?? [];
 
   return (
     <div className="space-y-5">
@@ -302,10 +380,17 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
         <div className="space-y-3">
           <Alert tone={resposta.status === "error" ? "error" : "warning"} title={resposta.refusalReason}>
             {resposta.status === "no_evidence" && (
-              <p>
-                Nenhum documento vigente na memória sustenta essa resposta. O BRAIN não completa com
-                conhecimento geral nem usa o cadastro do sistema como substituto.
-              </p>
+              <>
+                <p>
+                  Nenhum documento vigente na memória sustenta essa resposta. O BRAIN não completa com
+                  conhecimento geral nem usa o cadastro do sistema como substituto.
+                </p>
+                {codigo && (
+                  <p className="pt-1">
+                    Código consultado: <span className="font-mono font-medium">{codigo}</span>
+                  </p>
+                )}
+              </>
             )}
             {resposta.status === "forbidden" && (
               <p>Fale com a administração se precisar consultar a memória corporativa.</p>
@@ -325,50 +410,75 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
       )}
 
       {!consultando && resposta?.status === "answered" && resposta.answer && (
-        <Card className="border-brand/20">
-          <CardBody className="space-y-3">
+        <Card className={estado === "extractive" ? "border-amber-200" : "border-brand/20"}>
+          <CardBody className="space-y-3" aria-live="polite">
             <div className="flex flex-wrap items-center gap-2">
-              <MessageSquareQuote className="size-4 text-brand" aria-hidden />
-              <h2 className="font-display text-sm uppercase tracking-wide">Resposta do BRAIN</h2>
-              {resposta.mode === "extractive" && <Badge tone="warning">Sem síntese automática</Badge>}
+              {estado === "extractive" ? (
+                <ShieldAlert className="size-4 text-amber-600" aria-hidden />
+              ) : (
+                <MessageSquareQuote className="size-4 text-brand" aria-hidden />
+              )}
+              <h2 className="font-display text-sm tracking-wide uppercase">
+                {ROTULO_DO_ESTADO[estado ?? "synthesized"]}
+              </h2>
             </div>
 
-            <RespostaComCitacoes
-              texto={resposta.answer}
-              citacoes={resposta.citations ?? []}
-              aoClicar={irParaEvidencia}
-            />
-
-            {resposta.warning && (
-              <p className="flex items-start gap-2 text-xs text-graphite-500">
-                <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-amber-600" aria-hidden />
-                {resposta.warning}
-              </p>
+            {/* Sem síntese, o texto do sistema não é resposta: é moldura. A
+                razão do bloqueio fica em primeiro plano e a evidência, que é
+                a resposta de verdade, abre logo abaixo. */}
+            {estado === "extractive" ? (
+              <div className="space-y-3">
+                {resposta.warning && (
+                  <p className="text-base leading-relaxed text-graphite">{resposta.warning}</p>
+                )}
+                <p className="text-sm text-graphite-500">
+                  Os trechos encontrados estão abaixo, na íntegra e sem interpretação.
+                </p>
+              </div>
+            ) : (
+              <>
+                <RespostaComCitacoes
+                  texto={resposta.answer}
+                  citacoes={citacoes}
+                  aoClicar={irParaEvidencia}
+                />
+                {resposta.warning && (
+                  <p className="flex items-start gap-2 text-xs text-graphite-500">
+                    <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-amber-600" aria-hidden />
+                    {resposta.warning}
+                  </p>
+                )}
+              </>
             )}
 
-            {(resposta.citations?.length ?? 0) > 0 && (
-              <div className="space-y-1 border-t border-line pt-3">
-                <p className="text-xs uppercase tracking-wide text-graphite-300">Fontes utilizadas</p>
-                <ol className="space-y-1">
-                  {resposta.citations?.map((c) => (
+            {citacoes.length > 0 && (
+              <div className="space-y-1.5 border-t border-line pt-3">
+                <p className="text-xs tracking-wide text-graphite-300 uppercase">
+                  {rotuloDeFontes(citacoes.length)}
+                </p>
+                <ul className="space-y-1">
+                  {citacoes.map((c) => (
                     <li key={c.index} className="text-xs text-graphite-500">
                       <button
                         type="button"
                         onClick={() => irParaEvidencia(c.evidenceIndex)}
-                        className="text-left hover:text-graphite hover:underline"
+                        aria-label={`Ver a evidência ${c.index}: ${c.label}`}
+                        className="flex gap-2 rounded text-left hover:text-graphite hover:underline focus-visible:ring-2 focus-visible:ring-brand focus-visible:outline-none"
                       >
-                        [{c.index}] {c.label}
+                        <span className="shrink-0 font-medium text-graphite-500">[{c.index}]</span>
+                        <span className="min-w-0 break-words">{c.label}</span>
                       </button>
                     </li>
                   ))}
-                </ol>
+                </ul>
               </div>
             )}
 
             <p className="border-t border-line pt-3 text-xs text-graphite-300">
-              Resposta baseada em {resposta.citations?.length ?? 0}{" "}
-              {(resposta.citations?.length ?? 0) === 1 ? "evidência" : "evidências"}. Confira no
-              documento citado antes de usar com o cliente.
+              {estado === "extractive"
+                ? `${rotuloDeTrechos(resposta.evidence.length)} na documentação, sem síntese automática.`
+                : `Resposta baseada em ${citacoes.length} ${citacoes.length === 1 ? "evidência" : "evidências"}.`}{" "}
+              Confira no documento citado antes de usar com o cliente.
             </p>
           </CardBody>
         </Card>
@@ -380,12 +490,13 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
             type="button"
             onClick={() => setEvidenciasAbertas((v) => !v)}
             aria-expanded={evidenciasAbertas}
-            className="flex w-full items-center gap-2 rounded-lg border border-line bg-white px-4 py-3 text-left text-sm text-graphite-500 transition-colors hover:bg-sand"
+            aria-controls="brain-evidencias"
+            className="flex w-full items-center gap-2 rounded-lg border border-line bg-white px-4 py-3 text-left text-sm text-graphite-500 transition-colors hover:bg-sand focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:outline-none"
           >
             <BookOpenCheck className="size-4 shrink-0 text-brand" aria-hidden />
             <span className="min-w-0 flex-1">
-              {evidenciasAbertas ? "Ocultar evidências" : "Ver evidências"} · {resposta.evidence.length}{" "}
-              {resposta.evidence.length === 1 ? "trecho" : "trechos"}
+              {evidenciasAbertas ? "Ocultar evidências" : "Ver evidências"} ·{" "}
+              {rotuloDeTrechos(resposta.evidence.length)}
             </span>
             <ChevronDown
               className={`size-4 shrink-0 transition-transform ${evidenciasAbertas ? "rotate-180" : ""}`}
@@ -394,7 +505,7 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
           </button>
 
           {evidenciasAbertas && (
-            <>
+            <div id="brain-evidencias" className="space-y-3">
               {resposta.evidence.map((evidencia, i) => (
                 <div
                   key={evidencia.chunkId}
@@ -404,12 +515,14 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
                   <CartaoDeEvidencia evidencia={evidencia} numero={i + 1} />
                 </div>
               ))}
-              <p className="flex items-start gap-2 pt-1 text-xs text-graphite-300">
+              {/* Fora do card, o fundo é areia: graphite-300 ali fica em 4,16:1,
+                  abaixo do mínimo AA. graphite-500 passa com folga. */}
+              <p className="flex items-start gap-2 pt-1 text-xs text-graphite-500">
                 <FileSearch className="mt-0.5 size-3.5 shrink-0" aria-hidden />
                 Estes são os trechos recuperados, sem interpretação.
                 {isAdmin && " Os detalhes da busca estão em cada card."}
               </p>
-            </>
+            </div>
           )}
         </section>
       )}
