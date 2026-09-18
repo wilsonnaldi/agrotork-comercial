@@ -28,6 +28,7 @@ const ARQUIVOS = {
   "external-processing.ts": "src/modules/brain/external-processing.ts",
   "grounding.ts": "src/modules/brain/grounding.ts",
   "exhaustiveness.ts": "src/modules/brain/exhaustiveness.ts",
+  "comparison.ts": "src/modules/brain/comparison.ts",
   "provider.ts": "src/modules/brain/llm/provider.ts",
   "fake.ts": "src/modules/brain/llm/fake.ts",
 };
@@ -41,7 +42,8 @@ for (const [nome, caminho] of Object.entries(ARQUIVOS)) {
     .replace(/from "\.\/limits"/g, 'from "./limits.ts"')
     .replace(/from "\.\/provider"/g, 'from "./provider.ts"')
     .replace(/from "\.\/grounding"/g, 'from "./grounding.ts"')
-    .replace(/from "\.\/exhaustiveness"/g, 'from "./exhaustiveness.ts"');
+    .replace(/from "\.\/exhaustiveness"/g, 'from "./exhaustiveness.ts"')
+    .replace(/from "\.\/comparison"/g, 'from "./comparison.ts"');
   writeFileSync(join(destino, nome), fonte);
 }
 const imp = (n) => import(pathToFileURL(join(destino, n)).href);
