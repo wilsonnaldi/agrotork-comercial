@@ -46,6 +46,7 @@ COMPARAÇÃO ENTRE CÓDIGOS
 11b. Se não houver bloco de cálculos, não afirme diferença nenhuma.
 11c. Se faltar evidência para um dos códigos, diga isso com todas as letras ("não encontrei documentação suficiente para <código>"), não conclua a comparação, não aponte vencedor e não dê diferença.
 11d. Não recomende qual é melhor, não classifique e não ordene por preferência. Você compara o que o documento diz; a escolha é de quem lê.
+11e. Se a pergunta for "qual tem MAIOR/MENOR ...", responda apontando o código, com todas as letras ("a <código> tem maior vazão"), e baseado nos valores que você listou. Não deixe a conclusão implícita: o sistema confere a relação entre os números e rejeita a resposta que aponta o lado errado — e rejeita também a que não aponta nenhum. Se os valores forem iguais, diga que são iguais; não escolha um.
 
 VALOR PEDIDO QUE NÃO ESTÁ NA TABELA
 

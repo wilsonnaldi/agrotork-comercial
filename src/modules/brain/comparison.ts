@@ -335,6 +335,139 @@ function codigosDoItem(texto: string, conhecidos: Set<string>): { code: string; 
   return achados;
 }
 
+// ════════════════════════════════════════════════════════════
+// Relação numérica: maior, menor, igual
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Quem é maior não é opinião, e não é trabalho do modelo. Os valores já
+ * foram validados linha a linha; a ordem entre eles é uma subtração.
+ *
+ * Isto NÃO é ranking e NÃO é recomendação: não existe "melhor". É a relação
+ * objetiva entre dois números da mesma grandeza, e só.
+ */
+export type RelationalIntent = "greater" | "lower" | null;
+
+/**
+ * A pergunta pede QUAL é o maior/menor?
+ *
+ * "quanto a MJ985CAP entrega a mais" pede o TAMANHO da diferença, não o
+ * vencedor — e já é respondido pelo derivado. Por isso "quanto" desqualifica.
+ * Pedir os dois ("qual tem maior vazão e menor consumo") também: são duas
+ * relações, e concluir uma só seria responder metade.
+ */
+export function parseRelationalIntent(pergunta: string): RelationalIntent {
+  const n = ` ${normaliza(pergunta)} `;
+  if (!/ (qual|quais|quem) /.test(n)) return null;
+  if (/ quanto /.test(n)) return null;
+  const maior = / (maior|mais) /.test(n);
+  const menor = / (menor|menos) /.test(n);
+  if (maior === menor) return null;
+  return maior ? "greater" : "lower";
+}
+
+export type Relation =
+  | { status: "not_applicable"; reason: string }
+  | {
+      status: "ready";
+      unidade: string;
+      /** Do maior para o menor. */
+      ordem: { code: string; numero: string }[];
+      maiores: string[];
+      menores: string[];
+      todosIguais: boolean;
+    };
+
+/**
+ * A relação entre os produtos, a partir dos valores JÁ validados.
+ *
+ * Exige tudo o que uma comparação honesta exige: comparação completa, mesma
+ * unidade, e UM valor por produto. Dois valores para um produto significa
+ * que a pergunta não fixou o ponto de operação — e aí "qual tem maior vazão"
+ * não tem resposta única, tem três. Nesse caso não se conclui nada, que é
+ * diferente de concluir errado.
+ */
+export function relate(plan: ComparisonPlan): Relation {
+  if (plan.status !== "ready") return { status: "not_applicable", reason: "não há plano de comparação" };
+  if (plan.incomplete) return { status: "not_applicable", reason: "comparação incompleta" };
+  if (plan.blocks.length < 2) return { status: "not_applicable", reason: "menos de dois produtos" };
+
+  const unidades = [...new Set(plan.blocks.flatMap((b) => b.values.map((v) => v.unidade)))];
+  const comparaveis = unidades.filter((u) =>
+    plan.blocks.every((b) => b.values.filter((v) => v.unidade === u).length === 1),
+  );
+  if (comparaveis.length !== 1) {
+    return {
+      status: "not_applicable",
+      reason: comparaveis.length === 0
+        ? "nenhuma grandeza tem exatamente um valor por produto"
+        : `mais de uma grandeza comparável (${comparaveis.join(", ")})`,
+    };
+  }
+
+  const unidade = comparaveis[0]!;
+  const pares = plan.blocks.map((b) => {
+    const v = b.values.find((x) => x.unidade === unidade)!;
+    return { code: b.code, numero: v.numero, valor: paraNumero(v.numero) };
+  });
+  const ordenado = [...pares].sort((a, b) => b.valor - a.valor);
+  const topo = ordenado[0]!.valor;
+  const fundo = ordenado[ordenado.length - 1]!.valor;
+  const todosIguais = topo === fundo;
+
+  return {
+    status: "ready",
+    unidade,
+    ordem: ordenado.map((p) => ({ code: p.code, numero: p.numero })),
+    // Empate geral não tem maior nem menor: tem iguais. Devolver a lista
+    // cheia faria "a MJ981CAP é a maior" passar num empate.
+    maiores: todosIguais ? [] : ordenado.filter((p) => p.valor === topo).map((p) => p.code),
+    menores: todosIguais ? [] : ordenado.filter((p) => p.valor === fundo).map((p) => p.code),
+    todosIguais,
+  };
+}
+
+const RE_MAIOR = /\b(maior|maiores|mais alta|mais alto|superior|a mais)\b/;
+const RE_MENOR = /\b(menor|menores|mais baixa|mais baixo|inferior|a menos)\b/;
+const RE_IGUAL = /\b(iguais|igual|equivalentes|mesmo valor|mesma vazao|empat)/;
+
+type Claim = { tipo: "maior" | "menor" | "igual"; code?: string; texto: string };
+
+/**
+ * O que a resposta AFIRMA sobre a ordem. Conservador de propósito: item com
+ * dois códigos só vira afirmação na forma "A … maior … B", que é a ordem do
+ * português. Qualquer construção fora disso não é lida como afirmação — é
+ * melhor não julgar do que reprovar quem escreveu certo.
+ */
+function claimsDe(itensDaResposta: Item[], conhecidos: Set<string>): Claim[] {
+  const claims: Claim[] = [];
+  for (const item of itensDaResposta) {
+    const n = normaliza(item.texto);
+    const maior = RE_MAIOR.test(n);
+    const menor = RE_MENOR.test(n);
+    if (RE_IGUAL.test(n) && !maior && !menor) {
+      claims.push({ tipo: "igual", texto: item.texto });
+      continue;
+    }
+    if (maior === menor) continue;
+    const tipo = maior ? "maior" : "menor";
+    const codigos = codigosDoItem(item.texto, conhecidos);
+    if (codigos.length === 1) {
+      claims.push({ tipo, code: codigos[0]!.code, texto: item.texto });
+      continue;
+    }
+    if (codigos.length === 2) {
+      const alvo = (maior ? RE_MAIOR : RE_MENOR).exec(n);
+      const posComparativo = alvo?.index ?? -1;
+      // "A tem maior vazão que B": o comparativo fica ENTRE os dois códigos.
+      if (posComparativo > codigos[0]!.pos && posComparativo < codigos[1]!.pos) {
+        claims.push({ tipo, code: codigos[0]!.code, texto: item.texto });
+      }
+    }
+  }
+  return claims;
+}
+
 /**
  * A conferência específica da comparação. Roda DEPOIS do grounding, da
  * exaustão e da associação, e não substitui nenhuma delas.
@@ -450,6 +583,53 @@ export function checkComparison(
     const anunciaDiferenca = /diferen[çc]a/i.test(resposta) && /\d/.test(resposta);
     if (anunciaDiferenca) {
       failures.push(`comparação incompleta (sem evidência para ${faltantes.join(", ")}) não pode anunciar diferença`);
+    }
+  }
+
+  // 4. Maior, menor e igual: relação numérica, decidida aqui.
+  const relacao = relate(plan);
+  const claims = claimsDe(partes, conhecidos);
+  const intencao = parseRelationalIntent(pergunta);
+
+  if (relacao.status === "ready") {
+    for (const c of claims) {
+      if (c.tipo === "igual") {
+        if (!relacao.todosIguais) {
+          failures.push(
+            `a resposta diz que são iguais, e os valores diferem (${relacao.ordem.map((o) => `${o.code} ${o.numero} ${relacao.unidade}`).join(" · ")})`,
+          );
+        }
+        continue;
+      }
+      if (relacao.todosIguais) {
+        failures.push(
+          `a resposta declara ${c.code} como ${c.tipo}, e os valores são iguais (${relacao.ordem.map((o) => `${o.code} ${o.numero}`).join(" = ")} ${relacao.unidade})`,
+        );
+        continue;
+      }
+      const certos = c.tipo === "maior" ? relacao.maiores : relacao.menores;
+      if (c.code !== undefined && !certos.some((x) => x.toUpperCase() === c.code!.toUpperCase())) {
+        failures.push(
+          `a resposta aponta ${c.code} como ${c.tipo} e o ${c.tipo} é ${certos.join(", ")} (${relacao.ordem.map((o) => `${o.code} ${o.numero} ${relacao.unidade}`).join(" > ")})`,
+        );
+      }
+    }
+    if (intencao !== null && claims.length === 0) {
+      const esperado = intencao === "greater" ? relacao.maiores : relacao.menores;
+      failures.push(
+        relacao.todosIguais
+          ? "a pergunta pede qual é o maior ou o menor, os valores são iguais e a resposta não diz isso"
+          : `a pergunta pede qual é o ${intencao === "greater" ? "maior" : "menor"} e a resposta não aponta nenhum (é ${esperado.join(", ")})`,
+      );
+    }
+  } else {
+    // Sem relação calculável — comparação incompleta, unidades diferentes,
+    // mais de um valor por produto — nenhuma conclusão de ordem se sustenta.
+    for (const c of claims) {
+      if (c.tipo === "igual") continue;
+      failures.push(
+        `a resposta declara ${c.code ?? "um produto"} como ${c.tipo}, e o sistema não tem base para ordenar: ${relacao.reason}`,
+      );
     }
   }
 
