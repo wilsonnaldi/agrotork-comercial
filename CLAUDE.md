@@ -230,6 +230,16 @@ aqui mandaria a chave para o navegador). Sem ela o console responde de forma
 extractiva e diz por quê. Testes: `npm run check:brain-answer` (198 asserções,
 com provedor falso).
 
+**Console UX v1 (18/09):** só tela, nada de regra. `presentation.ts` (puro)
+separa abertura/itens/parágrafos e a lista vira `<ul>`; os `[n]` ficam
+menores, mas nenhum some — renderização reorganiza, não subtrai. `" -> "`
+vira `" → "` e é a única troca de caractere. Três estados em português
+(Resposta do BRAIN · Sem síntese automática · Sem documentação suficiente);
+sem síntese, a razão do bloqueio vem primeiro; sem evidência, aparece o
+código consultado. Tabela rola dentro do card, badges padronizados,
+`aria-label`/`aria-live`/foco visível, e conferência visual em 360/768/1440.
+Testes: `npm run check:brain-ui`.
+
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
 apontam para caminhos que ainda não existem), Lote C não iniciado, cinco
 falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no modo desacoplado), e a

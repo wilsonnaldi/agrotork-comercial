@@ -497,6 +497,55 @@ Clicar em `[1]` abre a seção, rola até o card e o destaca. O card leva o
 mesmo número. Sem síntese (política ou credencial), a seção **já abre**: a
 evidência é a resposta.
 
+### UX v1 (18/09/2026)
+
+Depois do smoke test em produção, uma rodada só de tela. A regra dela cabe
+numa frase: **renderização pode reorganizar, nunca subtrair.** Nenhum
+marcador `[n]` some, nenhum número muda, nenhuma linha é resumida — o texto
+que aparece é o texto que passou pelo grounding, pela exaustão e pela
+associação. O que mudou:
+
+**`presentation.ts`, puro.** `parseAnswer` separa a abertura da lista, os
+itens (`- `, `• `, `1. `) e os parágrafos; a lista vira `<ul>` com marcador
+próprio. Os `[n]` continuam em cada item, menores e mais discretos, porque
+repetidos em seis linhas eles cansam — mas presentes, porque são o lastro.
+A única troca de caractere é `formatarSetas`: `" -> "` vira `" → "`, só
+entre espaços, longe de número e de unidade.
+
+**Três estados, em português.** `Resposta do BRAIN`, `Sem síntese
+automática` e `Sem documentação suficiente`. `no_evidence`,
+`external_processing` e `grounding` são vocabulário de dentro do sistema e
+ficam no log e no card de admin.
+
+**Sem síntese.** O texto de moldura ("Encontrei 2 trechos…") sai da frente:
+o que aparece primeiro é a RAZÃO do bloqueio, e a evidência — que ali é a
+resposta de verdade — abre logo abaixo, como já abria.
+
+**Sem evidência.** A recusa mostra o código consultado ("Código consultado:
+MJ999CAP"), pelo mesmo perfil de código do grounding. Nenhuma sugestão de
+valor parecido, nenhum resultado aproximado.
+
+**Fontes.** `Fonte utilizada` no singular, `<ul>` em vez de `<ol>` — o
+"1. [1]" com dois índices acabou.
+
+**Evidência.** Tabela e tabela de preços ganham rolagem horizontal DENTRO
+do card; o resto quebra linha. Badges padronizados: Público · Interno ·
+Comercial · Admin, e Tabela · Texto · Manual · Catálogo · Tabela de preços.
+Rótulo e regra são coisas diferentes: quem decide acesso é a RLS.
+
+**Acessibilidade.** Cada `[n]` e cada fonte têm `aria-label` com a citação
+inteira; o acordeão declara `aria-controls`/`aria-expanded`; a resposta é
+região viva (`aria-live="polite"`); foco visível nos controles; e o estado
+nunca depende só de cor — cada um tem título em texto. O cinza mais claro
+saiu do rodapé que fica sobre o fundo areia (4,16:1, abaixo do mínimo AA).
+
+**Conferido em 360, 768 e 1440 px**, com os quatro casos reais renderizados
+fora do repositório (bundle do componente + CSS do projeto + Chromium):
+nenhuma rolagem horizontal de página, nenhum erro de runtime.
+
+Testes: `npm run check:brain-ui` (47 asserções) — blocos, preservação de
+marcadores e dígitos, rótulos, código consultado, `aria-*` e contraste.
+
 ## 9. Os casos reais
 
 Medidos com os dados de produção, somente leitura:
