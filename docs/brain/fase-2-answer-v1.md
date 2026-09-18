@@ -575,3 +575,61 @@ conhecimento geral como fallback · deploy · ingestão · escrita em produção
    pronto e a resposta redigida de verdade;
 2. depois: bucket `brain-documents`, para a citação virar link para a página
    do arquivo.
+
+## 12. Comparação entre códigos (Comparison v1 — 18/09/2026)
+
+A primeira capacidade em que o BRAIN devolve um número que **não está
+escrito no documento**: a diferença. Por isso ela nasce com trava própria.
+
+```
+Compare a vazão da MJ981CAP e MJ985CAP a 40 psi
+  └─ intenção explícita?        "compare", "diferença", "versus", "lado a lado",
+                                 "qual tem maior", "quanto a mais" — dois códigos
+                                 na frase NÃO bastam
+       └─ um bloco por código    linhas que trazem AQUELE código, e só ele
+            └─ cálculo em código  1,53 − 0,77 = 0,76 L/min
+                 └─ prompt        "CÁLCULOS VERIFICADOS" vai pronto ao modelo
+                      └─ validação recomputa e confere, caractere a caractere
+```
+
+**Identidade.** `linesForCode` separa as linhas de cada código. Uma linha que
+cita DOIS dos códigos comparados não identifica ninguém e é descartada — é
+onde o vazamento nasceria. Depois, `checkComparison` confere o que a resposta
+escreveu: um valor ao lado de um código tem de estar numa linha daquele
+código. Trocar 0,77 e 1,53 entre a MJ981CAP e a MJ985CAP passa no grounding
+(os dois números existem) e **é reprovado aqui** — com `kind: "comparison"`.
+
+**Cálculo determinístico.** `difference()` só subtrai valores da MESMA
+unidade, preserva a vírgula decimal e as casas das entradas, e não converte
+nada. O percentual só é calculado se a pergunta pedir. O resultado vai ao
+modelo pronto, no bloco `CÁLCULOS VERIFICADOS` da mensagem, e o modelo é
+proibido de calcular. Na volta, `checkGrounding` aceita esse literal — e
+só ele — como número fora do documento, pela lista `derivados`. Uma
+diferença errada que por acaso exista na tabela (0,86 L/min é a MJ981CAP a
+3,45 bar) passaria no grounding e **é barrada** pela conferência de
+diferença.
+
+**O código da pergunta.** Para dizer "não encontrei documentação para a
+MJ999CAP", o modelo precisa escrever um código que não está na evidência.
+Os códigos da pergunta entram na mesma lista de literais liberados. Isso
+NÃO libera valor: qualquer número ao lado de um produto sem linha é
+reprovado.
+
+**Falta é falta.** Sem evidência para um dos códigos: o bloco vem
+`missing`, **nenhuma diferença é calculada**, anunciar diferença reprova, e
+omitir um dos produtos comparados também reprova.
+
+**Limites.** Cinco códigos por consulta; acima disso a resposta vira
+extractiva com o aviso para dividir a consulta. Sem conversão de unidade,
+sem interpolação, sem fuzzy match de código, sem ranking e sem "qual é
+melhor" — comparar é dizer o que o documento diz.
+
+**Processamento externo.** Nada mudou, e é o ponto: uma comparação que
+mistura Magnojet (`allowed`) e ARAG (`forbidden`) não sai daqui, nem
+parcialmente. A política mais restritiva vale para o conjunto.
+
+**UX.** Selo "Comparação" ao lado do estado, blocos empilhados (no celular
+já é a forma natural), citação por linha. Nada do console foi redesenhado.
+
+Testes: `npm run check:brain-comparison` (44 asserções) — C1 a C15, mais
+intenção, identidade de linha e o bloco de cálculos no prompt.

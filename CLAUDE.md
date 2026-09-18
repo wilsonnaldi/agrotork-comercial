@@ -240,6 +240,18 @@ código consultado. Tabela rola dentro do card, badges padronizados,
 `aria-label`/`aria-live`/foco visível, e conferência visual em 360/768/1440.
 Testes: `npm run check:brain-ui`.
 
+**Comparação entre códigos (18/09, Comparison v1):** intenção explícita
+("compare", "diferença", "versus", "lado a lado", "qual tem maior") + dois a
+cinco códigos. Cada código tem as SUAS linhas (`linesForCode`), linha que
+cita dois códigos comparados é descartada, e trocar valores entre produtos dá
+`kind: "comparison"` — o grounding sozinho deixaria passar, porque os dois
+números existem. A diferença é calculada em código (mesma unidade, sem
+conversão), vai pronta ao modelo no bloco `CÁLCULOS VERIFICADOS` e é o único
+número fora do documento que o grounding aceita; diferença errada reprova
+mesmo existindo na tabela. Sem evidência para um dos códigos não há
+diferença nem vencedor, e omitir um produto reprova. Teto de 5 códigos por
+consulta. Testes: `npm run check:brain-comparison`.
+
 Pendências conhecidas: bucket `brain-documents` não criado (as versões ativas
 apontam para caminhos que ainda não existem), Lote C não iniciado, cinco
 falhas herdadas na suíte 25 (BR4/5/6/9/16, esperadas no modo desacoplado), e a
