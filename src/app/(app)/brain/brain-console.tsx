@@ -421,6 +421,10 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
               <h2 className="font-display text-sm tracking-wide uppercase">
                 {ROTULO_DO_ESTADO[estado ?? "synthesized"]}
               </h2>
+              {/* Comparação: o selo avisa que a resposta tem blocos por
+                  produto e um valor calculado pelo sistema, não copiado do
+                  documento. No celular os blocos já empilham sozinhos. */}
+              {resposta.comparison && <Badge tone="info">Comparação</Badge>}
             </div>
 
             {/* Sem síntese, o texto do sistema não é resposta: é moldura. A
