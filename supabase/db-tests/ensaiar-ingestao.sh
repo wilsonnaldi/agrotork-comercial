@@ -13,7 +13,8 @@
 #     falha forcada em 4 pontos (D7), primeira ingestao falhada (D8) e
 #     duas conexoes na mesma versao (D9)
 # I4  06-remover-memoria remove A e B juntos; 03 recusa antes disso;
-#     reaplicar as quatro migrations → suites 33/34/35/36 passam de novo
+#     reaplicar as migrations versionadas → suites 33/34/35/36/37/38/39/40
+#     passam de novo (a 37 e a da busca por codigo numerico exato)
 # I5  nada de vetor; nenhum documento real no repositorio (so sinteticos)
 # I6  o bucket NAO e criado por migration; o roteiro 07 exige as policies
 # I7  rollback SO do Lote B (08): Lote A puro → retrato → aplica B → suite 35
@@ -51,14 +52,32 @@ montar() {
   q -q -f supabase/db-tests/registro-producao-20260911.sql >/dev/null 2>&1
   q -q -c "insert into supabase_migrations.schema_migrations (version, name) values ('20260912010000','brain_memoria_esquema'), ('20260912020000','brain_memoria_busca'), ('20260912030000','brain_ingestao'), ('20260912040000','brain_busca_calibracao_piloto') on conflict do nothing" >/dev/null 2>&1
 }
-suites() { for s in 33_brain_memoria 34_brain_memoria_hardening 35_brain_ingestao 36_brain_busca_calibracao 38_brain_vigencia_nao_declarada 39_brain_query_service 40_brain_processamento_externo; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done; }
+# ── PISO de asserções, nunca igualdade ───────────────────────
+# Estas conferencias exigiam um numero EXATO de asserções. Toda vez que uma
+# suite ganhava um teste, o CI caia com "asserções=91 erros=0" — erro zero e
+# mesmo assim vermelho. O job `deploy-reversao` falhou 9 vezes por isso
+# (runs #9 a #15 e #17), e quem foi olhar procurou defeito onde havia
+# aritmetica: a mensagem culpava o ensaio, e o ensaio estava certo.
+#
+# O que precisa ser conferido e outra coisa: (1) nenhuma suite acusou erro;
+# (2) a execucao nao parou no meio. Para (2) basta um PISO — asserção nova
+# so faz a contagem SUBIR, entao `-ge` continua passando sozinho; contagem
+# que CAI significa suite interrompida, e ai o vermelho e legitimo.
+#
+# Os pisos abaixo sao valores MEDIDOS neste ensaio. Remover teste de uma
+# suite derruba o piso: ajuste de proposito, nunca por acidente.
+PISO_35_36=42        # suites 35 e 36
+PISO_33_34=29        # suites 33 e 34
+PISO_COMPLETO=111    # suites 33/34/35/36/37/38/39/40 (a 37 entra em 18/09: +12)
+
+suites() { for s in 33_brain_memoria 34_brain_memoria_hardening 35_brain_ingestao 36_brain_busca_calibracao 37_brain_codigo_numerico 38_brain_vigencia_nao_declarada 39_brain_query_service 40_brain_processamento_externo; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done; }
 retrato_fase1() { q -q -c "select md5(string_agg(x, ',' order by x)) from (select 'tab:'||tablename as x from pg_tables where schemaname='brain' and tablename in ('channels','attributions','leads','identities','interactions','opportunities','tasks','events','lead_merges') union all select 'trg:'||tgname||'='||tgenabled::text from pg_trigger where tgname like 'trg_brain%') t"; }
 
 echo "▶ I1: migrations + suites 35 e 36"
 montar || nok "I1: montagem"
 SAIDA=$(for s in 35_brain_ingestao 36_brain_busca_calibracao; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "42" ] && [ "$E" = "0" ]; then ok "I1: suites 35 e 36 — 42 asserções, 0 erro"; else nok "I1: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$E" = "0" ] && [ "$N" -ge "$PISO_35_36" ]; then ok "I1: suites 35 e 36 — $N asserções, 0 erro (piso $PISO_35_36)"; else nok "I1: asserções=$N (piso $PISO_35_36) erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ I2: worker de ponta a ponta com PDF sintetico"
 TMP=$(mktemp -d)
@@ -112,7 +131,7 @@ for f in supabase/migrations/20260912010000_brain_memoria_esquema.sql supabase/m
 done
 SAIDA=$(suites)
 N=$(grep -c "NOTICE" <<< "$SAIDA"); E=$(grep -cE "ERROR|FALHOU" <<< "$SAIDA")
-if [ "$N" = "99" ] && [ "$E" = "0" ]; then ok "I4c: reaplicado; suites 33/34/35/36/38/39/40 passam (99 asserções, 0 erro)"; else nok "I4c: asserções=$N erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
+if [ "$E" = "0" ] && [ "$N" -ge "$PISO_COMPLETO" ]; then ok "I4c: reaplicado; suites 33/34/35/36/37/38/39/40 passam ($N asserções, 0 erro; piso $PISO_COMPLETO)"; else nok "I4c: asserções=$N (piso $PISO_COMPLETO) erros=$E"; grep -E "ERROR|FALHOU" <<< "$SAIDA" | head -3; fi
 
 echo "▶ I5: nada de vetor; nenhum documento real"
 VEC=$(q -c "select (select count(*) from pg_extension where extname='vector') + (select count(*) from information_schema.columns where table_schema='brain' and udt_name in ('vector','halfvec','sparsevec')) + (select count(*) from pg_indexes where schemaname='brain' and (indexdef ilike '%hnsw%' or indexdef ilike '%ivfflat%')) + (select count(*) from pg_enum e join pg_type t on t.oid=e.enumtypid join pg_namespace n on n.oid=t.typnamespace where n.nspname='brain' and e.enumlabel ilike '%embed%')")
@@ -153,9 +172,9 @@ LEDGER=$(q -c "select string_agg(version, ',' order by version) from supabase_mi
 S=$(for s in 33_brain_memoria 34_brain_memoria_hardening; do q -q -f "supabase/db-tests/$s.sql" 2>&1; done); NA=$(grep -c "NOTICE" <<< "$S"); EA=$(grep -cE "ERROR|FALHOU" <<< "$S")
 VEC=$(q -c "select count(*) from pg_extension where extname='vector'")
 LIG=$(q -c "select count(*) from pg_trigger where tgname like 'trg_brain%' and tgenabled <> 'D'")
-if [ "$RA" != "$RB" ] && [ "$RA" = "$RA2" ] && [ "$N35" = "42" ] && [ "$E35" = "0" ] && [ "$LEDGER" = "20260912010000,20260912020000" ] && [ "$NA" = "29" ] && [ "$EA" = "0" ] && [ "$F1A" = "$F1B" ] && [ "$VEC" = "0" ] && [ "$LIG" = "0" ]; then
-  ok "I7: retrato Lote A ($RA) ≠ com B+calibracao ($RB) e IGUAL apos o 08 ($RA2); suites 35/36 passaram antes (42/0); 33/34 passam depois (29/0, busca de volta ao corpo do Lote A); ledger $LEDGER; Fase 1 igual; pontes desligadas; sem vector"
-else nok "I7: RA=$RA RB=$RB RA2=$RA2 n35=$N35 e35=$E35 ledger=$LEDGER na=$NA ea=$EA f1=$([ "$F1A" = "$F1B" ] && echo igual || echo DIFERENTE) vec=$VEC lig=$LIG"; grep ERROR <<< "$SAIDA" | head -3; fi
+if [ "$RA" != "$RB" ] && [ "$RA" = "$RA2" ] && [ "$N35" -ge "$PISO_35_36" ] && [ "$E35" = "0" ] && [ "$LEDGER" = "20260912010000,20260912020000" ] && [ "$NA" -ge "$PISO_33_34" ] && [ "$EA" = "0" ] && [ "$F1A" = "$F1B" ] && [ "$VEC" = "0" ] && [ "$LIG" = "0" ]; then
+  ok "I7: retrato Lote A ($RA) ≠ com B+calibracao ($RB) e IGUAL apos o 08 ($RA2); suites 35/36 passaram antes ($N35/0); 33/34 passam depois ($NA/0, busca de volta ao corpo do Lote A); ledger $LEDGER; Fase 1 igual; pontes desligadas; sem vector"
+else nok "I7: RA=$RA RB=$RB RA2=$RA2 n35=$N35 (piso $PISO_35_36) e35=$E35 ledger=$LEDGER na=$NA (piso $PISO_33_34) ea=$EA f1=$([ "$F1A" = "$F1B" ] && echo igual || echo DIFERENTE) vec=$VEC lig=$LIG"; grep ERROR <<< "$SAIDA" | head -3; fi
 
 echo "▶ I8: 08 recusa conteudo repetido entre paginas (incompativel com uq_chunk_content do Lote A)"
 q -q -v ON_ERROR_STOP=1 -f supabase/migrations/20260912030000_brain_ingestao.sql >/dev/null 2>&1
