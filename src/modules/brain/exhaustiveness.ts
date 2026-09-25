@@ -291,10 +291,67 @@ export type AssociationResult =
   | { status: "ok"; checked: number }
   | { status: "failed"; checked: number; failures: string[] };
 
+/**
+ * Um valor DERIVADO que o sistema calculou (ver `comparison.ts`): o literal
+ * exato que a resposta pode escrever sem que ele exista numa linha do
+ * documento. Só o texto interessa aqui — a proveniência (quais evidências o
+ * parágrafo precisa citar) é conferida ANTES, pelo grounding, e este gate
+ * não a repete.
+ */
+export type DerivedLiteral = { texto: string };
+
+/**
+ * Tira de um item os literais derivados, e SÓ eles — "0,76 L/min" e "98,7%"
+ * saem; "40 psi", "0,86 L/min" e os códigos ficam, para a associação
+ * conferir o que sobrou. As duas grafias do par (com e sem espaço antes da
+ * unidade) são as mesmas que o grounding aceita. A fronteira é a de
+ * `contemLiteral`: "0,76 L/min" não sai de dentro de "10,76 L/min".
+ */
+function semDerivados(item: string, derivados: DerivedLiteral[]): string {
+  let texto = item;
+  for (const d of derivados) {
+    const pares = extractUnitPairs(d.texto);
+    const formas = pares.length === 1 && pares[0]
+      ? [`${pares[0].numero} ${pares[0].unidade}`, `${pares[0].numero}${pares[0].unidade}`]
+      : [d.texto];
+    for (const forma of formas) {
+      let de = texto.indexOf(forma);
+      while (de !== -1) {
+        const antes = de === 0 ? "" : (texto[de - 1] ?? "");
+        const depois = texto[de + forma.length] ?? "";
+        const coladoAntes = /[\d.,]/.test(antes) && /\d/.test(texto[de - 2] ?? antes);
+        const coladoDepois = /[\d.,]/.test(depois) && /\d/.test(texto[de + forma.length + 1] ?? depois);
+        if (!coladoAntes && !coladoDepois) {
+          texto = `${texto.slice(0, de)} ${texto.slice(de + forma.length)}`;
+          de = texto.indexOf(forma, de);
+        } else {
+          de = texto.indexOf(forma, de + 1);
+        }
+      }
+    }
+  }
+  return texto.replace(/\s+/g, " ").trim();
+}
+
 export function checkAssociation(
   pergunta: string,
   resposta: string,
   evidencias: KnowledgeEvidence[],
+  /**
+   * Os valores derivados que o plano de comparação calculou — os MESMOS que
+   * o grounding recebeu, vindos do mesmo `planComparison()`. Sem eles (o
+   * caso normal, fora de comparação) a regra é exatamente a de antes.
+   *
+   * Por que precisam chegar aqui: um derivado nasce de DUAS linhas — "0,76
+   * L/min" é a MJ985CAP a 40 psi menos a MJ981CAP a 40 psi — e por
+   * construção não existe em linha nenhuma. Exigir que ele apareça numa
+   * única linha ao lado de "40 psi" contradiz o que o sistema acabou de
+   * calcular: era o falso positivo que derrubava a comparação com percentual
+   * mesmo com todos os números certos e citados. O derivado sai do item;
+   * tudo o que sobra — pares documentais, números soltos, códigos — continua
+   * submetido à mesma linha única de sempre.
+   */
+  derivados: DerivedLiteral[] = [],
 ): AssociationResult {
   const codigosDaPergunta = parseListingQuestion(pergunta).codes;
   const codigosConhecidos = new Set(evidencias.flatMap((e) => e.codes.map((c) => c.toUpperCase())));
@@ -316,7 +373,11 @@ export function checkAssociation(
   const failures: string[] = [];
   let checked = 0;
 
-  for (const item of answerItems(resposta)) {
+  for (const bruto of answerItems(resposta)) {
+    // O derivado sai ANTES de contar pares e números: "a 40 psi é de 0,76
+    // L/min e 98,7% a mais" vira "a 40 psi é de e a mais", que é o ponto de
+    // operação sozinho — sem segundo número, não há relação a conferir.
+    const item = derivados.length > 0 ? semDerivados(bruto, derivados) : bruto;
     const pares = extractUnitPairs(item).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
     if (pares.length === 0) continue;
     const numeros = extractNumbers(item);
@@ -339,7 +400,7 @@ export function checkAssociation(
       if (codigosDoItem.length > 0 && candidatas.length === 0 && linhas.some((l) => l.unidades.size >= 2)) {
         // O item põe um código numa tabela em que esse código não tem linha.
         checked += 1;
-        failures.push(`associação sem lastro: "${item.slice(0, 60)}" — nenhuma linha traz ${codigosDoItem.join(", ")} com esses valores`);
+        failures.push(`associação sem lastro: "${bruto.slice(0, 60)}" — nenhuma linha traz ${codigosDoItem.join(", ")} com esses valores`);
       }
       continue;
     }
@@ -360,7 +421,7 @@ export function checkAssociation(
     if (!mesmaLinha) {
       const sujeitoTxt = sujeito.length > 0 ? ` de ${sujeito.join(", ")}` : "";
       failures.push(
-        `associação sem lastro: "${item.slice(0, 60)}" — nenhuma linha${sujeitoTxt} traz ${pares
+        `associação sem lastro: "${bruto.slice(0, 60)}" — nenhuma linha${sujeitoTxt} traz ${pares
           .map((p) => `${p.numero} ${p.unidade}`)
           .join(" com ")}${numeros.length > pares.length ? " e os demais números do item" : ""}`,
       );

@@ -537,12 +537,19 @@ export function checkComparison(
   // 1b. Diferença escrita = diferença calculada, e citada de onde saiu. Um
   //     número que por acaso existe noutra linha da tabela (0,86 L/min é a
   //     MJ981CAP a 3,45 bar) passaria no grounding e mentiria aqui.
+  //     O ponto que a PERGUNTA fixou ("a 40 psi") não é diferença: é o lugar
+  //     da tabela onde as parcelas foram lidas, e a frase "a diferença a 40
+  //     psi é de 0,76 L/min" o repete de propósito. Só esse literal — o da
+  //     pergunta, escrito igual — fica de fora; "30 psi" numa frase de
+  //     diferença continua sendo lido como diferença anunciada.
+  const fixados = new Set(plan.spec.pinned.flatMap((p) => [`${p.numero} ${p.unidade}`, `${p.numero}${p.unidade}`]));
   for (const item of partes) {
     if (!/diferen[çc]a|a mais|a menos|por cento|percentual/i.test(item.texto)) continue;
     for (const par of extractUnitPairs(item.texto)) {
       if (!UNIDADES_DE_LINHA.has(par.unidade) && par.unidade !== "%") continue;
       const texto = `${par.numero} ${par.unidade}`;
       const colado = `${par.numero}${par.unidade}`;
+      if (fixados.has(texto)) continue;
       const casa = plan.derived.filter((d) => d.texto === texto || d.texto === colado);
       if (casa.length === 0) {
         failures.push(

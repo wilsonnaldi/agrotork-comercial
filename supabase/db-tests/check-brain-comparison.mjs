@@ -605,6 +605,157 @@ confere("T9b e traz exemplo positivo com cada linha citando, inclusive a diferen
 confere("T9c a regra de forma não limita a comparação a dois parágrafos sem citar o terceiro",
   /um bloco por código e mais um parágrafo para diferença e conclusão/.test(P.SYSTEM_PROMPT) && /o último inclusive/.test(P.SYSTEM_PROMPT));
 
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Associação + valores derivados (DA1–DA14, 25/09)\n");
+//
+// O segundo defeito que o teste H expôs. Com provedor real, "A diferença
+// entre as duas é de 0,76 L/min, e a MJ985CAP entrega 98,7% a mais que a
+// MJ981CAP a 40 psi [1]" passava no grounding (números certos, citação
+// certa) e caía em `association`: o gate exigia UMA linha da tabela com os
+// dois códigos, "40 psi", "0,76 L/min" e "98,7" — e essa linha não existe
+// nem deveria, porque 0,76 e 98,7 são calculados sobre DUAS linhas. Havia um
+// segundo tropeço na mesma frase, em `checkComparison` 1b: "40 psi" numa
+// frase de diferença era lido como diferença anunciada, e não confere com
+// 0,76 L/min. Os dois estão cobertos aqui. O que NÃO muda: par documental
+// trocado de linha, valor de outro produto, derivado inventado e conclusão
+// mentirosa continuam reprovando — e os testes adversariais provam isso.
+
+const EX = await imp("exhaustiveness.ts");
+const Q_DA = "Compare a vazão da MJ981CAP e MJ985CAP a 40 psi. Quanto por cento a MJ985CAP entrega a mais?";
+const BLOCOS_DA = "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\n";
+const planoDA = C.planComparison(Q_DA, EV);
+const DERIV = planoDA.derived;
+
+// A reprodução, gate a gate, ANTES de qualquer conserto: é o que prova a causa.
+const ASSOC0 = `${BLOCOS_DA}A diferença entre MJ981CAP e MJ985CAP a 40 psi é de 0,76 L/min e a MJ985CAP entrega 98,7% a mais [1].`;
+const G = await imp("grounding.ts");
+confere("ASSOC-0 grounding PASSA na frase real (números certos, [1] certo)",
+  G.checkGrounding(ASSOC0, CIT, EV, C.derivedLiterals(planoDA)).ok === true);
+const a0 = EX.checkAssociation(Q_DA, ASSOC0, EV);
+confere("ASSOC-0 e a associação SEM os derivados reprova: exige linha com os dois códigos e os valores calculados",
+  a0.status === "failed" && /nenhuma linha traz MJ981CAP, MJ985CAP com esses valores/.test(a0.failures[0]), a0.failures?.[0]);
+const a0d = EX.checkAssociation(Q_DA, ASSOC0, EV, DERIV);
+confere("ASSOC-0 com os derivados do MESMO plano, o item vira '40 psi' sozinho e não é julgado",
+  a0d.status === "ok" && a0d.checked === 0, JSON.stringify(a0d));
+
+// DA1 — o caso real, ponta a ponta
+const da1 = vq(Q_DA, `${BLOCOS_DA}A diferença entre MJ981CAP e MJ985CAP a 40 psi é 0,76 L/min e 98,7% [1].`);
+confere("DA1 caso real: blocos + frase com ponto fixado, diferença e percentual → PASSA", da1.ok === true, da1.problem ?? "ok");
+const da1b = vq(Q_DA, `${BLOCOS_DA}A diferença entre as duas é de 0,76 L/min, e a MJ985CAP entrega 98,7% a mais que a MJ981CAP a 40 psi [1].`);
+confere("DA1b a saída bruta do provider de 25/09 (RUN 2) → PASSA", da1b.ok === true, da1b.problem ?? "ok");
+
+// DA2 — derivados corretos com citação correta, cada um na sua linha
+confere("DA2 0,76 L/min [1] e 98,7% [1] em linhas próprias → PASSA",
+  vq(Q_DA, `${BLOCOS_DA}Diferença: 0,76 L/min [1]\nVariação percentual: 98,7% [1]`).ok === true);
+
+// DA3 / DA4 — derivado inventado: o grounding barra antes
+const da3 = vq(Q_DA, `${BLOCOS_DA}A diferença a 40 psi é de 0,75 L/min e 98,7% [1].`);
+confere("DA3 diferença inventada (0,75 L/min) → FAIL, e é o grounding que barra", da3.kind === "grounding", da3.problem);
+const da4 = vq(Q_DA, `${BLOCOS_DA}A diferença a 40 psi é de 0,76 L/min e 97,8% [1].`);
+confere("DA4 percentual inventado (97,8%) → FAIL, grounding", da4.kind === "grounding", da4.problem);
+
+// DA5 — derivado certo, parcela documental errada
+const da5 = vq(Q_DA, `MJ981CAP: 40 psi -> 0,86 L/min [1]\nMJ985CAP: 40 psi -> 1,53 L/min [1]\nA diferença a 40 psi é de 0,76 L/min e 98,7% [1].`);
+confere("DA5 0,86 L/min posto a 40 psi (é a linha de 50 psi) → FAIL association, mesmo com o derivado certo ao lado",
+  da5.kind === "association", `${da5.kind}: ${da5.problem}`);
+
+// DA6 — valores trocados entre produtos; a diferença absoluta continua 0,76
+const da6 = vq(Q_DA, `MJ981CAP: 40 psi -> 1,53 L/min [1]\nMJ985CAP: 40 psi -> 0,77 L/min [1]\nDiferença: 0,76 L/min [1]`);
+confere("DA6 valores trocados entre produtos, diferença 0,76 correta → FAIL (o derivado não esconde o produto errado)",
+  da6.ok === false && (da6.kind === "association" || da6.kind === "comparison"), `${da6.kind}: ${da6.problem}`);
+const da6b = vq(Q_DA, `${BLOCOS_DA}A MJ981CAP entrega 1,53 L/min e a MJ985CAP entrega 0,77 L/min; diferença 0,76 L/min [1].`);
+confere("DA6b a troca em prosa, na mesma frase → FAIL", da6b.ok === false, `${da6b.kind}: ${da6b.problem}`);
+
+// DA7 — associação clássica de linha continua ativa dentro da comparação
+const da7 = vq(Q_DA, `MJ981CAP: 2,07 bar -> 0,77 L/min [1]\nMJ985CAP: 40 psi -> 1,53 L/min [1]\nDiferença: 0,76 L/min [1]`);
+confere("DA7 pressão de uma linha com a vazão de outra (2,07 bar -> 0,77) → FAIL association",
+  da7.kind === "association", da7.problem);
+
+// FRONTEIRA CONHECIDA, encontrada ao escrever DA5–DA7 e conferida no baseline
+// ff155a5 (sem nenhuma alteração desta rodada): no formato em BLOCOS — o
+// código numa linha ("MJ981CAP [1]:") e o valor na linha de baixo ("- 40 psi
+// -> 0,86 L/min [1]") —, a linha do valor não carrega código nenhum. A
+// associação cai nos códigos da PERGUNTA (linha com os dois → nenhuma) e
+// desiste; a comparação (bloco 1) só julga item com UM código. Resultado:
+// valor errado, produto trocado e linha trocada PASSAM nesse formato — que é
+// justamente o que a regra 11g manda o modelo escrever. Não é efeito deste
+// fix (o baseline dá o mesmo) e não é corrigido aqui: é herança de bloco
+// para a linha do valor, uma mudança própria, nos dois gates. As três
+// asserções abaixo REGISTRAM o buraco; quando ele for fechado, elas têm de
+// virar `kind === "association" | "comparison"`.
+const BLOCO = (a, b) => `MJ981CAP [1]:\n- ${a} [1]\n\nMJ985CAP [1]:\n- ${b} [1]\n\nDiferença: 0,76 L/min [1]`;
+confere("GAP1 (bloco) 0,86 L/min a 40 psi na MJ981CAP → hoje PASSA — defeito registrado, fora desta rodada",
+  vq(Q_DA, BLOCO("40 psi -> 0,86 L/min", "40 psi -> 1,53 L/min")).ok === true);
+confere("GAP2 (bloco) produtos trocados → hoje PASSA — idem",
+  vq(Q_DA, BLOCO("40 psi -> 1,53 L/min", "40 psi -> 0,77 L/min")).ok === true);
+confere("GAP3 (bloco) 2,07 bar -> 0,77 L/min → hoje PASSA — idem",
+  vq(Q_DA, BLOCO("2,07 bar -> 0,77 L/min", "40 psi -> 1,53 L/min")).ok === true);
+
+// DA8 / DA9 — sem derivados, nada muda (a suíte de listagem em check-brain-answer prova o resto)
+const Q_LISTA = "Quais as vazões da MJ981CAP?";
+const LISTA_TROCADA = "Vazões da MJ981CAP [1]:\n- 2,07 bar -> 0,77 L/min [1]\n- 2,76 bar -> 0,66 L/min [1]\n- 3,45 bar -> 0,86 L/min [1]";
+confere("DA8 listagem não comparativa com pares trocados → FAIL association, como antes",
+  vq(Q_LISTA, LISTA_TROCADA).kind === "association");
+confere("DA9 checkAssociation sem o quarto argumento é o de sempre (assinatura compatível)",
+  EX.checkAssociation(Q_LISTA, LISTA_TROCADA, EV).status === "failed" &&
+  EX.checkAssociation(Q_LISTA, LISTA_TROCADA, EV, []).status === "failed" &&
+  EX.checkAssociation(Q_LISTA, LISTA_TROCADA.replace("0,77 L/min", "0,66 L/min").replace("2,76 bar -> 0,66", "2,76 bar -> 0,77"), EV).status === "ok");
+
+// DA10 — comparação incompleta: nenhum derivado existe, nada é liberado
+confere("DA10 MJ981CAP + MJ999CAP: plano incompleto, zero derivados, e a diferença anunciada reprova",
+  C.planComparison(Q_999, EV).incomplete === true && C.planComparison(Q_999, EV).derived.length === 0 &&
+  vq(Q_999, "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nNão encontrei documentação suficiente para MJ999CAP [1]\n\nDiferença: 0,76 L/min [1]").ok === false);
+
+// DA11 — parcelas em evidências diferentes
+const planoAB = C.planComparison(Q_DA, EVD);
+const derivAB = planoAB.derived;
+confere("DA11a com as parcelas em [1] e [2], cada derivado exige as duas",
+  derivAB.length === 2 && derivAB.every((d) => new Set(d.sources.map((s) => s.evidenceIndex)).size === 2));
+const da11 = vq(Q_DA, "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP [2]:\n- 40 psi -> 1,53 L/min [2]\n\nA diferença entre MJ981CAP e MJ985CAP a 40 psi é de 0,76 L/min e 98,7% [1][2].", EVD);
+confere("DA11 frase real citando [1][2] → PASSA (sem falso positivo de associação)", da11.ok === true, da11.problem ?? "ok");
+const da11b = vq(Q_DA, "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP [2]:\n- 40 psi -> 1,53 L/min [2]\n\nA diferença entre MJ981CAP e MJ985CAP a 40 psi é de 0,76 L/min e 98,7% [1].", EVD);
+confere("DA11b citando só [1] → FAIL, e é o grounding que barra ANTES da associação", da11b.kind === "grounding", da11b.problem);
+
+// DA12 / DA13 — conclusão relacional
+confere("DA12 'A MJ985CAP tem maior vazão a 40 psi [1].' depois dos blocos certos → PASSA",
+  vq(Q_DA, `${BLOCOS_DA}A MJ985CAP tem maior vazão a 40 psi [1].`).ok === true);
+const da13 = vq(Q_DA, `${BLOCOS_DA}A MJ981CAP tem maior vazão a 40 psi [1].`);
+confere("DA13 'A MJ981CAP tem maior vazão' → FAIL por comparison", da13.kind === "comparison", da13.problem);
+
+// DA14 — o essencial contra bypass: derivado legítimo NA MESMA frase de um documental errado
+const da14 = vq(Q_DA, `${BLOCOS_DA}A MJ985CAP entrega 98,7% a mais que a MJ981CAP a 40 psi, com 0,86 L/min [1].`);
+confere("DA14 98,7% legítimo + 0,86 L/min (linha de 50 psi) na mesma frase → FAIL",
+  da14.ok === false && (da14.kind === "association" || da14.kind === "comparison"), `${da14.kind}: ${da14.problem}`);
+const da14b = vq(Q_DA, `${BLOCOS_DA}A MJ985CAP entrega 98,7% a mais a 40 psi, com 1,72 L/min [1].`);
+confere("DA14b 98,7% legítimo + 1,72 L/min (MJ985CAP a 50 psi) posto a 40 psi → FAIL association",
+  da14b.kind === "association", da14b.problem);
+
+// Isolamento: o que sai e o que fica
+const a1 = EX.checkAssociation(Q_DA, "A MJ985CAP entrega 98,7% a mais a 40 psi, com 1,72 L/min", EV, DERIV);
+confere("ISO1 só o literal derivado sai; 40 psi + 1,72 L/min continuam conferidos e reprovam",
+  a1.status === "failed" && a1.checked === 1 && /40 psi com 1,72 L\/min/.test(a1.failures[0]), a1.failures?.[0]);
+const a2 = EX.checkAssociation(Q_DA, "MJ985CAP: 40 psi -> 1,53 L/min, 0,76 L/min a mais", EV, DERIV);
+confere("ISO2 par documental certo + derivado no mesmo item → conferido (1) e ok",
+  a2.status === "ok" && a2.checked === 1, JSON.stringify(a2));
+const a3 = EX.checkAssociation(Q_DA, "MJ985CAP: 40 psi -> 10,76 L/min", EV, DERIV);
+confere("ISO3 '10,76 L/min' não perde o '0,76 L/min' de dentro: continua reprovado",
+  a3.status === "failed", JSON.stringify(a3));
+const a4 = EX.checkAssociation(Q_DA, "Variação: 98,7 % a 40 psi e 0,76L/min", EV, DERIV);
+confere("ISO4 as grafias com/sem espaço do derivado também saem ('98,7 %', '0,76L/min')",
+  a4.status === "ok" && a4.checked === 0, JSON.stringify(a4));
+confere("ISO5 a mensagem de falha mostra o item como foi escrito, não o texto sem derivados",
+  /98,7%/.test(a1.failures[0]));
+
+// O ponto fixado no checkComparison 1b
+confere("CMP1 '40 psi' (ponto da pergunta) numa frase de diferença não é diferença anunciada",
+  C.checkComparison(Q_DA, `${BLOCOS_DA}A diferença a 40 psi é de 0,76 L/min [1]`, EV, CIT).status === "ok");
+const cmp2 = C.checkComparison(Q_DA, `${BLOCOS_DA}A diferença a 30 psi é de 0,76 L/min [1]`, EV, CIT);
+confere("CMP2 '30 psi' (não é o ponto da pergunta) numa frase de diferença → continua reprovado",
+  cmp2.status === "failed" && /30 psi/.test(cmp2.failures[0]), cmp2.failures?.[0]);
+const cmp3 = C.checkComparison(Q_DA, `${BLOCOS_DA}A diferença a 40 psi é de 0,86 L/min [1]`, EV, CIT);
+confere("CMP3 e a diferença errada ao lado do ponto fixado → continua reprovada",
+  cmp3.status === "failed" && /0,86 L\/min/.test(cmp3.failures[0]), cmp3.failures?.[0]);
+
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ comparação entre códigos\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);
