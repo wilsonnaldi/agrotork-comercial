@@ -418,7 +418,13 @@ linha de 40 psi traz 0,77.
 4. **Sujeito.** As linhas candidatas são as do código escrito no item; sem
    código no item, as do código da pergunta. Por isso "a MJ981CAP entrega
    0,83 L/min a 30 psi" (valor da MJ982CAP) é rejeitado, e o mesmo fato com
-   "MJ982CAP" passa.
+   "MJ982CAP" passa. Numa comparação (dois ou mais códigos na pergunta), o
+   item com par de tabela e mais de um número que não tem código escrito
+   nem cabeçalho de bloco **reprova** quando traz valor de produto (L/min,
+   L/ha) — não há como provar de quem é o valor (ADV11, 25/09: "Para
+   MJ981CAP a 40 psi:" é prosa, não cabeçalho, e a troca de produtos debaixo
+   dele passava). Só pressão ("A 40 psi (2,76 bar / 276 kPa):") é ponto de
+   operação, não valor, e segue não julgada.
 5. **Só tabela.** Se nenhuma linha candidata traz duas unidades juntas (por
    exemplo, uma ficha técnica com um valor por linha), não há linha para
    conferir relação e o item não é julgado por esta trava. Só o grounding

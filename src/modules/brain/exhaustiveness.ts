@@ -277,6 +277,13 @@ export function describeExhaustiveness(r: Extract<ExhaustivenessResult, { status
 
 const UNIDADES_DE_LINHA = new Set(["bar", "psi", "kPa", "L/min", "L/ha"]);
 
+/**
+ * As unidades de VALOR de produto — o que uma linha da tabela afirma sobre a
+ * ponta. Pressão (bar, psi, kPa) é o ponto de operação: é igual para todos
+ * os produtos da tabela e, sozinha, não amarra valor a ninguém.
+ */
+const UNIDADES_DE_VALOR = new Set(["L/min", "L/ha"]);
+
 /** Os itens de uma resposta, sem os marcadores [n]. */
 export function answerItems(resposta: string): string[] {
   return resposta
@@ -567,6 +574,29 @@ export function checkAssociation(
           .filter((t) => pareceCodigo(t) && codigosConhecidos.has(t.toUpperCase())),
       ),
     ];
+    // Valor sem dono numa comparação (ADV11, 25/09). Sem código no item e sem
+    // cabeçalho de bloco, o sujeito cairia nos códigos da pergunta — e, com
+    // dois ou mais, nenhuma linha da tabela traz todos: o item era pulado.
+    // Era por aí que "Para MJ981CAP a 40 psi:" (prosa, não cabeçalho) seguido
+    // de "- 40 psi -> 1,53 L/min" passava com os produtos trocados. A
+    // gramática do cabeçalho continua fechada; o que muda é o destino do
+    // item órfão: numa comparação ele não tem como ser conferido, então
+    // reprova. Vem DEPOIS de tirar o derivado e do corte de número único —
+    // "A diferença a 40 psi é de 0,76 L/min [1]" vira "40 psi" sozinho e
+    // continua não julgado. Com um código só na pergunta (listagem,
+    // pontual), nada muda: o sujeito é ele. E só reprova item que traz VALOR
+    // (L/min, L/ha): "A 40 psi (2,76 bar / 276 kPa) [1]:" é o ponto de
+    // operação em três unidades — não diz nada de produto nenhum, e segue
+    // não julgado como antes.
+    if (
+      codigosDoItem.length === 0 && contexto === null && codigosDaPergunta.length >= 2 &&
+      pares.some((p) => UNIDADES_DE_VALOR.has(p.unidade))
+    ) {
+      checked += 1;
+      failures.push(`associação sem lastro: "${bruto.slice(0, 60)}" — numa comparação, valor sem código não tem como ser conferido`);
+      continue;
+    }
+
     // O sujeito: o código escrito no item; senão, o do cabeçalho do bloco;
     // senão, os da pergunta. A ordem importa — o explícito vence o herdado.
     const sujeito = codigosDoItem.length > 0
