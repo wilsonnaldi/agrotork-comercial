@@ -308,7 +308,30 @@ export function answerItems(resposta: string): string[] {
  * e um código escrito na própria linha vence o herdado. Nada disto altera
  * o texto mostrado: é metadado de validação.
  */
-export function blockHeaderCode(linha: string, conhecidos: Set<string>): string | null {
+/** Um ponto de operação fixado pela pergunta, como o parser o extraiu. */
+export type PinnedPoint = { numero: string; unidade: string };
+
+/**
+ * A gramática do cabeçalho, e ela é fechada de propósito:
+ *
+ *   CÓDIGO [ (a|@) PONTO-FIXADO ]* [:]
+ *
+ * — depois de tirar citações, marcador de lista, ênfase de markdown e
+ * espaços. "MJ981CAP a 40 psi [1]:" é a variante que o provedor escreveu
+ * em execuções reais (2 de 10, em 25/09) e que ficava sem contexto; com a
+ * pergunta fixando "40 psi", ela passa a ser cabeçalho. O ponto tem de
+ * ser EXATAMENTE um dos que a pergunta fixou, escrito igual: "a 50 psi"
+ * não é, e "a 2,76 bar" também não, mesmo sendo a mesma pressão — aqui
+ * não se converte unidade, e "igual" é literal. Qualquer outra palavra
+ * antes ou depois do código ("Compare MJ981CAP:", "Para MJ981CAP a 40
+ * psi:", "MJ981CAP tem maior vazão:", "MJ981CAP e MJ985CAP:") continua
+ * sendo prosa, e prosa não cria bloco.
+ */
+export function blockHeaderCode(
+  linha: string,
+  conhecidos: Set<string>,
+  pinned: PinnedPoint[] = [],
+): string | null {
   const limpa = linha
     .replace(/\[\d{1,3}\]/g, " ")
     .replace(/^\s*[-•*]\s+/, " ")
@@ -317,23 +340,41 @@ export function blockHeaderCode(linha: string, conhecidos: Set<string>): string 
     .trim()
     .replace(/:$/, "")
     .trim();
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(limpa)) return null;
-  if (!pareceCodigo(limpa)) return null;
-  const canonico = limpa.toUpperCase();
-  return conhecidos.has(canonico) ? canonico : null;
+  const [codigo, ...resto] = limpa.split(" ");
+  if (codigo === undefined || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(codigo)) return null;
+  if (!pareceCodigo(codigo)) return null;
+  const canonico = codigo.toUpperCase();
+  if (!conhecidos.has(canonico)) return null;
+  if (resto.length === 0) return canonico;
+
+  // O que vier depois do código só pode ser "a <ponto fixado>" (ou "@"),
+  // repetido para cada ponto que a pergunta fixou — nada mais.
+  const fixados = new Set(pinned.flatMap((p) => [`${p.numero} ${p.unidade}`, `${p.numero}${p.unidade}`]));
+  if (fixados.size === 0) return null;
+  let i = 0;
+  while (i < resto.length) {
+    const conector = resto[i];
+    if (conector !== "a" && conector !== "@") return null;
+    const espacado = `${resto[i + 1] ?? ""} ${resto[i + 2] ?? ""}`.trim();
+    const colado = resto[i + 1] ?? "";
+    if (fixados.has(espacado)) i += 3;
+    else if (fixados.has(colado)) i += 2;
+    else return null;
+  }
+  return canonico;
 }
 
 export type ContextLine = { linha: string; contexto: string | null; cabecalho: boolean };
 
 /** Cada linha da resposta com o código de bloco que vale para ela. */
-export function blockContexts(resposta: string, conhecidos: Set<string>): ContextLine[] {
+export function blockContexts(resposta: string, conhecidos: Set<string>, pinned: PinnedPoint[] = []): ContextLine[] {
   let ativo: string | null = null;
   return resposta.split(/\r?\n/).map((linha) => {
     if (linha.trim().length === 0) {
       ativo = null;                       // linha em branco encerra o bloco
       return { linha, contexto: null, cabecalho: false };
     }
-    const cabecalho = blockHeaderCode(linha, conhecidos);
+    const cabecalho = blockHeaderCode(linha, conhecidos, pinned);
     if (cabecalho !== null) {
       ativo = cabecalho;                  // novo cabeçalho substitui o anterior
       return { linha, contexto: cabecalho, cabecalho: true };
@@ -348,9 +389,9 @@ export type ContextItem = { texto: string; contexto: string | null };
  * `answerItems` com o contexto de bloco de cada item — a mesma quebra
  * (linha, ';', fim de frase), sem os [n], só itens com dígito.
  */
-export function answerItemsWithContext(resposta: string, conhecidos: Set<string>): ContextItem[] {
+export function answerItemsWithContext(resposta: string, conhecidos: Set<string>, pinned: PinnedPoint[] = []): ContextItem[] {
   const saida: ContextItem[] = [];
-  for (const { linha, contexto } of blockContexts(resposta, conhecidos)) {
+  for (const { linha, contexto } of blockContexts(resposta, conhecidos, pinned)) {
     for (const bruto of linha.replace(/\[\d{1,3}\]/g, " ").split(/;|\.\s+/)) {
       const texto = bruto.replace(/\s+/g, " ").trim();
       if (/\d/.test(texto)) saida.push({ texto, contexto });
@@ -430,7 +471,8 @@ export function checkAssociation(
    */
   derivados: DerivedLiteral[] = [],
 ): AssociationResult {
-  const codigosDaPergunta = parseListingQuestion(pergunta).codes;
+  const daPergunta = parseListingQuestion(pergunta);
+  const codigosDaPergunta = daPergunta.codes;
   const codigosConhecidos = new Set(evidencias.flatMap((e) => e.codes.map((c) => c.toUpperCase())));
 
   const linhas: Linha[] = [];
@@ -450,7 +492,9 @@ export function checkAssociation(
   const failures: string[] = [];
   let checked = 0;
 
-  for (const { texto: bruto, contexto } of answerItemsWithContext(resposta, codigosConhecidos)) {
+  // O ponto fixado vem da PERGUNTA: é ele, e só ele, que um cabeçalho pode
+  // repetir depois do código ("MJ981CAP a 40 psi:").
+  for (const { texto: bruto, contexto } of answerItemsWithContext(resposta, codigosConhecidos, daPergunta.pinned)) {
     // O derivado sai ANTES de contar pares e números: "a 40 psi é de 0,76
     // L/min e 98,7% a mais" vira "a 40 psi é de e a mais", que é o ponto de
     // operação sozinho — sem segundo número, não há relação a conferir.

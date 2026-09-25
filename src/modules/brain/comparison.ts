@@ -1,5 +1,5 @@
 import type { KnowledgeEvidence } from "./evidence";
-import { blockContexts, parseListingQuestion, type ListingField } from "./exhaustiveness";
+import { blockContexts, parseListingQuestion, type ListingField, type PinnedPoint } from "./exhaustiveness";
 import { contemLiteral, contemToken, extractUnitPairs, pareceCodigo, type AllowedLiteral } from "./grounding";
 
 /**
@@ -302,7 +302,7 @@ export type CitacaoRef = { index: number; evidenceIndex: number };
  */
 type Item = { texto: string; citadas: number[]; evidencias: Set<number>; contexto: string | null };
 
-function itens(resposta: string, citacoes: CitacaoRef[], conhecidos: Set<string>): Item[] {
+function itens(resposta: string, citacoes: CitacaoRef[], conhecidos: Set<string>, pinned: PinnedPoint[]): Item[] {
   const daCitacao = new Map(citacoes.map((c) => [c.index, c.evidenceIndex]));
   const lidas = (trecho: string) => {
     const numeros: number[] = [];
@@ -320,7 +320,7 @@ function itens(resposta: string, citacoes: CitacaoRef[], conhecidos: Set<string>
   // trecho entre linhas em branco — a mesma quebra que `blockContexts`
   // usa para encerrar um bloco. Percorrer as linhas já anotadas e agrupá-las
   // nas linhas em branco dá os mesmos parágrafos de `split(/\n\s*\n/)`.
-  const anotadas = blockContexts(resposta, conhecidos);
+  const anotadas = blockContexts(resposta, conhecidos, pinned);
   const paragrafos: typeof anotadas[] = [];
   let atual: typeof anotadas = [];
   for (const l of anotadas) {
@@ -518,7 +518,7 @@ export function checkComparison(
   const failures: string[] = [];
   const porCodigo = new Map(plan.blocks.map((b) => [b.code.toUpperCase(), b]));
   const conhecidos = new Set(plan.blocks.map((b) => b.code.toUpperCase()));
-  const partes = itens(resposta, citacoes, conhecidos);
+  const partes = itens(resposta, citacoes, conhecidos, plan.spec.pinned);
 
   // 1. Identidade + proveniência: o valor escrito ao lado de um código tem de
   //    ser DAQUELE código, e tem de estar na evidência que o item citou.

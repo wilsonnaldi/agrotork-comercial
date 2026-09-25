@@ -866,6 +866,84 @@ confere("PB-CRÍTICO 1,53 debaixo de MJ981CAP e 0,77 debaixo de MJ985CAP → REP
 confere("PB16 sem cabeçalho, inline com código: idêntico ao histórico (P1..P15 acima já passaram)",
   gates(Q_PB, "MJ981CAP: 40 psi -> 1,53 L/min [1]\nMJ985CAP: 40 psi -> 0,77 L/min [1]").association === "failed");
 
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Cabeçalho com ponto fixado (HDR / H1–H20, 25/09)\n");
+//
+// A variante REAL que ficava de fora: "MJ981CAP a 40 psi [1]:" apareceu em
+// 2 de 10 saídas do provedor e não era cabeçalho, então a linha de baixo
+// voltava a ficar sem dono (checked=0) — o mesmo buraco do PB, por outra
+// porta. A gramática cresce o mínimo: depois do código, só "a"/"@" + um
+// ponto que a PERGUNTA fixou, escrito igual. Sem conversão, sem prosa.
+
+const PIN40 = C.parseComparison(Q_PB).pinned;
+confere("HDR0 o ponto fixado vem da pergunta, não de constante: '40 psi'",
+  JSON.stringify(PIN40) === JSON.stringify([{ numero: "40", unidade: "psi" }]));
+
+// A reprodução: sem o pinned (o helper como estava), o cabeçalho real não conta
+confere("HDR-GAP1 sem o ponto fixado (o helper como estava em bf1749f), 'MJ981CAP a 40 psi [1]:' não é cabeçalho e a linha de baixo fica sem contexto",
+  EX.blockHeaderCode("MJ981CAP a 40 psi [1]:", CONH) === null &&
+  EX.blockContexts("MJ981CAP a 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]", CONH)[1].contexto === null);
+
+const hdr = (l) => EX.blockHeaderCode(l, CONH, PIN40);
+confere("H1  'MJ981CAP a 40 psi [1]:' → MJ981CAP", hdr("MJ981CAP a 40 psi [1]:") === "MJ981CAP");
+confere("H2  'MJ985CAP a 40 psi [1]:' → MJ985CAP", hdr("MJ985CAP a 40 psi [1]:") === "MJ985CAP");
+const HP = (a, b, cauda = "") => `MJ981CAP a 40 psi [1]:\n- ${a} [1]\n\nMJ985CAP a 40 psi [1]:\n- ${b} [1]${cauda}`;
+const h3 = gates(Q_PB, HP("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min"));
+confere("H3  valores certos sob cabeçalhos com ponto fixado → PASSA, e as duas linhas são conferidas", h3.ok && h3.checked === 2, h3.resumo);
+const h4 = gates(Q_PB, HP("40 psi -> 1,53 L/min", "40 psi -> 1,53 L/min"));
+confere("H4  valor da MJ985CAP sob 'MJ981CAP a 40 psi' → FAIL (association e comparison)",
+  !h4.ok && h4.association === "failed" && h4.comparison === "failed", h4.resumo);
+const h5 = gates(Q_PB, HP("40 psi -> 1,53 L/min", "40 psi -> 0,77 L/min"));
+confere("H5  produtos trocados com cabeçalhos de ponto fixado → FAIL", !h5.ok && h5.association === "failed" && h5.comparison === "failed", h5.resumo);
+const h6 = gates(Q_PB, HP("40 psi -> 0,86 L/min", "40 psi -> 1,53 L/min"));
+confere("H6  valor de outra linha do mesmo produto → association FAIL", h6.association === "failed" && h6.kind === "association", h6.resumo);
+confere("H7  'MJ981CAP a 50 psi:' com a pergunta fixando 40 psi → NÃO é cabeçalho", hdr("MJ981CAP a 50 psi:") === null && hdr("MJ981CAP a 50 psi [1]:") === null);
+confere("H8  'Compare MJ981CAP:' → NÃO é cabeçalho", hdr("Compare MJ981CAP:") === null);
+confere("H9  'Para MJ981CAP a 40 psi:' → NÃO é cabeçalho", hdr("Para MJ981CAP a 40 psi:") === null && hdr("A MJ981CAP:") === null);
+confere("H10 'MJ981CAP tem maior vazão:' → NÃO é cabeçalho", hdr("MJ981CAP tem maior vazão:") === null && hdr("MJ981CAP com vazão maior:") === null);
+confere("H11 'MJ981CAP e MJ985CAP a 40 psi:' → NÃO é cabeçalho único", hdr("MJ981CAP e MJ985CAP a 40 psi:") === null && hdr("MJ981CAP e MJ985CAP:") === null);
+confere("H12 'MJ999CAP a 40 psi:' → NÃO é cabeçalho conhecido", hdr("MJ999CAP a 40 psi:") === null);
+confere("H13 'MJ981CAP @ 40 psi [1]:' → cabeçalho (o conector @ é aceito)", hdr("MJ981CAP @ 40 psi [1]:") === "MJ981CAP");
+confere("H14 cabeçalhos simples continuam: 'MJ981CAP [1]:', '**MJ981CAP** [1]:', 'MJ981CAP:'",
+  ["MJ981CAP [1]:", "**MJ981CAP** [1]:", "MJ981CAP:", "MJ981CAP"].every((l) => hdr(l) === "MJ981CAP"));
+const ctxH = EX.blockContexts("MJ981CAP a 40 psi [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP a 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]\n\nA MJ985CAP tem maior vazão [1].", CONH, PIN40).map((l) => l.contexto);
+confere("H15 linha em branco encerra o contexto", ctxH[2] === null && ctxH[5] === null, JSON.stringify(ctxH));
+confere("H16 novo cabeçalho troca o contexto", ctxH[3] === "MJ985CAP" && ctxH[4] === "MJ985CAP", JSON.stringify(ctxH));
+const TRESP = (a, b, c) => `MJ981CAP a 40 psi [1]:\n- 40 psi -> ${a} [1]\n\nMJ982CAP a 40 psi [1]:\n- 40 psi -> ${b} [1]\n\nMJ985CAP a 40 psi [1]:\n- 40 psi -> ${c} [1]`;
+const h17 = gates(Q_3, TRESP("0,77 L/min", "0,96 L/min", "1,53 L/min"));
+const h17b = gates(Q_3, TRESP("0,77 L/min", "1,53 L/min", "0,96 L/min"));
+confere("H17 três produtos com ponto fixado: certo PASSA (3 conferidas), troca 2º↔3º FAIL",
+  h17.ok && h17.checked === 3 && !h17b.ok && h17b.association === "failed", `${h17.resumo} | ${h17b.resumo}`);
+const h18 = gates(Q_DA, HP("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nDiferença entre MJ981CAP e MJ985CAP: 0,76 L/min [1]\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7% [1]"));
+confere("H18 derivados depois dos blocos com ponto fixado → PASSA", h18.ok, h18.resumo);
+const h19 = gates(Q_QUAL_PB, HP("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nA MJ985CAP tem maior vazão [1]."));
+const h19b = gates(Q_QUAL_PB, HP("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nA MJ981CAP tem maior vazão [1]."));
+confere("H19 conclusão depois da quebra não herda: certa PASSA, errada FAIL por comparison",
+  h19.ok && h19b.kind === "comparison", `${h19.resumo} | ${h19b.resumo}`);
+
+// H20 — ponto fixado diferente, genérico: a pergunta fixa 2,76 bar
+const Q_BAR = "Compare a vazão da MJ981CAP e MJ985CAP a 2,76 bar";
+const PINBAR = C.parseComparison(Q_BAR).pinned;
+confere("H20a a pergunta em bar fixa '2,76 bar'", JSON.stringify(PINBAR) === JSON.stringify([{ numero: "2,76", unidade: "bar" }]));
+confere("H20b 'MJ981CAP a 2,76 bar [1]:' é cabeçalho para ESSA pergunta, e 'MJ981CAP a 40 psi:' não é",
+  EX.blockHeaderCode("MJ981CAP a 2,76 bar [1]:", CONH, PINBAR) === "MJ981CAP" && EX.blockHeaderCode("MJ981CAP a 40 psi:", CONH, PINBAR) === null);
+confere("H20c e vice-versa: com 40 psi fixado, 'MJ981CAP a 2,76 bar:' NÃO é cabeçalho (sem conversão, mesmo sendo a mesma pressão)",
+  hdr("MJ981CAP a 2,76 bar:") === null && hdr("MJ981CAP a 276 kPa:") === null);
+const h20 = gates(Q_BAR, "MJ981CAP a 2,76 bar [1]:\n- 2,76 bar -> 1,53 L/min [1]\n\nMJ985CAP a 2,76 bar [1]:\n- 2,76 bar -> 0,77 L/min [1]");
+confere("H20 troca de produtos sob cabeçalhos 'a 2,76 bar' → FAIL (funciona para qualquer ponto fixado)",
+  !h20.ok && h20.association === "failed" && h20.comparison === "failed", h20.resumo);
+confere("H20d ponto fixado colado ('MJ981CAP a 40psi:') e com mais de um ponto na pergunta",
+  hdr("MJ981CAP a 40psi:") === "MJ981CAP" &&
+  EX.blockHeaderCode("MJ981CAP a 40 psi a 2,76 bar:", CONH, [{ numero: "40", unidade: "psi" }, { numero: "2,76", unidade: "bar" }]) === "MJ981CAP" &&
+  hdr("MJ981CAP a 40 psi a 2,76 bar:") === null);
+confere("H21 depois do ponto fixado, nada mais: 'MJ981CAP a 40 psi e maior vazão:' e 'MJ981CAP a 40 psi 0,77 L/min:' → NÃO",
+  hdr("MJ981CAP a 40 psi e maior vazão:") === null && hdr("MJ981CAP a 40 psi 0,77 L/min:") === null && hdr("MJ981CAP 40 psi:") === null);
+
+// O adversarial crítico da rodada
+const critH = gates(Q_PB, "MJ981CAP a 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]\n\nMJ985CAP a 40 psi [1]:\n- 40 psi -> 0,77 L/min [1]");
+confere("HDR-CRÍTICO produtos trocados sob 'X a 40 psi [1]:' → grounding PASS, association FAIL, comparison FAIL, validateAnswer FAIL",
+  critH.grounding && critH.association === "failed" && critH.comparison === "failed" && !critH.ok, critH.resumo);
+
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ comparação entre códigos\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);
