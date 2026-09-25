@@ -1144,6 +1144,159 @@ const colReal = gates(Q_COLP, `${BLC_OK}\n\nA diferença entre as duas é de 0,7
 confere("COL-R forma bruta do provedor (RUN 2 de 25/09) no fixture com colisão → PASSA",
   colReal.ok && da1.ok && da1b.ok && pb12.ok && pb12b.ok && h18.ok, colReal.resumo);
 
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Matriz adversarial (ADV, 25/09)\n");
+//
+// Trinta classes de falha, cada uma apontada para ONDE já está provada. Só
+// ganha asserção nova a classe que faltava ou estava coberta pela metade
+// (formato não exercitado ponta a ponta). Nada aqui é fuzz: cada caso é uma
+// forma que um provedor pode escrever.
+//
+//   classe                                         onde está provada
+//   ─────────────────────────────────────────────  ─────────────────────────────────────────────
+//   ADV1  número inexistente                       answer N2, R2, I1 · comparison C3
+//   ADV2  unidade errada                           answer N6, R6, I2
+//   ADV3  vírgula/ponto trocado                    answer N3, R3, L8b, L8d · comparison T4b
+//   ADV4  código de outro produto                  answer N8, R5, I3, G8b (código fora da evidência)
+//                                                  + NOVO ADV4 (código que EXISTE na evidência, valor alheio)
+//                                                  + NOVO ADV4-LIMIT (fato verdadeiro do produto errado)
+//   ADV5  valor existente, produto errado          answer P6c, L7c · comparison C2, C14, PB2
+//   ADV6  pressão de uma linha + vazão de outra    answer P2c, P3, P6b · comparison DA7, GAP3
+//   ADV7  derived collision                        comparison COL1, COL2, COL3
+//   ADV8  collision dentro de frase de cálculo     comparison COL9b
+//   ADV9  header simples                           comparison PB2, PB4, PB-CRÍTICO
+//                                                  + NOVO ADV9b (**negrito** ponta a ponta; PB0 só lia o cabeçalho)
+//   ADV10 header pinned                            comparison H4, H5, HDR-CRÍTICO
+//                                                  + NOVO ADV10b ('@ 40 psi' ponta a ponta; H13 só lia o cabeçalho)
+//   ADV11 header com prosa inválida                comparison H7–H12, PB0b, PB6, PB7 (a prosa NÃO vira cabeçalho)
+//                                                  + NOVO ADV11-GAP (a consequência: troca de produto passa)
+//   ADV12 context bleed entre 3 produtos           comparison PB11b, PB11c, H17
+//   ADV13 citação inexistente                      answer D4, E3 · comparison T6b · synthesis SYN28
+//   ADV14 parágrafo factual sem citação            answer N11, I4 · comparison T2, T2b, T3
+//   ADV15 duas evidências, citação cruzada         answer N13 · comparison P5, P14, T6
+//   ADV16 UUID                                     answer D6, E6 · synthesis SYN29
+//   ADV17 SHA                                      answer D7
+//   ADV18 storage path                             answer D8
+//   ADV19 URL                                      answer D9, E7 · synthesis SYN30
+//   ADV20 resposta > limite                        answer D5, E5
+//   ADV21 modelo vazio                             answer D2, E4
+//   ADV22 comparação incompleta                    comparison C4c, C15, C15b, P13, DA10 · synthesis SYN16a–SYN18
+//   ADV23 comparação > limite de códigos           comparison C13, C13b · synthesis SYN15, SYN15b
+//   ADV24 lista incompleta                         answer L6b, L12b, P5 · synthesis SYN12
+//   ADV25 lista com linha de outro código          answer L7c, L12c
+//   ADV26 dois pontos de tabela no mesmo item      answer P8c (lista) + NOVO ADV26b (bloco de comparação)
+//   ADV27 percentual não pedido                    comparison C11, C11b
+//   ADV28 percentual errado                        comparison DA4, T4b
+//   ADV29 maior/menor invertido                    comparison P8, P9, DA13, PB5b, H19
+//   ADV30 empate apontando vencedor                comparison P11
+//
+// Formatos: inline (PB16, COL3), bloco (PB*), [1] (todos), '->' (todos),
+// 'a 40 psi' (H3–H5), texto natural (DA6b, COL9), lista (answer L*) já
+// estavam ponta a ponta. Novos aqui: **negrito**, '@ 40 psi', [1][2] no
+// cabeçalho, espaços extras e CRLF.
+
+// ADV4 — o código escrito EXISTE na evidência (MJ982CAP está na p. 20), então
+// o grounding aceita; o valor é da MJ981CAP. Quem barra é a associação.
+const Q_PONTUAL = "Qual a vazão da MJ981CAP a 40 psi?";
+const adv4 = gates(Q_PONTUAL, "A MJ982CAP entrega 0,77 L/min a 40 psi [1].");
+confere("ADV4  código de outro produto que EXISTE na evidência, com o valor da MJ981CAP → grounding PASS, association FAIL",
+  adv4.grounding && adv4.association === "failed" && adv4.kind === "association", adv4.resumo);
+// ADV4-LIMIT — registro, não conserto. Perguntou pela MJ981CAP e a resposta
+// fala só da MJ982CAP, com o valor CERTO dela. Nada do que está escrito é
+// falso nem sem lastro — é resposta fora do assunto. Os gates provam
+// verdade e vínculo, não pertinência; exigir que a resposta cite o código da
+// pergunta é outra regra, e fica como fronteira conhecida.
+const adv4l = gates(Q_PONTUAL, "A MJ982CAP entrega 0,96 L/min a 40 psi [1].");
+confere("ADV4-LIMIT fato verdadeiro de OUTRO produto na pergunta pontual → PASSA (fronteira registrada: pertinência não é conferida)",
+  adv4l.ok && adv4l.association === "ok" && adv4l.checked === 1, adv4l.resumo);
+
+// ADV9b / ADV10b — os dois cabeçalhos que só tinham prova unitária
+const adv9 = gates(Q_PB, "**MJ981CAP** [1]:\n- 40 psi -> 1,53 L/min [1]\n\n**MJ985CAP** [1]:\n- 40 psi -> 0,77 L/min [1]");
+const adv9ok = gates(Q_PB, "**MJ981CAP** [1]:\n- 40 psi -> 0,77 L/min [1]\n\n**MJ985CAP** [1]:\n- 40 psi -> 1,53 L/min [1]");
+confere("ADV9b cabeçalho **negrito**: troca → association e comparison FAIL; certo → PASSA (2 conferidas)",
+  !adv9.ok && adv9.association === "failed" && adv9.comparison === "failed" && adv9ok.ok && adv9ok.checked === 2,
+  `${adv9.resumo} | certo: ${adv9ok.resumo}`);
+const adv10 = gates(Q_PB, "MJ981CAP @ 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]\n\nMJ985CAP @ 40 psi [1]:\n- 40 psi -> 0,77 L/min [1]");
+const adv10ok = gates(Q_PB, "MJ981CAP @ 40 psi [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP @ 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]");
+confere("ADV10b cabeçalho 'X @ 40 psi [1]:': troca → association e comparison FAIL; certo → PASSA (2 conferidas)",
+  !adv10.ok && adv10.association === "failed" && adv10.comparison === "failed" && adv10ok.ok && adv10ok.checked === 2,
+  `${adv10.resumo} | certo: ${adv10ok.resumo}`);
+
+// ADV11-GAP — MEDIDO em 25/09, não suposto. A gramática fechada do cabeçalho
+// (H7–H12) está certa em não dar contexto à prosa; a consequência é que as
+// linhas de valor debaixo de "Para MJ981CAP a 40 psi [1]:" ficam SEM DONO
+// (checked=0), e a comparação só julga item com um código — que aqui é o
+// próprio cabeçalho, com "40 psi", valor que a MJ981CAP de fato tem. A troca
+// passa em todos os gates. É o buraco do GAP1–GAP3 por outra porta.
+// Não foi fechado nesta rodada porque fechar é decidir gramática (alargar o
+// cabeçalho, ou reprovar valor órfão numa comparação — o que muda o PB15);
+// fica registrado para a auditoria. Quando for fechado, estas asserções
+// INVERTEM, como aconteceu com o GAP1–GAP3.
+const adv11a = gates(Q_PB, "Para MJ981CAP a 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]\n\nPara MJ985CAP a 40 psi [1]:\n- 40 psi -> 0,77 L/min [1]");
+const adv11b = gates(Q_PB, "Sobre a MJ981CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\nSobre a MJ985CAP [1]:\n- 40 psi -> 0,77 L/min [1]");
+confere("ADV11-GAP troca de produtos sob cabeçalho em PROSA ('Para X a 40 psi:', 'Sobre a X:') → PASSA em todos os gates, nenhuma linha de valor conferida (buraco registrado)",
+  adv11a.grounding && adv11a.association === "ok" && adv11a.checked === 0 && adv11a.comparison === "ok" && adv11a.ok &&
+  adv11b.ok && adv11b.checked === 0,
+  `${adv11a.resumo} | ${adv11b.resumo}`);
+
+// ADV26b — dois pontos da tabela no mesmo item, agora dentro do bloco de
+// comparação (P8c provava na lista). Os dois pares existem na linha da
+// MJ981CAP, cada um na sua; juntos no item, não há uma linha que prove.
+const adv26 = gates(Q_PB, BL("40 psi -> 0,77 L/min e 50 psi -> 0,86 L/min", "40 psi -> 1,53 L/min"));
+const adv26x = gates(Q_PB, BL("40 psi -> 0,86 L/min e 50 psi -> 0,77 L/min", "40 psi -> 1,53 L/min"));
+confere("ADV26b dois pontos no mesmo item do bloco (certos ou cruzados) → association FAIL: não dá para provar a relação",
+  adv26.grounding && adv26.association === "failed" && adv26.kind === "association" && adv26x.kind === "association",
+  `${adv26.resumo} | cruzado: ${adv26x.resumo}`);
+
+// Referência dupla no cabeçalho, ponta a ponta (PB9 só lia o cabeçalho).
+// EVD: MJ981CAP só em [1], MJ985CAP só em [2]; citar as duas satisfaz o
+// grounding, e o vínculo produto → valor continua sendo conferido.
+const advRef = gates(Q_PB, "MJ981CAP [1][2]:\n- 40 psi -> 1,53 L/min [1][2]\n\nMJ985CAP [1][2]:\n- 40 psi -> 0,77 L/min [1][2]", EVD);
+const advRefOk = gates(Q_PB, "MJ981CAP [1][2]:\n- 40 psi -> 0,77 L/min [1][2]\n\nMJ985CAP [1][2]:\n- 40 psi -> 1,53 L/min [1][2]", EVD);
+confere("ADV-REF cabeçalho '[1][2]' com duas evidências: troca → grounding PASS, association e comparison FAIL; certo → PASSA",
+  advRef.grounding && advRef.association === "failed" && advRef.comparison === "failed" && advRefOk.ok,
+  `${advRef.resumo} | certo: ${advRefOk.resumo}`);
+
+// Espaços extras em tudo: cabeçalho, marcador, número, unidade, seta.
+const advSp = gates(Q_PB, "MJ981CAP   [1] :\n-    40  psi   ->   1,53  L/min   [1]\n\n  MJ985CAP  [1]:\n-  40 psi  ->  0,77 L/min [1]");
+const advSpOk = gates(Q_PB, "MJ981CAP   [1] :\n-    40  psi   ->   0,77  L/min   [1]\n\n  MJ985CAP  [1]:\n-  40 psi  ->  1,53 L/min [1]");
+confere("ADV-SP espaços extras: o cabeçalho continua cabeçalho — troca FAIL (association e comparison), certo PASSA",
+  !advSp.ok && advSp.association === "failed" && advSp.comparison === "failed" && advSpOk.ok && advSpOk.checked === 2,
+  `${advSp.resumo} | certo: ${advSpOk.resumo}`);
+
+// CRLF — um provedor (ou um proxy) pode devolver "\r\n". Se alguma quebra
+// lesse "\r" como conteúdo, o cabeçalho "MJ981CAP [1]:\r" deixaria de ser
+// cabeçalho e a linha em branco "\r" deixaria de encerrar o bloco — o mesmo
+// buraco do PB, só que invisível na tela. A prova é de EQUIVALÊNCIA: gate a
+// gate, o resultado em CRLF é idêntico ao em LF, e o esperado é o de sempre.
+const crlf = (t) => t.replace(/\n/g, "\r\n");
+const lfCrlf = (q, t, evs = EV) => {
+  const lf = gates(q, t, evs);
+  const cr = gates(q, crlf(t), evs);
+  return { lf, cr, igual: lf.resumo === cr.resumo };
+};
+const bindOk = lfCrlf(Q_PB, BL("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min"));
+const bindSwap = lfCrlf(Q_PB, BL("40 psi -> 1,53 L/min", "40 psi -> 0,77 L/min"));
+confere("ADV-CRLF1 product binding em bloco: CRLF ≡ LF gate a gate — certo PASSA (2 conferidas), troca FAIL em association e comparison",
+  bindOk.igual && bindSwap.igual && bindOk.cr.ok && bindOk.cr.checked === 2 &&
+  !bindSwap.cr.ok && bindSwap.cr.association === "failed" && bindSwap.cr.comparison === "failed",
+  `CRLF certo: ${bindOk.cr.resumo} | CRLF troca: ${bindSwap.cr.resumo}`);
+const derivOk = lfCrlf(Q_DA, BL("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nDiferença entre MJ981CAP e MJ985CAP: 0,76 L/min [1]\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7% [1]"));
+const derivCol = lfCrlf(Q_COL, COL_BLOCO, EVCOL);
+const derivCol9b = lfCrlf(Q_COLP, `${BLC_OK}\n\nA diferença é de 0,76 L/min e a MJ701CAP entrega 0,76 L/min a 40 psi [1].`, EVCOL);
+confere("ADV-CRLF2 derivado: CRLF ≡ LF — legítimo PASSA; colisão derivado × documental (COL2) e colisão na frase de cálculo (COL9b) FAIL association",
+  derivOk.igual && derivCol.igual && derivCol9b.igual &&
+  derivOk.cr.ok && derivCol.cr.kind === "association" && derivCol9b.cr.kind === "association",
+  `CRLF legítimo: ${derivOk.cr.resumo} | CRLF COL2: ${derivCol.cr.resumo} | CRLF COL9b: ${derivCol9b.cr.resumo}`);
+const crlfResto = [
+  ["pinned", lfCrlf(Q_PB, "MJ981CAP a 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]\n\nMJ985CAP a 40 psi [1]:\n- 40 psi -> 0,77 L/min [1]"), (g) => g.kind === "association"],
+  ["3 produtos", lfCrlf(Q_3, TRES("0,77 L/min", "1,53 L/min", "0,96 L/min")), (g) => g.association === "failed"],
+  ["parágrafo sem citação", lfCrlf(Q_H, `${BLOCOS}\n\nA MJ985CAP tem maior vazão a 40 psi. A diferença é de 0,76 L/min (98,7%).`), (g) => g.kind === "grounding"],
+];
+confere("ADV-CRLF3 CRLF ≡ LF também no cabeçalho com ponto fixado, no bleed entre 3 produtos e no parágrafo sem citação (a quebra dupla '\\r\\n\\r\\n' separa parágrafo)",
+  crlfResto.every(([, r, esperado]) => r.igual && esperado(r.cr)),
+  crlfResto.map(([n, r]) => `${n}: ${r.cr.resumo}`).join(" | "));
+
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ comparação entre códigos\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);
