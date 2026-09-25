@@ -80,9 +80,10 @@ try {
   const P = await imp("prompt.ts");
   const L = await imp("limits.ts");
   const E = await imp("evidence.ts");
+  const EX = await imp("exhaustiveness.ts");
   const { ProviderError } = await imp("provider.ts");
 
-  await suite({ S, A, C, P, L, E, ProviderError });
+  await suite({ S, A, C, P, L, E, EX, ProviderError });
 } catch (erro) {
   falhas += 1;
   process.stdout.write(`  ✗ erro inesperado: ${erro?.stack ?? erro}\n`);
@@ -92,7 +93,7 @@ try {
 process.stdout.write(falhas === 0 ? "✔ máquina de estados da síntese\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);
 
-async function suite({ S, A, C, P, L, E, ProviderError }) {
+async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const ok = (t) => process.stdout.write(`  ✓ ${t}\n`);
   const nao = (t) => { falhas += 1; process.stdout.write(`  ✗ ${t}\n`); };
   const confere = (t, c, d = "") => (c ? ok(`${t}${d ? ` — ${d}` : ""}`) : nao(`${t}${d ? ` — ${d}` : ""}`));
@@ -458,6 +459,63 @@ async function suite({ S, A, C, P, L, E, ProviderError }) {
   confere("SYN19d nem conteúdo, nem id, nem caminho do documento proibido na resposta ou no aviso",
     !s19.r.answer.includes("1098") && !s19.r.warning.includes("1098") && !s19.r.answer.includes("SENSOR PRESSAO") &&
     !UUID.test(JSON.stringify(s19.r)) && SEGREDOS.every((x) => !JSON.stringify(s19.r).includes(x)));
+
+  // ════════════════════════════════════════════════════════════
+  process.stdout.write("▶ Comparação incompleta: dois motivos separados (SYN31, 25/09)\n");
+  //
+  // Revisão independente (S1): o aviso juntava "sem documentação" e
+  // "documentado mas sem valor no ponto pedido" na mesma frase — "não
+  // encontrei documentação para MJ981CAP" saía com a tabela da MJ981CAP bem
+  // abaixo, só porque a pergunta fixou um ponto (45 psi) que a evidência não
+  // cobre. Agora os dois motivos são ditos separado, e só o que falta de
+  // verdade (nenhuma linha do código, em evidência nenhuma) usa a palavra
+  // "documentação". Fixture: MAG só tem 40 psi para MJ981CAP/MJ985CAP.
+
+  const Q_45 = "Compare a vazão da MJ981CAP e MJ985CAP a 45 psi";
+  const s31a = await rodar({ rotulo: "SYN31a", pergunta: Q_45, prov: provedor(OK_PONTUAL) });
+  confere("SYN31a os dois códigos TÊM tabela, mas nenhum tem 45 psi → 'valor pedido … no ponto 45 psi', nunca 'documentação'",
+    s31a.r.mode === "extractive" && s31a.r.comparison === true && s31a.chamadas === 0 &&
+    s31a.log?.outcome.startsWith("comparison_incomplete:") &&
+    /não encontrei, nos trechos encontrados, o valor pedido para MJ981CAP e MJ985CAP no ponto 45 psi/.test(s31a.r.warning) &&
+    !/não encontrei documentação/.test(s31a.r.warning),
+    s31a.r.warning);
+
+  const Q_999_40 = "Compare a vazão da MJ981CAP e MJ999CAP a 40 psi";
+  const s31b = await rodar({ rotulo: "SYN31b", pergunta: Q_999_40, prov: provedor(OK_PONTUAL) });
+  confere("SYN31b MJ999CAP não tem NENHUMA tabela → 'não encontrei documentação para MJ999CAP', sem 'o valor pedido'",
+    /não encontrei documentação para MJ999CAP nesta consulta/.test(s31b.r.warning) && !s31b.r.warning.includes("o valor pedido"),
+    s31b.r.warning);
+
+  const Q_999_45 = "Compare a vazão da MJ981CAP e MJ999CAP a 45 psi";
+  const s31c = await rodar({ rotulo: "SYN31c", pergunta: Q_999_45, prov: provedor(OK_PONTUAL) });
+  confere("SYN31c os dois motivos juntos, cada código no seu, unidos por '; ': MJ999CAP sem documentação, MJ981CAP sem o valor a 45 psi",
+    /não encontrei documentação para MJ999CAP nesta consulta; não encontrei, nos trechos encontrados, o valor pedido para MJ981CAP no ponto 45 psi/.test(s31c.r.warning),
+    s31c.r.warning);
+
+  const Q_GLUED = "Compare a vazão da MJ981CAP e MJ985CAP a 40psi";
+  const CERTA_GLUED = "MJ981CAP: 0,77 L/min a 40 psi [1].\nMJ985CAP: 1,53 L/min a 40 psi [1].";
+  const planoGlued = C.planComparison(Q_GLUED, [E.toEvidence(MAG, false)]);
+  const s31d = await rodar({ rotulo: "SYN31d", pergunta: Q_GLUED, prov: provedor(CERTA_GLUED) });
+  confere("SYN31d '40psi' colado não vira um terceiro código: planComparison tem só os dois produtos, e a resposta certa SINTETIZA (nenhuma comparação incompleta por causa de '40psi')",
+    planoGlued.blocks.map((b) => b.code).join(",") === "MJ981CAP,MJ985CAP" && planoGlued.incomplete === false &&
+    s31d.r.mode === "synthesized" && s31d.log?.outcome === "answered" &&
+    (s31d.r.warning === undefined || !s31d.r.warning.includes("40psi")),
+    `mode=${s31d.r.mode} outcome=${s31d.log?.outcome} warning=${s31d.r.warning}`);
+  confere("SYN31d2 e o mesmo critério vale fora da máquina de estados: 'C.parseComparison' e 'EX.parseListingQuestion' concordam, com bar/kPa colados e dois pontos na mesma pergunta",
+    C.parseComparison(Q_GLUED).codes.join(",") === "MJ981CAP,MJ985CAP" &&
+    EX.parseListingQuestion("Compare a MJ981CAP e MJ985CAP a 2,76bar e 276kPa").codes.join(",") === "MJ981CAP,MJ985CAP");
+
+  confere("SYN31e o aviso nunca nomeia um token ausente da própria pergunta (MJ999CAP não aparece em a, '45 psi' não aparece em b), e o outcome de a) lista os dois códigos, na ordem da pergunta",
+    !s31a.r.warning.includes("MJ999CAP") && !s31b.r.warning.includes("45 psi") &&
+    s31a.log?.outcome === "comparison_incomplete: MJ981CAP,MJ985CAP");
+
+  const planoDocB = C.planComparison(Q_999_40, [E.toEvidence(MAG, false)]);
+  const planoDocA = C.planComparison(Q_45, [E.toEvidence(MAG, false)]);
+  confere("SYN31f 'documented' por código: em b) MJ981CAP true e MJ999CAP false; em a) os dois true (têm tabela) e os dois missing (não têm 45 psi)",
+    planoDocB.blocks.find((b) => b.code === "MJ981CAP")?.documented === true &&
+    planoDocB.blocks.find((b) => b.code === "MJ999CAP")?.documented === false &&
+    planoDocA.blocks.every((b) => b.documented === true && b.missing === true),
+    JSON.stringify(planoDocB.blocks.map((b) => ({ code: b.code, documented: b.documented }))));
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Comparação válida (SYN20)\n");

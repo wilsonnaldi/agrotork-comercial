@@ -71,6 +71,9 @@ const UNIDADES: Record<Campo, string[]> = {
 
 const UNIDADE_POR_PALAVRA: Record<string, string> = { bar: "bar", psi: "psi", kpa: "kPa" };
 
+/** "40psi", "76bar", "276kPa": dígitos seguidos só de uma unidade de pressão. */
+const NUMERO_COM_UNIDADE_COLADA = /^\d+(?:bar|psi|kpa)$/i;
+
 export type ListingField = {
   campo: Campo;
   /** Unidades aceitas. */
@@ -90,7 +93,19 @@ export type ListingSpec = {
 };
 
 export function parseListingQuestion(pergunta: string): ListingSpec {
-  const codes = [...new Set([...pergunta.matchAll(/[A-Za-z0-9][A-Za-z0-9-]*/g)].map((m) => m[0]).filter(pareceCodigo))];
+  // "40psi" e "276kPa" cabem no perfil de código (letra + dígito, 3+), mas
+  // são número e unidade colados — e "2,76bar" ainda perde a vírgula na
+  // tokenização e vira "76bar". Tratados como código, entravam na comparação
+  // como um terceiro produto sem documentação e o aviso dizia "não encontrei
+  // documentação para 40psi" (revisão de 25/09). Só o perfil da PERGUNTA
+  // muda; o grounding continua lendo o token como sempre leu.
+  const codes = [
+    ...new Set(
+      [...pergunta.matchAll(/[A-Za-z0-9][A-Za-z0-9-]*/g)]
+        .map((m) => m[0])
+        .filter((t) => pareceCodigo(t) && !NUMERO_COM_UNIDADE_COLADA.test(t)),
+    ),
+  ];
   const palavras = normaliza(pergunta).split(" ");
   const pinned = extractUnitPairs(pergunta);
 
@@ -527,6 +542,12 @@ export function checkAssociation(
   const daPergunta = parseListingQuestion(pergunta);
   const codigosDaPergunta = daPergunta.codes;
   const codigosConhecidos = new Set(evidencias.flatMap((e) => e.codes.map((c) => c.toUpperCase())));
+  // O item pode nomear um código que a PERGUNTA trouxe e a evidência não
+  // (MJ999CAP, sem documentação). Ele não vira cabeçalho de bloco — a
+  // gramática segue nos códigos das evidências —, mas identifica o dono do
+  // item: "MJ999CAP: 0,86 L/min" não é valor sem dono, é valor de um produto
+  // sem linha, e quem o reprova é a comparação, com o motivo certo.
+  const codigosNomeaveis = new Set([...codigosConhecidos, ...codigosDaPergunta.map((c) => c.toUpperCase())]);
 
   const linhas: Linha[] = [];
   for (const e of evidencias) {
@@ -564,14 +585,12 @@ export function checkAssociation(
     const item = derivados.length > 0 && isDerivedStatement(bruto) ? semDerivados(bruto, derivados) : bruto;
     const pares = extractUnitPairs(item).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
     if (pares.length === 0) continue;
-    const numeros = extractNumbers(item);
-    if (numeros.length < 2) continue;
 
     const codigosDoItem = [
       ...new Set(
         [...item.matchAll(/[A-Za-z0-9][A-Za-z0-9-]*/g)]
           .map((m) => m[0])
-          .filter((t) => pareceCodigo(t) && codigosConhecidos.has(t.toUpperCase())),
+          .filter((t) => pareceCodigo(t) && codigosNomeaveis.has(t.toUpperCase())),
       ),
     ];
     // Valor sem dono numa comparação (ADV11, 25/09). Sem código no item e sem
@@ -581,13 +600,16 @@ export function checkAssociation(
     // de "- 40 psi -> 1,53 L/min" passava com os produtos trocados. A
     // gramática do cabeçalho continua fechada; o que muda é o destino do
     // item órfão: numa comparação ele não tem como ser conferido, então
-    // reprova. Vem DEPOIS de tirar o derivado e do corte de número único —
-    // "A diferença a 40 psi é de 0,76 L/min [1]" vira "40 psi" sozinho e
-    // continua não julgado. Com um código só na pergunta (listagem,
-    // pontual), nada muda: o sujeito é ele. E só reprova item que traz VALOR
-    // (L/min, L/ha): "A 40 psi (2,76 bar / 276 kPa) [1]:" é o ponto de
-    // operação em três unidades — não diz nada de produto nenhum, e segue
-    // não julgado como antes.
+    // reprova. Vem DEPOIS de tirar o derivado — "A diferença a 40 psi é de
+    // 0,76 L/min [1]" vira "40 psi" sozinho e continua não julgado — e ANTES
+    // do corte de número único, logo abaixo: a revisão independente (25/09)
+    // mostrou que "- 1,53 L/min [1]" sozinho, debaixo da mesma prosa, passava
+    // porque o corte o pulava antes desta regra. Um valor só é tão órfão
+    // quanto dois. Com um código só na pergunta (listagem, pontual), nada
+    // muda: o sujeito é ele. E só reprova item que traz VALOR (L/min, L/ha):
+    // "A 40 psi (2,76 bar / 276 kPa) [1]:" é o ponto de operação em três
+    // unidades — não diz nada de produto nenhum, e segue não julgado como
+    // antes.
     if (
       codigosDoItem.length === 0 && contexto === null && codigosDaPergunta.length >= 2 &&
       pares.some((p) => UNIDADES_DE_VALOR.has(p.unidade))
@@ -596,6 +618,9 @@ export function checkAssociation(
       failures.push(`associação sem lastro: "${bruto.slice(0, 60)}" — numa comparação, valor sem código não tem como ser conferido`);
       continue;
     }
+
+    const numeros = extractNumbers(item);
+    if (numeros.length < 2) continue;
 
     // O sujeito: o código escrito no item; senão, o do cabeçalho do bloco;
     // senão, os da pergunta. A ordem importa — o explícito vence o herdado.

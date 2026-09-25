@@ -62,11 +62,37 @@ function registrar(log: GenerationLog) {
  * — as duas situações têm de ser indistinguíveis. Nenhuma sugestão de código
  * parecido, pelo mesmo motivo.
  */
-function avisoComparacaoIncompleta(faltantes: string[], todosFaltam: boolean): string {
-  const lista = faltantes.length === 1
-    ? faltantes[0]
-    : `${faltantes.slice(0, -1).join(", ")} e ${faltantes[faltantes.length - 1]}`;
-  return `Não dá para concluir a comparação: não encontrei documentação para ${lista} nesta consulta. ` +
+function lista(codigos: string[]): string {
+  return codigos.length === 1
+    ? codigos[0]!
+    : `${codigos.slice(0, -1).join(", ")} e ${codigos[codigos.length - 1]}`;
+}
+
+/**
+ * Dois motivos, ditos separados (revisão de 25/09): o código que NENHUMA
+ * evidência traz ("não encontrei documentação") e o que está documentado
+ * mas sem valor no ponto ou na unidade pedidos ("não encontrei o valor …
+ * a 45 psi"). Juntá-los dizia "não encontrei documentação para MJ981CAP"
+ * com a tabela da MJ981CAP logo abaixo. O segundo motivo só cita o ponto
+ * que a própria pergunta fixou, então também não revela nada.
+ */
+function avisoComparacaoIncompleta(
+  semDocumentacao: string[],
+  semValor: string[],
+  pontoPedido: string | null,
+  todosFaltam: boolean,
+): string {
+  const motivos: string[] = [];
+  if (semDocumentacao.length > 0) {
+    motivos.push(`não encontrei documentação para ${lista(semDocumentacao)} nesta consulta`);
+  }
+  if (semValor.length > 0) {
+    motivos.push(
+      `não encontrei, nos trechos encontrados, o valor pedido para ${lista(semValor)}` +
+        (pontoPedido ? ` no ponto ${pontoPedido}` : ""),
+    );
+  }
+  return `Não dá para concluir a comparação: ${motivos.join("; ")}. ` +
     (todosFaltam
       ? "Os trechos encontrados estão abaixo, na íntegra."
       : "Os trechos encontrados para os demais códigos estão abaixo, na íntegra.");
@@ -208,18 +234,23 @@ export async function answerWith(
     // Sem evidência para um dos códigos não há diferença, vencedor nem
     // percentual — e o modelo só poderia errar isso (SYN16–SYN18 mostravam
     // o provedor chamado à toa). Fim determinístico, com os trechos na tela.
-    const faltantes = plano.blocks.filter((b) => b.missing).map((b) => b.code);
+    const faltantes = plano.blocks.filter((b) => b.missing);
+    const semDocumentacao = faltantes.filter((b) => !b.documented).map((b) => b.code);
+    const semValor = faltantes.filter((b) => b.documented).map((b) => b.code);
+    const pontoPedido = plano.spec.pinned.length > 0
+      ? plano.spec.pinned.map((p) => `${p.numero} ${p.unidade}`).join(" e ")
+      : null;
     registrar({
       query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
       provider: null, model: null, durationMs: null,
-      outcome: `comparison_incomplete: ${faltantes.join(",")}`,
+      outcome: `comparison_incomplete: ${faltantes.map((b) => b.code).join(",")}`,
     });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
       mode: "extractive",
       comparison: true,
-      warning: avisoComparacaoIncompleta(faltantes, faltantes.length === plano.blocks.length),
+      warning: avisoComparacaoIncompleta(semDocumentacao, semValor, pontoPedido, faltantes.length === plano.blocks.length),
     });
   }
 

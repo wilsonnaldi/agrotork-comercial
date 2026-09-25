@@ -203,14 +203,40 @@ confere("C4  produto sem evidência: bloco marcado como ausente e comparação i
   plano999.status === "ready" && plano999.incomplete === true &&
   plano999.blocks.find((b) => b.code === "MJ999CAP").missing === true);
 confere("C4b sem os dois lados, NENHUMA diferença é calculada", plano999.derived.length === 0);
+// S1 — `documented`: separa "não tem tabela nenhuma" de "tem tabela, mas
+// não no ponto pedido" (o campo em si; o AVISO fica na suíte de síntese,
+// SYN31). MUG-CV02 não aparece em `codes` do fixture nem, por contiguidade
+// (`contemToken`), no texto — "MUG-CV 02" tem espaço, "MUG-CV02" não — então
+// fica sem documentação nenhuma; uma evidência cujo `codes` LISTE o token,
+// mesmo sem ele no texto, já basta para `documented = true`.
+const planoMug = C.planComparison("Compare a vazão da MUG-CV02 e MJ985CAP a 40 psi", EV);
+confere("C-DOC1 MUG-CV02 não está em `codes` nem contíguo no texto (é 'MUG-CV 02', com espaço) → documented=false",
+  planoMug.status === "ready" &&
+  planoMug.blocks.find((b) => b.code === "MUG-CV02")?.documented === false &&
+  !EV.some((e) => e.content.includes("MUG-CV02")),
+  JSON.stringify(planoMug.blocks.map((b) => ({ code: b.code, documented: b.documented }))));
+const EV_MUG_CODES = ev({ codes: ["MUG-CV02"] });
+const planoMugCodes = C.planComparison("Compare a vazão da MUG-CV02 e MJ985CAP a 40 psi", [EV_MUG_CODES]);
+confere("C-DOC2 mas uma evidência cujo `codes` TRAGA 'MUG-CV02' (ainda sem o token no texto) → documented=true, e sem linha no ponto, missing=true",
+  planoMugCodes.status === "ready" &&
+  planoMugCodes.blocks.find((b) => b.code === "MUG-CV02")?.documented === true &&
+  planoMugCodes.blocks.find((b) => b.code === "MUG-CV02")?.missing === true,
+  JSON.stringify(planoMugCodes.blocks.map((b) => ({ code: b.code, documented: b.documented, missing: b.missing }))));
 const INCOMPLETA_OK = [
   "MJ981CAP: 0,77 L/min a 40 psi [1].",
   "",
   "Não encontrei documentação suficiente para a MJ999CAP nesse mesmo critério, então não dá para concluir a comparação. [1]",
 ].join("\n");
 confere("C4c a resposta que declara a falta passa", vq(Q_999, INCOMPLETA_OK).ok === true, vq(Q_999, INCOMPLETA_OK).problem ?? "ok");
-confere("C15 anunciar diferença numa comparação incompleta → REPROVADO",
-  vq(Q_999, "- MJ981CAP: 0,77 L/min [1]\n- MJ999CAP: sem dados [1]\n- Diferença: 0,77 L/min [1]").kind === "comparison");
+// C15: até 25/09 quem pegava era a comparação; agora a associação chega
+// antes — "Diferença: 0,77 L/min" numa comparação sem derivado calculado é
+// valor sem dono (revisão independente, B1). A comparação continua
+// reprovando sozinha, e o teste confere as duas coisas.
+const C15_TXT = "- MJ981CAP: 0,77 L/min [1]\n- MJ999CAP: sem dados [1]\n- Diferença: 0,77 L/min [1]";
+const c15 = vq(Q_999, C15_TXT);
+confere("C15 anunciar diferença numa comparação incompleta → REPROVADO (association antes, comparison também)",
+  c15.kind === "association" && C.checkComparison(Q_999, C15_TXT, EV, A.buildCitations(EV)).status === "failed",
+  `${c15.kind}: ${c15.problem}`);
 confere("C15b inventar valor para o produto ausente → REPROVADO",
   vq(Q_999, "- MJ981CAP: 0,77 L/min [1]\n- MJ999CAP: 1,53 L/min [1]").ok === false);
 confere("C15c omitir um dos produtos comparados → REPROVADO",
@@ -1093,14 +1119,16 @@ confere("COL9c diferença repetida + '40 psi' em parágrafo próprio → agora F
 
 // COL10 — o literal sozinho, sem palavra de cálculo: nenhum bypass
 // automático. Ele não é tirado (isDerivedStatement = false) e é julgado como
-// qualquer item; como UM número sozinho não afirma relação, a associação não
-// tem o que conferir e ele passa — pela regra de sempre, não pela exceção
-// do derivado. O mesmo literal ao lado de uma pressão, dentro de bloco, é
-// conferido e reprova.
+// qualquer item. Até 25/09 passava "sem ser conferido" (um número só não é
+// relação); a revisão independente (B1) mostrou que era o mesmo buraco de
+// ADV11 com um valor só — "Para MJ981CAP a 40 psi:" + "- 1,53 L/min" —, e
+// agora, numa comparação, valor de L/min sem dono reprova (checked=3). O
+// mesmo literal ao lado de uma pressão, dentro de bloco, é conferido e
+// reprova como antes.
 const col10 = gates(Q_COL, `${BLC_OK}\n\n0,76 L/min [1]`, EVCOL);
 const col10b = gates(Q_COL, `MJ701CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- 0,76 L/min a 40 psi [1]\n\nMJ702CAP [1]:\n- 40 psi -> 1,53 L/min [1]`, EVCOL);
-confere("COL10 '0,76 L/min [1]' solto: não é frase de cálculo, não é tirado; um número só não é relação → PASSA sem ser conferido (checked=2)",
-  !EX.isDerivedStatement("0,76 L/min") && col10.ok && col10.checked === 2, col10.resumo);
+confere("COL10 '0,76 L/min [1]' solto: não é frase de cálculo, não é tirado; numa comparação é valor sem dono → FAIL association (checked=3)",
+  !EX.isDerivedStatement("0,76 L/min") && !col10.ok && col10.kind === "association" && col10.checked === 3, col10.resumo);
 confere("COL10b '- 0,76 L/min a 40 psi' dentro do bloco da MJ701CAP, sem palavra de cálculo → association FAIL",
   col10b.association === "failed" && col10b.kind === "association", col10b.resumo);
 
@@ -1284,6 +1312,49 @@ const ADV11E = "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\n- 2,76 bar -> 1,53 
 const adv11e = gates(Q_PB, ADV11E);
 confere("ADV11-FIX-e linha órfã com valor ('- 2,76 bar -> 1,53 L/min', sem cabeçalho) numa comparação → FAIL pela regra do órfão",
   !adv11e.ok && adv11e.kind === "association" && ORFAO.test(A.validateAnswer(ADV11E, CIT, EV, Q_PB).problem), adv11e.resumo);
+
+// ADV11-FIX-f..k — B1 (revisão independente, 25/09): a regra do órfão
+// (ORFAO) rodava DEPOIS do corte `numeros.length < 2`, então um valor
+// ÚNICO sob cabeçalho em prosa ("- 1,53 L/min [1]", sem par número+unidade
+// de pressão do lado) era cortado antes de chegar na regra e passava "sem
+// ser conferido" — a mesma classe do ADV11-FIX, com um valor só em vez de
+// dois. A ordem virou: órfão primeiro, corte de número único depois. Junto,
+// `codigosNomeaveis` passou a incluir os códigos da PERGUNTA — item f) tem
+// "MJ999CAP" só na pergunta em outros testes (ADV11-FIX-CUSTO cobre isso);
+// aqui o efeito visível é o mesmo problema ORFAO nos quatro formatos.
+const PROSA_1V = (rotulo, a, b) => `${rotulo} MJ981CAP a 40 psi [1]:\n- ${a} [1]\n\n${rotulo} MJ985CAP a 40 psi [1]:\n- ${b} [1]`;
+const ADV11F_TXT = `${PROSA_1V("Para", "1,53 L/min", "0,77 L/min")}\n\nDiferença entre MJ981CAP e MJ985CAP: 0,76 L/min [1]`;
+const adv11f = vq(Q_PB, ADV11F_TXT);
+confere("ADV11-FIX-f prosa 'Para X a 40 psi:' + UM valor solto ('- 1,53 L/min') + diferença → FAIL association (valor sem dono)",
+  adv11f.kind === "association" && ORFAO.test(adv11f.problem), adv11f.problem);
+
+const adv11g = vq(Q_PB, PROSA_1V("Vazão da", "1,53 L/min", "0,77 L/min"));
+confere("ADV11-FIX-g prosa 'Vazão da X a 40 psi:' + UM valor solto → FAIL association (mesma regra, outro rótulo de prosa)",
+  adv11g.kind === "association" && ORFAO.test(adv11g.problem), adv11g.problem);
+
+const adv11h = vq(Q_PB, PROSA_1V("Para", "1,53 L/min", "0,77 L/min"));
+confere("ADV11-FIX-h igual a f) sem a cauda 'Diferença…' → ainda FAIL association (a cauda não era a causa)",
+  adv11h.kind === "association" && ORFAO.test(adv11h.problem), adv11h.problem);
+
+const adv11i = vq(Q_PB, PROSA_1V("Para", "0,77 L/min", "1,53 L/min"));
+confere("ADV11-FIX-i mesma prosa com os valores CERTOS → TAMBÉM FAIL (fail-closed: cabeçalho em prosa não é cabeçalho de bloco, como em ADV11-FIX-CUSTO)",
+  adv11i.kind === "association" && ORFAO.test(adv11i.problem), adv11i.problem);
+
+const adv11j = vq(Q_PB, "MJ981CAP [1]:\n- 0,77 L/min [1]\n\nMJ985CAP [1]:\n- 1,53 L/min [1]");
+confere("ADV11-FIX-j os mesmos valores únicos sob cabeçalho de BLOCO de verdade → PASSA (o contexto do bloco é o dono)",
+  adv11j.ok === true, adv11j.problem ?? "ok");
+
+const BL_CALC = "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP [1]:\n- 40 psi -> 1,53 L/min [1]";
+const adv11k1 = vq(Q_PB, `${BL_CALC}\n\nDiferença: 0,76 L/min [1]`);
+confere("ADV11-FIX-k1 'Diferença: 0,76 L/min [1]' depois de um bloco certo → PASSA (frase de cálculo é tirada antes da regra do órfão; EX.isDerivedStatement)",
+  EX.isDerivedStatement("Diferença: 0,76 L/min") && adv11k1.ok === true, adv11k1.problem ?? "ok");
+const adv11k2 = vq(Q_PB, `${BL_CALC}\n\n0,76 L/min [1]`);
+confere("ADV11-FIX-k2 mas '0,76 L/min [1]' SOLTO (sem palavra de cálculo) → FAIL association — é COL10, só referenciado aqui",
+  !EX.isDerivedStatement("0,76 L/min") && adv11k2.kind === "association", adv11k2.problem);
+
+const adv11ctrl = vq("Qual a vazão da MJ981CAP a 40 psi?", "- 0,77 L/min [1]");
+confere("ADV11-FIX-CTRL controle: UM código só na pergunta (pontual/listagem) — a regra do órfão não se aplica",
+  adv11ctrl.ok === true, adv11ctrl.problem ?? "ok");
 
 // ADV26b — dois pontos da tabela no mesmo item, agora dentro do bloco de
 // comparação (P8c provava na lista). Os dois pares existem na linha da

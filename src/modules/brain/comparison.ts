@@ -78,6 +78,14 @@ export type ProductBlock = {
   values: ProductValue[];
   /** Nenhuma linha de evidência traz esse código com o que foi pedido. */
   missing: boolean;
+  /**
+   * O código aparece em alguma evidência aceita (no texto ou nos códigos
+   * extraídos), mesmo sem linha no ponto pedido. Separa "não há
+   * documentação" de "há, mas não neste ponto/unidade" — a revisão de 25/09
+   * mostrou o aviso dizendo "não encontrei documentação para MJ981CAP" com
+   * a tabela da MJ981CAP logo abaixo, só porque a pergunta fixou 45 psi.
+   */
+  documented: boolean;
 };
 
 /**
@@ -191,7 +199,10 @@ export function planComparison(pergunta: string, evidencias: KnowledgeEvidence[]
         values.push({ numero: par.numero, unidade: par.unidade, linha: l.texto, evidenceIndex: l.evidenceIndex });
       }
     }
-    return { code, values, missing: values.length === 0 };
+    const documented = evidencias.some(
+      (e) => contemToken(e.content, code) || e.codes.some((c) => c.toUpperCase() === code.toUpperCase()),
+    );
+    return { code, values, missing: values.length === 0, documented };
   });
 
   const incomplete = blocks.some((b) => b.missing);
