@@ -24,30 +24,43 @@ Implementado em 17/09/2026, sobre o Query Console v0.
 > - **Comparação (§12) deixou de ser v1 "recém-saída":** hardening
 >   pré-deploy (18/09) fechou proveniência do derivado, a tripla
 >   produto+valor+citação e `relate()`; citação por parágrafo também vale
->   dentro da comparação (§12.2); a comparação estruturalmente incompleta
->   (um código sem evidência) é decidida **antes** do provedor, sem
->   chamada nem custo (§12.3); e um valor sem código nem cabeçalho de bloco
->   que traga L/min ou L/ha **reprova** numa comparação — não é mais
->   ignorado (§12.4, regra `UNIDADES_DE_VALOR`).
+>   dentro da comparação (§12.2); a comparação estruturalmente incompleta —
+>   um código sem NENHUMA linha na evidência, ou com linha mas sem o valor
+>   no ponto/unidade pedidos (`ProductBlock.documented`, §12.3) — é decidida
+>   **antes** do provedor, sem chamada nem custo; e um valor sem código nem
+>   cabeçalho de bloco que traga L/min ou L/ha **reprova** numa comparação,
+>   mesmo sozinho — não é mais ignorado (§12.4, regra do item órfão).
 > - **Terceira barreira contra injeção:** além da arquitetura do prompt e do
 >   grounding numérico, `detectStance` reprova postura de vendedor/conselheiro
 >   ("é o melhor", "compre", "vale a pena"…) mesmo sem número para conferir
->   (§4, "Injeção").
+>   (§4, "Injeção"); revisão de 25/09 fechou a isenção por atribuição para só
+>   valer abrindo a oração, e nunca em 1ª pessoa/imperativo.
 > - **Achados da suíte da state machine (e956b6e), fechados em 25/09:** a
 >   citação `[n]` na tela sempre abre o card certo, mesmo com evidência
 >   descartada antes de uma aceita (`buildCitations` numera sobre as
 >   ACEITAS; a tradução para o índice de tela é só na saída); e o log de
 >   rejeição por completeness/association não carrega mais o início da
 >   linha da evidência — só o valor que faltou.
+> - **Revisão independente de 25/09 (B1/S1/S2/S3), fechada nesta rodada:**
+>   (B1) um único valor sem dono numa comparação também reprova — o corte
+>   de número único rodava antes da regra do item órfão e deixava passar
+>   "Para MJ981CAP a 40 psi: - 1,53 L/min" com os produtos trocados; (S1) o
+>   aviso de comparação incompleta separa "sem documentação nenhuma" de
+>   "documentado, mas sem o valor no ponto pedido", e `40psi`/`76bar`/
+>   `276kPa` colados deixaram de ser lidos como código de produto; (S2/S3) a
+>   isenção de postura por atribuição documental só vale abrindo a oração, a
+>   1ª pessoa/imperativo nunca é isenta, e a oração agora também quebra em
+>   `;`, `:` e travessão. Ver §4 (postura), §6 (associação) e §12.3
+>   (comparação incompleta).
 > - **Citação ainda não linka para a página do arquivo:** o bucket
 >   `brain-documents` não foi criado, então `[n]` mostra fonte/documento/
 >   versão/página como texto, sem `href` — ver §11 e o gap register.
 > - **Suítes e contagens (25/09, `npm run check:brain-all`, todas
 >   passando):** `check:brain-ci` 7 · `check:brain` 29 · `check:brain-answer`
->   210 · `check:brain-provider` 31 · `check:brain-ui` 48 ·
->   `check:brain-comparison` 220 · `check:brain-synthesis` 88. CI:
->   `BRAIN App` (`brain-app.yml`), job `app-gates`, os sete gates em série
->   antes de lint/typecheck/build — `docs/brain/ci.md`.
+>   218 · `check:brain-provider` 31 · `check:brain-ui` 48 ·
+>   `check:brain-comparison` 230 · `check:brain-synthesis` 95 — total 658.
+>   CI: `BRAIN App` (`brain-app.yml`), job `app-gates`, os sete gates em
+>   série antes de lint/typecheck/build — `docs/brain/ci.md`.
 
 ## 1. A cadeia
 
@@ -212,13 +225,38 @@ todos os gates e saía `synthesized`. Desde então há uma terceira barreira:
 | --- | --- |
 | postura (`detectStance`, última trava do validador) | o BRAIN não fala como vendedor nem conselheiro: `recomendo`, `sugiro`, `compre`, `você deve comprar`, `não deixe de`, `vale a pena`, `é o/a melhor`, `melhor opção/escolha`, `melhor do mercado`, `sem dúvida a melhor`, `ideal para você` → `kind: "stance"`, resposta extractiva |
 
-Lista **fechada**, sem acento e sem caixa, com fronteira de palavra. Isenta
-quando a mesma frase atribui antes ao documento pelo substantivo ("segundo o
-catálogo", "o manual", "a tabela", "o fabricante" — "conforme" sozinho não
-basta) ou é pergunta indireta ("não indica qual é o melhor"). Fica de fora
-de propósito: "maior" (relação numérica, decidida por `relate`), "melhor"
+Lista **fechada**, sem acento e sem caixa, com fronteira de palavra, dividida
+em dois grupos: **voz própria** (1ª pessoa e imperativo — "recomendo",
+"sugiro", "compre", "você deve comprar", "não deixe de") e **juízo de valor**
+("é o/a melhor", "melhor opção/escolha", "melhor do mercado", "sem dúvida a
+melhor", "vale a pena", "ideal para você"). Só o segundo grupo pode ser
+isento por atribuição — a voz própria nunca é: "Conforme a tabela,
+**recomendo** a MJ981CAP" continua sendo o BRAIN recomendando, porque quem
+recomenda é sempre o BRAIN, nunca o documento.
+
+Revisão de 25/09: a isenção de atribuição só vale quando a MESMA frase
+**abre a oração** com o substantivo do documento — "Segundo/Conforme/De
+acordo com o/a `<documento>`" ou "O/A `<documento>` diz/indica/afirma/
+informa/descreve/aponta/classifica/apresenta/recomenda/traz/contém". Antes
+bastava o substantivo aparecer em qualquer parte da frase, e "A MJ981CAP
+**da tabela** é o melhor produto do mercado" passava — "da tabela" é
+adjunto, não é o documento falando. "conforme" sozinho, sem o substantivo,
+nunca bastou. A oração agora quebra também em `;`, `:`, travessão (`—`/`–`)
+e depois de `!`/`?`, então a atribuição de uma oração não atravessa para a
+próxima: "A tabela mostra a vazão; **recomendo** a MJ981CAP" reprova, porque
+"recomendo" está na SEGUNDA oração, sem atribuição própria — e, sendo voz
+própria, não seria isento de qualquer forma. "qual/quais" isenta como
+pergunta indireta só até 3 palavras antes da frase ("não indica **qual** é
+a melhor"); mais longe que isso, ou numa oração diferente, não isenta. O
+verbo "é" precisa do acento para casar com "é o/a melhor": sem essa
+distinção, a CONJUNÇÃO "entre a MJ981CAP e o melhor ponto de operação"
+("…e o melhor…") disparava como se fosse o juízo de valor — fechado
+fixando o acento antes de baixar tudo para minúsculo. Fica de fora de
+propósito: "maior" (relação numérica, decidida por `relate`), "melhor"
 solto ("melhor desempenho"), "recomendado para", "o fabricante recomenda" e
-"recomendamos" (voz de manual que o modelo repete sem atribuir). Varredura
+"recomendamos" (voz de manual que o modelo repete sem atribuir); e
+"Recomendo consultar a página 20" continua reprovando (é voz própria, fala
+de onde olhar, não do que comprar — custo aceito, fail-closed). Varredura
 de falso positivo em 25/09: 7.655 literais das suítes, do provedor falso, do
 prompt e dos docs, e 234 strings dos golden datasets — nenhum acerto em
 texto de resposta.
@@ -467,12 +505,22 @@ linha de 40 psi traz 0,77.
    código no item, as do código da pergunta. Por isso "a MJ981CAP entrega
    0,83 L/min a 30 psi" (valor da MJ982CAP) é rejeitado, e o mesmo fato com
    "MJ982CAP" passa. Numa comparação (dois ou mais códigos na pergunta), o
-   item com par de tabela e mais de um número que não tem código escrito
-   nem cabeçalho de bloco **reprova** quando traz valor de produto (L/min,
-   L/ha) — não há como provar de quem é o valor (ADV11, 25/09: "Para
-   MJ981CAP a 40 psi:" é prosa, não cabeçalho, e a troca de produtos debaixo
-   dele passava). Só pressão ("A 40 psi (2,76 bar / 276 kPa):") é ponto de
-   operação, não valor, e segue não julgada.
+   item com par de tabela e um valor de produto (L/min, L/ha) que não tem
+   código escrito nem cabeçalho de bloco **reprova** — não há como provar de
+   quem é o valor (ADV11, 25/09: "Para MJ981CAP a 40 psi:" é prosa, não
+   cabeçalho, e a troca de produtos debaixo dele passava). Revisão
+   independente de 25/09 (B1): a regra do item órfão passou a rodar **antes**
+   do corte de "menos de dois números", então um valor **sozinho** sob a
+   mesma prosa ("- 1,53 L/min", sem par de pressão do lado) também reprova —
+   até então só reprovava quando havia dois números no item. E
+   `codigosNomeaveis` (quem pode nomear o dono de um item) passou a ser os
+   códigos das evidências **mais** os códigos da própria PERGUNTA: um item
+   como "MJ999CAP: 0,86 L/min" (código só na pergunta, sem linha na
+   evidência) não é mais tratado como "sem dono" — ele tem dono, só que sem
+   linha para provar o valor, e quem reprova é a comparação (`checkComparison`,
+   C11e), com o motivo certo, não a associação com "valor sem código". Só
+   pressão ("A 40 psi (2,76 bar / 276 kPa):") é ponto de operação, não
+   valor, e segue não julgada.
 5. **Só tabela.** Se nenhuma linha candidata traz duas unidades juntas (por
    exemplo, uma ficha técnica com um valor por linha), não há linha para
    conferir relação e o item não é julgado por esta trava. Só o grounding
@@ -490,10 +538,12 @@ provável. O prompt (regra 9a2) pede um ponto por item.
   lido como enumeração;
 - relação entre linhas diferentes numa evidência que não é tabela.
 
-Testes: `check:brain-answer`, seção **P1–P9** e as fronteiras PA–PF. *(histórico
-— eram 198 asserções no total em 17/09; a suíte cresceu com a matriz
-adversarial e a postura de venda e está em 210 em 25/09, ver a nota de estado
-atual no topo do arquivo.)*
+Testes: `check:brain-answer`, seção **P1–P9** e as fronteiras PA–PF, mais
+**INJ16–INJ23** (isenção de atribuição só abrindo a oração, 1ª pessoa nunca
+isenta, quebra em `;`/`:`/travessão, acento do "é"). *(histórico — eram 198
+asserções no total em 17/09; a suíte cresceu com a matriz adversarial e a
+postura de venda e está em 218 em 25/09, ver a nota de estado atual no topo
+do arquivo.)*
 
 ### Recusa do modelo não é falha
 
@@ -703,6 +753,27 @@ reprovado.
 `missing`, **nenhuma diferença é calculada**, anunciar diferença reprova, e
 omitir um dos produtos comparados também reprova.
 
+**Dois motivos, ditos separado (revisão independente de 25/09, S1).** Faltar
+não é uma coisa só: um código pode não ter NENHUMA linha em evidência
+nenhuma, ou pode ter tabela e mesmo assim não ter o valor no ponto/unidade
+que a pergunta pediu ("a 45 psi", quando só há 40). `ProductBlock.documented`
+separa os dois casos — `true` quando o código aparece em alguma evidência
+aceita (no texto, por `contemToken`, ou na lista `codes` do chunk), mesmo
+sem linha no ponto pedido; `false` quando não aparece em evidência nenhuma —
+e o aviso usa a frase certa para cada um: "não encontrei documentação para
+`<código>` nesta consulta" só para quem é `documented: false`; "não
+encontrei, nos trechos encontrados, o valor pedido para `<código>` no ponto
+`<X>`" para quem tem tabela mas não o ponto. Antes as duas situações caíam
+na mesma frase, e "não encontrei documentação para MJ981CAP" saía com a
+tabela da MJ981CAP visível logo abaixo, só porque a pergunta fixou um ponto
+fora dela — o pior tipo de aviso, porque parece um erro do sistema. Os dois
+motivos, quando coexistem, vêm concatenados por `"; "`, cada um citando só
+os códigos que lhe cabem. E `parseListingQuestion` parou de ler
+`40psi`/`76bar`/`276kPa` (dígitos colados a uma unidade de pressão, sem
+espaço) como código de produto — cabiam no perfil léxico de código (letra +
+dígito), e entravam na comparação como um terceiro produto fantasma "sem
+documentação".
+
 **Limites.** Cinco códigos por consulta; acima disso a resposta vira
 extractiva com o aviso para dividir a consulta. Sem conversão de unidade,
 sem interpolação, sem fuzzy match de código, sem ranking e sem "qual é
@@ -771,9 +842,12 @@ mais estrito fica o conjunto de evidências exigido.
 
 Testes: `npm run check:brain-comparison` — C1 a C15 e L1 a L3 como antes,
 mais P0–P15: proveniência do derivado, prova cruzada entre evidências gêmeas
-e as relações maior/menor/igual. *(histórico — 74 asserções em 18/09; a
-suíte cresceu nas rodadas de 25/09 — citação por parágrafo dentro da
-comparação, product binding em blocos, cabeçalho com ponto fixado, colisão
-derivado × documental e a matriz adversarial ADV1–ADV30, que fechou o valor
-sem dono numa comparação (regra `UNIDADES_DE_VALOR`, ver a nota de estado
-atual no topo do arquivo) — e está em 220.)*
+e as relações maior/menor/igual; C-DOC1/C-DOC2 provam `ProductBlock.documented`
+(código sem `codes` nem token contíguo no texto → `false`; código presente em
+`codes`, mesmo sem o texto → `true`, e `missing` independente). *(histórico —
+74 asserções em 18/09; a suíte cresceu nas rodadas de 25/09 — citação por
+parágrafo dentro da comparação, product binding em blocos, cabeçalho com
+ponto fixado, colisão derivado × documental, a matriz adversarial
+ADV1–ADV30 (que fechou o valor sem dono numa comparação) e, na revisão
+independente de 25/09, ADV11-FIX-f a k (o valor ÚNICO sem dono, B1) — ver a
+nota de estado atual no topo do arquivo — e está em 230.)*
