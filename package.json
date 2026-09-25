@@ -20,7 +20,9 @@
     "check:brain-answer": "node --experimental-strip-types supabase/db-tests/check-brain-answer.mjs",
     "check:brain-provider": "node --experimental-strip-types supabase/db-tests/check-brain-provider.mjs",
     "check:brain-ui": "node --experimental-strip-types supabase/db-tests/check-brain-ui.mjs",
-    "check:brain-comparison": "node --experimental-strip-types supabase/db-tests/check-brain-comparison.mjs"
+    "check:brain-comparison": "node --experimental-strip-types supabase/db-tests/check-brain-comparison.mjs",
+    "check:brain-ci": "node supabase/db-tests/conferir-ci-app.mjs",
+    "check:brain-all": "npm run check:brain-ci && npm run check:brain && npm run check:brain-answer && npm run check:brain-provider && npm run check:brain-ui && npm run check:brain-comparison"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
