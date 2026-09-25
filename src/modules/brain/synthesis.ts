@@ -12,7 +12,7 @@ import { assessExternalProcessing, parsePolicy, type EvidenceRef } from "./exter
 import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } from "./evidence";
 import { TIMEOUT_PROVIDER_MS } from "./limits";
 import { resolveProvider } from "./llm";
-import { ProviderError } from "./llm/provider";
+import { ProviderError, type BrainLlmProvider } from "./llm/provider";
 import { buildUserMessage, renderCalculation, SYSTEM_PROMPT } from "./prompt";
 import * as repository from "./repository";
 import type { KnowledgeQuery } from "./schema";
@@ -53,11 +53,39 @@ function registrar(log: GenerationLog) {
   console.info("[brain.synthesis]", JSON.stringify(log));
 }
 
-export async function answer(
+/**
+ * As três portas por onde a cadeia sai deste arquivo: banco (busca e
+ * política) e provedor. Injetáveis só para a máquina de estados ser
+ * exercitada sem banco, sem rede e sem chave
+ * (`supabase/db-tests/check-brain-synthesis.mjs`). Nada de container: o app
+ * chama `answer`, que liga as portas de verdade; o teste chama `answerWith`
+ * com falsos.
+ */
+export type SynthesisDeps = {
+  search: (input: KnowledgeQuery) => Promise<KnowledgeHitRow[]>;
+  externalProcessing: (documentIds: string[]) => Promise<Map<string, string>>;
+  resolveProvider: () => BrainLlmProvider | null;
+};
+
+const DEPS: SynthesisDeps = {
+  search: repository.search,
+  externalProcessing: repository.externalProcessing,
+  resolveProvider,
+};
+
+export function answer(
   input: KnowledgeQuery,
   opts: { isAdmin: boolean },
 ): Promise<BrainNaturalAnswer> {
-  const rows: KnowledgeHitRow[] = await repository.search(input);
+  return answerWith(DEPS, input, opts);
+}
+
+export async function answerWith(
+  deps: SynthesisDeps,
+  input: KnowledgeQuery,
+  opts: { isAdmin: boolean },
+): Promise<BrainNaturalAnswer> {
+  const rows: KnowledgeHitRow[] = await deps.search(input);
   const evidencias: KnowledgeEvidence[] = rows.map((r) => toEvidence(r, opts.isAdmin));
 
   const base = (extra: Partial<BrainNaturalAnswer>): BrainNaturalAnswer => ({
@@ -93,7 +121,7 @@ export async function answer(
       documentTitle: e.document.title,
     };
   });
-  const politicas = await repository.externalProcessing(refs.map((r) => r.documentId));
+  const politicas = await deps.externalProcessing(refs.map((r) => r.documentId));
   const externo = assessExternalProcessing(
     refs,
     new Map([...politicas].map(([id, p]) => [id, parsePolicy(p)])),
@@ -114,7 +142,7 @@ export async function answer(
   }
 
   // ── provedor ──────────────────────────────────────────────
-  const provider = resolveProvider();
+  const provider = deps.resolveProvider();
   if (!provider) {
     registrar({
       query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,

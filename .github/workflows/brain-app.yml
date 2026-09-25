@@ -90,6 +90,8 @@ jobs:
         run: npm run check:brain-ui
       - name: Comparison V1
         run: npm run check:brain-comparison
+      - name: Synthesis state machine
+        run: npm run check:brain-synthesis
       - name: ESLint
         run: npm run lint
       - name: TypeScript

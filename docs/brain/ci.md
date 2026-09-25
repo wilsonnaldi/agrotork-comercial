@@ -55,7 +55,8 @@ Checkout → Node 22 (cache npm) → `npm ci` → **CI guard**
 (`check:brain-ci`) → **BRAIN core** (`check:brain`) → **Answer validator**
 (`check:brain-answer`) → **Provider adapter** (`check:brain-provider`) →
 **BRAIN UI** (`check:brain-ui`) → **Comparison V1** (`check:brain-comparison`)
-→ **ESLint** (`lint`) → **TypeScript** (`typecheck`) → **Next build** (`build`).
+→ **Synthesis state machine** (`check:brain-synthesis`) → **ESLint** (`lint`)
+→ **TypeScript** (`typecheck`) → **Next build** (`build`).
 
 Barato antes de caro: guarda e suítes levam menos de um segundo cada e
 apontam o erro exato antes de lint, typecheck e build, que levam dezenas
@@ -82,7 +83,7 @@ passa com env vazio (`CI=true`, `NEXT_TELEMETRY_DISABLED=1`).
 ## 5. Rodar local
 
 ```
-npm run check:brain-all   # guarda + as cinco suítes; para no primeiro erro
+npm run check:brain-all   # guarda + as seis suítes; para no primeiro erro
 npm run lint
 npm run typecheck
 npm run build
@@ -119,8 +120,9 @@ desenvolvido e validado. Next 16 exige ≥ 20.9, e
   foram movidas de propósito: mudar caminho mexe em scripts, docs e
   filtros sem ganho de correção.
 - **Diretórios temporários** `.brain-check-*`, `.answer-check-*`,
-  `.ui-check-*`, `.comparison-check-*` nascem na raiz e são apagados por
-  `rmSync`, mas não estão no `.gitignore`. Ficou assim nesta rodada.
+  `.ui-check-*`, `.comparison-check-*`, `.synthesis-check-*` nascem na raiz
+  e são apagados por `rmSync`, mas não estão no `.gitignore`. Ficou assim
+  nesta rodada.
 - **Actions fixadas por tag de major** (`@v5`, `@v4`), não por SHA. Fixar
   por SHA é melhoria futura.
 - **Branch protection com `paths`.** Se `app-gates` virar check

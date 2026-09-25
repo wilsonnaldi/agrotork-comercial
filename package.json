@@ -21,8 +21,9 @@
     "check:brain-provider": "node --experimental-strip-types supabase/db-tests/check-brain-provider.mjs",
     "check:brain-ui": "node --experimental-strip-types supabase/db-tests/check-brain-ui.mjs",
     "check:brain-comparison": "node --experimental-strip-types supabase/db-tests/check-brain-comparison.mjs",
+    "check:brain-synthesis": "node --experimental-strip-types supabase/db-tests/check-brain-synthesis.mjs",
     "check:brain-ci": "node supabase/db-tests/conferir-ci-app.mjs",
-    "check:brain-all": "npm run check:brain-ci && npm run check:brain && npm run check:brain-answer && npm run check:brain-provider && npm run check:brain-ui && npm run check:brain-comparison"
+    "check:brain-all": "npm run check:brain-ci && npm run check:brain && npm run check:brain-answer && npm run check:brain-provider && npm run check:brain-ui && npm run check:brain-comparison && npm run check:brain-synthesis"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
