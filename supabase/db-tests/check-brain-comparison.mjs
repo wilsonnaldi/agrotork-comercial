@@ -635,8 +635,8 @@ const a0 = EX.checkAssociation(Q_DA, ASSOC0, EV);
 confere("ASSOC-0 e a associação SEM os derivados reprova: exige linha com os dois códigos e os valores calculados",
   a0.status === "failed" && /nenhuma linha traz MJ981CAP, MJ985CAP com esses valores/.test(a0.failures[0]), a0.failures?.[0]);
 const a0d = EX.checkAssociation(Q_DA, ASSOC0, EV, DERIV);
-confere("ASSOC-0 com os derivados do MESMO plano, o item vira '40 psi' sozinho e não é julgado",
-  a0d.status === "ok" && a0d.checked === 0, JSON.stringify(a0d));
+confere("ASSOC-0 com os derivados do MESMO plano, a frase vira '40 psi' sozinha e não é julgada; só as duas linhas dos blocos são",
+  a0d.status === "ok" && a0d.checked === 2, JSON.stringify(a0d));
 
 // DA1 — o caso real, ponta a ponta
 const da1 = vq(Q_DA, `${BLOCOS_DA}A diferença entre MJ981CAP e MJ985CAP a 40 psi é 0,76 L/min e 98,7% [1].`);
@@ -671,25 +671,26 @@ const da7 = vq(Q_DA, `MJ981CAP: 2,07 bar -> 0,77 L/min [1]\nMJ985CAP: 40 psi -> 
 confere("DA7 pressão de uma linha com a vazão de outra (2,07 bar -> 0,77) → FAIL association",
   da7.kind === "association", da7.problem);
 
-// FRONTEIRA CONHECIDA, encontrada ao escrever DA5–DA7 e conferida no baseline
-// ff155a5 (sem nenhuma alteração desta rodada): no formato em BLOCOS — o
-// código numa linha ("MJ981CAP [1]:") e o valor na linha de baixo ("- 40 psi
-// -> 0,86 L/min [1]") —, a linha do valor não carrega código nenhum. A
-// associação cai nos códigos da PERGUNTA (linha com os dois → nenhuma) e
-// desiste; a comparação (bloco 1) só julga item com UM código. Resultado:
-// valor errado, produto trocado e linha trocada PASSAM nesse formato — que é
-// justamente o que a regra 11g manda o modelo escrever. Não é efeito deste
-// fix (o baseline dá o mesmo) e não é corrigido aqui: é herança de bloco
-// para a linha do valor, uma mudança própria, nos dois gates. As três
-// asserções abaixo REGISTRAM o buraco; quando ele for fechado, elas têm de
-// virar `kind === "association" | "comparison"`.
+// GAP1–GAP3 nasceram (25/09, commit 761bcf3) registrando um buraco: no
+// formato em BLOCOS — o código numa linha ("MJ981CAP [1]:") e o valor na de
+// baixo ("- 40 psi -> 0,86 L/min [1]") — a linha do valor não carregava
+// código, a associação caía nos códigos da pergunta (linha com os dois →
+// nenhuma) e desistia, e a comparação (bloco 1) só julgava item com um
+// código. Valor errado, produto trocado e linha trocada passavam — no
+// formato que a regra 11g manda escrever. Fechado com o contexto de bloco
+// (`blockContexts`, exhaustiveness.ts): o cabeçalho empresta o código às
+// linhas de baixo, nos dois gates. As três asserções agora PROVAM a
+// correção; a seção PB abaixo cobre o resto.
 const BLOCO = (a, b) => `MJ981CAP [1]:\n- ${a} [1]\n\nMJ985CAP [1]:\n- ${b} [1]\n\nDiferença: 0,76 L/min [1]`;
-confere("GAP1 (bloco) 0,86 L/min a 40 psi na MJ981CAP → hoje PASSA — defeito registrado, fora desta rodada",
-  vq(Q_DA, BLOCO("40 psi -> 0,86 L/min", "40 psi -> 1,53 L/min")).ok === true);
-confere("GAP2 (bloco) produtos trocados → hoje PASSA — idem",
-  vq(Q_DA, BLOCO("40 psi -> 1,53 L/min", "40 psi -> 0,77 L/min")).ok === true);
-confere("GAP3 (bloco) 2,07 bar -> 0,77 L/min → hoje PASSA — idem",
-  vq(Q_DA, BLOCO("2,07 bar -> 0,77 L/min", "40 psi -> 1,53 L/min")).ok === true);
+const gap1 = vq(Q_DA, BLOCO("40 psi -> 0,86 L/min", "40 psi -> 1,53 L/min"));
+confere("GAP1 (bloco) 0,86 L/min a 40 psi na MJ981CAP → FAIL association (é a linha de 50 psi)",
+  gap1.kind === "association", `${gap1.kind}: ${gap1.problem}`);
+const gap2 = vq(Q_DA, BLOCO("40 psi -> 1,53 L/min", "40 psi -> 0,77 L/min"));
+confere("GAP2 (bloco) produtos trocados → FAIL",
+  gap2.ok === false && (gap2.kind === "association" || gap2.kind === "comparison"), `${gap2.kind}: ${gap2.problem}`);
+const gap3 = vq(Q_DA, BLOCO("2,07 bar -> 0,77 L/min", "40 psi -> 1,53 L/min"));
+confere("GAP3 (bloco) 2,07 bar -> 0,77 L/min → FAIL association",
+  gap3.kind === "association", `${gap3.kind}: ${gap3.problem}`);
 
 // DA8 / DA9 — sem derivados, nada muda (a suíte de listagem em check-brain-answer prova o resto)
 const Q_LISTA = "Quais as vazões da MJ981CAP?";
@@ -755,6 +756,115 @@ confere("CMP2 '30 psi' (não é o ponto da pergunta) numa frase de diferença �
 const cmp3 = C.checkComparison(Q_DA, `${BLOCOS_DA}A diferença a 40 psi é de 0,86 L/min [1]`, EV, CIT);
 confere("CMP3 e a diferença errada ao lado do ponto fixado → continua reprovada",
   cmp3.status === "failed" && /0,86 L\/min/.test(cmp3.failures[0]), cmp3.failures?.[0]);
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Product binding no formato em blocos (PB1–PB15, 25/09)\n");
+//
+// Cada cenário é registrado gate a gate — grounding, associação, comparação
+// e validateAnswer — porque "validateAnswer = false" não diz QUEM barrou, e
+// é isso que prova que o vínculo produto → valor está sendo fiscalizado no
+// formato oficial, e não só que alguma coisa reprovou.
+
+const Q_PB = "Compare a vazão da MJ981CAP e MJ985CAP a 40 psi.";
+const gates = (q, t, evs = EV) => {
+  const cit = A.buildCitations(evs);
+  const plano = C.planComparison(q, evs);
+  const g = G.checkGrounding(t, cit, evs, C.derivedLiterals(plano));
+  const a = EX.checkAssociation(q, t, evs, plano.status === "ready" ? plano.derived : []);
+  const c = C.checkComparison(q, t, evs, cit);
+  const v = A.validateAnswer(t, cit, evs, q);
+  return {
+    grounding: g.ok, association: a.status, checked: a.checked, comparison: c.status,
+    ok: v.ok, kind: v.ok ? "ok" : v.kind,
+    resumo: `grounding=${g.ok ? "PASS" : "FAIL"} association=${a.status}(${a.checked}) comparison=${c.status} validateAnswer=${v.ok ? "PASS" : `FAIL ${v.kind}`}`,
+  };
+};
+const BL = (a, b, cauda = "") => `MJ981CAP [1]:\n- ${a} [1]\n\nMJ985CAP [1]:\n- ${b} [1]${cauda}`;
+
+// O contexto em si
+const CONH = new Set(["MJ981CAP", "MJ982CAP", "MJ985CAP"]);
+confere("PB0  cabeçalho: 'MJ981CAP:', 'MJ981CAP [1]:', '**MJ981CAP** [1][2]:' e 'MJ981CAP' sozinho estabelecem contexto",
+  ["MJ981CAP:", "MJ981CAP [1]:", "**MJ981CAP** [1][2]:", "MJ981CAP", "- mj981cap [1]:"].every((l) => EX.blockHeaderCode(l, CONH) === "MJ981CAP"));
+confere("PB0b prosa e pseudo-cabeçalhos NÃO estabelecem contexto",
+  ["A MJ981CAP tem maior vazão", "MJ981CAP e MJ985CAP:", "Compare MJ981CAP:", "Para MJ981CAP a 40 psi:", "MJ981CAP a 40 psi [1]:", "MJ999CAP:", "40 psi -> 0,77 L/min", ""].every((l) => EX.blockHeaderCode(l, CONH) === null));
+const ctx = EX.blockContexts("MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- 50 psi -> 0,86 L/min [1]\n\nMJ985CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\nA MJ985CAP tem maior vazão [1].", CONH).map((l) => l.contexto);
+confere("PB0c herança: linhas do bloco herdam, novo cabeçalho substitui, linha em branco encerra, conclusão fica sem contexto",
+  JSON.stringify(ctx) === JSON.stringify(["MJ981CAP", "MJ981CAP", "MJ981CAP", null, "MJ985CAP", "MJ985CAP", null, null]), JSON.stringify(ctx));
+
+const pb1 = gates(Q_PB, BL("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min"));
+confere("PB1  bloco correto → PASSA, e as duas linhas de valor são conferidas (checked=2)",
+  pb1.ok && pb1.association === "ok" && pb1.checked === 2 && pb1.comparison === "ok", pb1.resumo);
+
+const pb2 = gates(Q_PB, BL("40 psi -> 1,53 L/min", "40 psi -> 0,77 L/min"));
+confere("PB2  valores trocados entre produtos → grounding PASSA, association E comparison reprovam",
+  pb2.grounding && pb2.association === "failed" && pb2.comparison === "failed" && !pb2.ok, pb2.resumo);
+
+const pb3 = gates(Q_PB, BL("40 psi -> 0,86 L/min", "40 psi -> 1,53 L/min"));
+confere("PB3  valor de outra linha do mesmo produto (0,86 é a MJ981CAP a 50 psi) → association reprova (comparison não: o valor É da MJ981CAP)",
+  pb3.grounding && pb3.association === "failed" && pb3.comparison === "ok" && pb3.kind === "association", pb3.resumo);
+
+const pb4 = gates(Q_PB, "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP [1]:\n- 40 psi -> 0,77 L/min [1]");
+confere("PB4  novo cabeçalho troca o contexto: 0,77 debaixo de MJ985CAP é julgado como MJ985CAP e reprova",
+  !pb4.ok && pb4.association === "failed" && pb4.comparison === "failed" && /MJ985CAP/.test(A.validateAnswer("MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP [1]:\n- 40 psi -> 0,77 L/min [1]", CIT, EV, Q_PB).problem), pb4.resumo);
+
+const Q_QUAL_PB = "Qual tem maior vazão a 40 psi: MJ981CAP ou MJ985CAP?";
+const pb5a = gates(Q_QUAL_PB, BL("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nA MJ985CAP tem maior vazão [1]."));
+confere("PB5a conclusão relacional certa depois dos blocos → PASSA (não herda o bloco anterior)", pb5a.ok, pb5a.resumo);
+const pb5b = gates(Q_QUAL_PB, BL("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nA MJ981CAP tem maior vazão [1]."));
+confere("PB5b conclusão relacional errada → comparison reprova", pb5b.comparison === "failed" && pb5b.kind === "comparison", pb5b.resumo);
+
+const pb6 = gates(Q_PB, "MJ981CAP e MJ985CAP [1]:\n- 40 psi -> 1,53 L/min [1]");
+confere("PB6  'MJ981CAP e MJ985CAP:' não é cabeçalho: a linha de baixo segue a regra conservadora antiga (sem dono, não julgada)",
+  EX.blockHeaderCode("MJ981CAP e MJ985CAP [1]:", CONH) === null && pb6.checked === 0, pb6.resumo);
+
+const pb7 = EX.blockContexts("A MJ981CAP tem maior vazão [1].\n- 40 psi -> 1,53 L/min [1]", CONH);
+confere("PB7  prosa com código não vira cabeçalho: a linha seguinte não herda MJ981CAP",
+  pb7[0].cabecalho === false && pb7[1].contexto === null);
+
+confere("PB8  'MJ981CAP [1]:' → contexto MJ981CAP", EX.blockContexts("MJ981CAP [1]:\n- x 1", CONH)[1].contexto === "MJ981CAP");
+confere("PB9  'MJ981CAP [1][2]:' → contexto MJ981CAP", EX.blockContexts("MJ981CAP [1][2]:\n- x 1", CONH)[1].contexto === "MJ981CAP");
+
+// PB10 — listagem não comparativa: idêntico ao histórico
+const Q_L = "Quais as vazões da MJ981CAP?";
+const LISTA_L = "Vazões da MJ981CAP [1]:\n- 2,07 bar -> 0,66 L/min [1]\n- 2,76 bar -> 0,77 L/min [1]\n- 3,45 bar -> 0,86 L/min [1]";
+confere("PB10 listagem não comparativa: certa PASSA, trocada reprova por association, como antes",
+  vq(Q_L, LISTA_L).ok === true && vq(Q_L, LISTA_L.replace("0,66", "X").replace("0,77", "0,66").replace("X", "0,77")).kind === "association" &&
+  EX.blockHeaderCode("Vazões da MJ981CAP [1]:", CONH) === null);
+
+// PB11 — três códigos, cada bloco com o seu contexto
+const Q_3 = "Compare a vazão da MJ981CAP, MJ982CAP e MJ985CAP a 40 psi";
+const TRES = (a, b, c) => `MJ981CAP [1]:\n- 40 psi -> ${a} [1]\n\nMJ982CAP [1]:\n- 40 psi -> ${b} [1]\n\nMJ985CAP [1]:\n- 40 psi -> ${c} [1]`;
+const pb11 = gates(Q_3, TRES("0,77 L/min", "0,96 L/min", "1,53 L/min"));
+confere("PB11 três blocos certos → PASSA, três linhas conferidas", pb11.ok && pb11.checked === 3, pb11.resumo);
+const pb11b = gates(Q_3, TRES("0,77 L/min", "1,53 L/min", "0,96 L/min"));
+confere("PB11b troca entre o 2º e o 3º bloco → reprova (sem bleed do 1º)", !pb11b.ok && pb11b.association === "failed", pb11b.resumo);
+const pb11c = gates(Q_3, TRES("0,96 L/min", "0,96 L/min", "1,53 L/min"));
+confere("PB11c valor do 2º posto no 1º → reprova", !pb11c.ok, pb11c.resumo);
+
+// PB12 / PB13 — derivados
+const pb12 = gates(Q_DA, BL("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nDiferença entre MJ981CAP e MJ985CAP: 0,76 L/min [1]\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7% [1]"));
+confere("PB12 blocos certos + 0,76 L/min + 98,7% → PASSA", pb12.ok, pb12.resumo);
+const pb12b = gates(Q_DA, BL("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min", "\n\nA diferença entre MJ981CAP e MJ985CAP a 40 psi é de 0,76 L/min e 98,7% [1]."));
+confere("PB12b a frase real do provider (DA1) continua passando com o contexto de bloco", pb12b.ok, pb12b.resumo);
+const pb13 = gates(Q_DA, BL("40 psi -> 0,86 L/min", "40 psi -> 1,53 L/min", "\n\nDiferença entre MJ981CAP e MJ985CAP: 0,76 L/min [1]\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7% [1]"));
+confere("PB13 derivado correto não esconde o bloco errado → reprova", !pb13.ok && pb13.association === "failed", pb13.resumo);
+
+// PB14 — cabeçalho sem linha numérica: nada a associar, nada a reprovar
+const pb14 = gates(Q_PB, "MJ981CAP [1]:\nSem valor a 40 psi nesta tabela [1]\n\nMJ985CAP [1]:\n- 40 psi -> 1,53 L/min [1]");
+confere("PB14 cabeçalho sem linha numérica não inventa falha de associação", pb14.association === "ok" && pb14.checked === 1, pb14.resumo);
+
+// PB15 — linha órfã, fora de bloco: regra conservadora de antes
+const pb15 = gates(Q_PB, "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\n- 40 psi -> 1,53 L/min [1]\n\nMJ985CAP [1]:\n- 40 psi -> 1,53 L/min [1]");
+confere("PB15 linha órfã (sem cabeçalho) não ganha produto: segue não julgada, como antes (checked=2, só as dos blocos)",
+  pb15.checked === 2 && pb15.ok, pb15.resumo);
+
+// O teste crítico da rodada, em separado
+const critico = gates(Q_PB, "MJ981CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\nMJ985CAP [1]:\n- 40 psi -> 0,77 L/min [1]");
+confere("PB-CRÍTICO 1,53 debaixo de MJ981CAP e 0,77 debaixo de MJ985CAP → REPROVADO nos dois gates", !critico.ok && critico.association === "failed" && critico.comparison === "failed", critico.resumo);
+
+// Comportamento antigo sem cabeçalho nenhum permanece
+confere("PB16 sem cabeçalho, inline com código: idêntico ao histórico (P1..P15 acima já passaram)",
+  gates(Q_PB, "MJ981CAP: 40 psi -> 1,53 L/min [1]\nMJ985CAP: 40 psi -> 0,77 L/min [1]").association === "failed");
 
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ comparação entre códigos\n" : `✗ ${falhas} falha(s)\n`);

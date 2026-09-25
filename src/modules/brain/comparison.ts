@@ -1,5 +1,5 @@
 import type { KnowledgeEvidence } from "./evidence";
-import { parseListingQuestion, type ListingField } from "./exhaustiveness";
+import { blockContexts, parseListingQuestion, type ListingField } from "./exhaustiveness";
 import { contemLiteral, contemToken, extractUnitPairs, pareceCodigo, type AllowedLiteral } from "./grounding";
 
 /**
@@ -292,9 +292,17 @@ export type CitacaoRef = { index: number; evidenceIndex: number };
  * unidade do grounding, que já diz que duas afirmações no mesmo parágrafo
  * compartilham as citações dele.
  */
-type Item = { texto: string; citadas: number[]; evidencias: Set<number> };
+/**
+ * `contexto` é o código do CABEÇALHO do bloco em que o item está (ver
+ * `blockContexts`, em exhaustiveness.ts — a mesma regra que a associação
+ * usa, para não haver duas noções de bloco). Uma linha "- 40 psi -> 0,77
+ * L/min" debaixo de "MJ981CAP [1]:" é uma afirmação SOBRE a MJ981CAP, e
+ * até 25/09 este arquivo não sabia disso: o item sem código não afirmava
+ * identidade, e o valor de outro produto passava no formato oficial.
+ */
+type Item = { texto: string; citadas: number[]; evidencias: Set<number>; contexto: string | null };
 
-function itens(resposta: string, citacoes: CitacaoRef[]): Item[] {
+function itens(resposta: string, citacoes: CitacaoRef[], conhecidos: Set<string>): Item[] {
   const daCitacao = new Map(citacoes.map((c) => [c.index, c.evidenceIndex]));
   const lidas = (trecho: string) => {
     const numeros: number[] = [];
@@ -308,15 +316,34 @@ function itens(resposta: string, citacoes: CitacaoRef[]): Item[] {
     return { numeros: numeros.sort((a, b) => a - b), evid };
   };
 
+  // Parágrafo (de onde um item sem citação própria herda as citações) é o
+  // trecho entre linhas em branco — a mesma quebra que `blockContexts`
+  // usa para encerrar um bloco. Percorrer as linhas já anotadas e agrupá-las
+  // nas linhas em branco dá os mesmos parágrafos de `split(/\n\s*\n/)`.
+  const anotadas = blockContexts(resposta, conhecidos);
+  const paragrafos: typeof anotadas[] = [];
+  let atual: typeof anotadas = [];
+  for (const l of anotadas) {
+    if (l.linha.trim().length === 0) {
+      if (atual.length > 0) paragrafos.push(atual);
+      atual = [];
+    } else {
+      atual.push(l);
+    }
+  }
+  if (atual.length > 0) paragrafos.push(atual);
+
   const saida: Item[] = [];
-  for (const paragrafo of resposta.split(/\n\s*\n/)) {
-    const doParagrafo = lidas(paragrafo);
-    for (const bruto of paragrafo.split(/\r?\n|;|\.\s+/)) {
-      const proprias = lidas(bruto);
-      const texto = bruto.replace(/\[\d{1,3}\]/g, " ").replace(/\s+/g, " ").trim();
-      if (texto.length === 0) continue;
-      const tem = proprias.evid.size > 0 ? proprias : doParagrafo;
-      saida.push({ texto, citadas: tem.numeros, evidencias: tem.evid });
+  for (const paragrafo of paragrafos) {
+    const doParagrafo = lidas(paragrafo.map((l) => l.linha).join("\n"));
+    for (const { linha, contexto } of paragrafo) {
+      for (const bruto of linha.split(/;|\.\s+/)) {
+        const proprias = lidas(bruto);
+        const texto = bruto.replace(/\[\d{1,3}\]/g, " ").replace(/\s+/g, " ").trim();
+        if (texto.length === 0) continue;
+        const tem = proprias.evid.size > 0 ? proprias : doParagrafo;
+        saida.push({ texto, citadas: tem.numeros, evidencias: tem.evid, contexto });
+      }
     }
   }
   return saida;
@@ -491,15 +518,22 @@ export function checkComparison(
   const failures: string[] = [];
   const porCodigo = new Map(plan.blocks.map((b) => [b.code.toUpperCase(), b]));
   const conhecidos = new Set(plan.blocks.map((b) => b.code.toUpperCase()));
-  const partes = itens(resposta, citacoes);
+  const partes = itens(resposta, citacoes, conhecidos);
 
   // 1. Identidade + proveniência: o valor escrito ao lado de um código tem de
   //    ser DAQUELE código, e tem de estar na evidência que o item citou.
+  //    O dono do item é o código escrito nele; sem nenhum, o do cabeçalho
+  //    do bloco. Dois códigos escritos continuam sem dono único.
   let conferidos = 0;
   for (const item of partes) {
     const codigos = codigosDoItem(item.texto, conhecidos);
-    if (codigos.length !== 1) continue;   // item sem dono único não afirma identidade
-    const bloco = porCodigo.get(codigos[0]!.code.toUpperCase())!;
+    const dono = codigos.length === 1
+      ? codigos[0]!.code
+      : codigos.length === 0 && item.contexto !== null
+      ? item.contexto
+      : null;
+    if (dono === null) continue;   // item sem dono único não afirma identidade
+    const bloco = porCodigo.get(dono.toUpperCase())!;
     const linhasDele = linesForCode(bloco.code, plan.spec.codes, evidencias);
     const pares = extractUnitPairs(item.texto).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
 

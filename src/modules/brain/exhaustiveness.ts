@@ -282,6 +282,83 @@ export function answerItems(resposta: string): string[] {
     .filter((i) => /\d/.test(i));
 }
 
+// ════════════════════════════════════════════════════════════
+// Contexto de bloco: o cabeçalho empresta o código às linhas de baixo
+// ════════════════════════════════════════════════════════════
+
+/**
+ * O formato que o prompt manda o modelo usar numa comparação é em BLOCOS:
+ *
+ *   MJ981CAP [1]:
+ *   - 40 psi -> 0,77 L/min [1]
+ *
+ * A linha do valor não carrega o código — ele está na linha de cima. Até
+ * 25/09 os dois gates que provam o vínculo produto → valor (associação e
+ * comparação) olhavam cada linha sozinha: a do valor, sem código, caía nos
+ * códigos da PERGUNTA (linha da tabela com os dois → nenhuma) e era
+ * pulada. Valor errado, produto trocado e linha trocada passavam — no
+ * formato oficial, o que o provedor escreve de fato.
+ *
+ * A regra aqui é estrutural, e só isso: um CABEÇALHO é uma linha que, sem
+ * as citações, a ênfase de markdown e os dois-pontos finais, é exatamente
+ * UM código conhecido. "MJ981CAP:", "MJ981CAP [1]:", "**MJ981CAP** [1][2]:"
+ * são cabeçalhos; "A MJ981CAP tem maior vazão", "MJ981CAP e MJ985CAP:",
+ * "Para MJ981CAP a 40 psi:" não são — prosa não cria contexto. O contexto
+ * vale para as linhas seguintes até uma linha em branco ou outro cabeçalho,
+ * e um código escrito na própria linha vence o herdado. Nada disto altera
+ * o texto mostrado: é metadado de validação.
+ */
+export function blockHeaderCode(linha: string, conhecidos: Set<string>): string | null {
+  const limpa = linha
+    .replace(/\[\d{1,3}\]/g, " ")
+    .replace(/^\s*[-•*]\s+/, " ")
+    .replace(/[*_`#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/:$/, "")
+    .trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(limpa)) return null;
+  if (!pareceCodigo(limpa)) return null;
+  const canonico = limpa.toUpperCase();
+  return conhecidos.has(canonico) ? canonico : null;
+}
+
+export type ContextLine = { linha: string; contexto: string | null; cabecalho: boolean };
+
+/** Cada linha da resposta com o código de bloco que vale para ela. */
+export function blockContexts(resposta: string, conhecidos: Set<string>): ContextLine[] {
+  let ativo: string | null = null;
+  return resposta.split(/\r?\n/).map((linha) => {
+    if (linha.trim().length === 0) {
+      ativo = null;                       // linha em branco encerra o bloco
+      return { linha, contexto: null, cabecalho: false };
+    }
+    const cabecalho = blockHeaderCode(linha, conhecidos);
+    if (cabecalho !== null) {
+      ativo = cabecalho;                  // novo cabeçalho substitui o anterior
+      return { linha, contexto: cabecalho, cabecalho: true };
+    }
+    return { linha, contexto: ativo, cabecalho: false };
+  });
+}
+
+export type ContextItem = { texto: string; contexto: string | null };
+
+/**
+ * `answerItems` com o contexto de bloco de cada item — a mesma quebra
+ * (linha, ';', fim de frase), sem os [n], só itens com dígito.
+ */
+export function answerItemsWithContext(resposta: string, conhecidos: Set<string>): ContextItem[] {
+  const saida: ContextItem[] = [];
+  for (const { linha, contexto } of blockContexts(resposta, conhecidos)) {
+    for (const bruto of linha.replace(/\[\d{1,3}\]/g, " ").split(/;|\.\s+/)) {
+      const texto = bruto.replace(/\s+/g, " ").trim();
+      if (/\d/.test(texto)) saida.push({ texto, contexto });
+    }
+  }
+  return saida;
+}
+
 type Linha = { texto: string; pares: Set<string>; unidades: Set<string> };
 
 const temPar = (linha: string, numero: string, unidade: string) =>
@@ -373,7 +450,7 @@ export function checkAssociation(
   const failures: string[] = [];
   let checked = 0;
 
-  for (const bruto of answerItems(resposta)) {
+  for (const { texto: bruto, contexto } of answerItemsWithContext(resposta, codigosConhecidos)) {
     // O derivado sai ANTES de contar pares e números: "a 40 psi é de 0,76
     // L/min e 98,7% a mais" vira "a 40 psi é de e a mais", que é o ponto de
     // operação sozinho — sem segundo número, não há relação a conferir.
@@ -390,17 +467,24 @@ export function checkAssociation(
           .filter((t) => pareceCodigo(t) && codigosConhecidos.has(t.toUpperCase())),
       ),
     ];
-    const sujeito = codigosDoItem.length > 0 ? codigosDoItem : codigosDaPergunta;
+    // O sujeito: o código escrito no item; senão, o do cabeçalho do bloco;
+    // senão, os da pergunta. A ordem importa — o explícito vence o herdado.
+    const sujeito = codigosDoItem.length > 0
+      ? codigosDoItem
+      : contexto !== null
+      ? [contexto]
+      : codigosDaPergunta;
     const candidatas = sujeito.length > 0
       ? linhas.filter((l) => sujeito.every((c) => contemToken(l.texto, c)))
       : linhas;
 
     // Sem linha de tabela entre as candidatas, não há relação a conferir aqui.
     if (!candidatas.some((l) => l.unidades.size >= 2)) {
-      if (codigosDoItem.length > 0 && candidatas.length === 0 && linhas.some((l) => l.unidades.size >= 2)) {
-        // O item põe um código numa tabela em que esse código não tem linha.
+      if ((codigosDoItem.length > 0 || contexto !== null) && candidatas.length === 0 && linhas.some((l) => l.unidades.size >= 2)) {
+        // O item põe um código (escrito ou herdado do cabeçalho) numa tabela
+        // em que esse código não tem linha.
         checked += 1;
-        failures.push(`associação sem lastro: "${bruto.slice(0, 60)}" — nenhuma linha traz ${codigosDoItem.join(", ")} com esses valores`);
+        failures.push(`associação sem lastro: "${bruto.slice(0, 60)}" — nenhuma linha traz ${sujeito.join(", ")} com esses valores`);
       }
       continue;
     }
