@@ -1,0 +1,98 @@
+# AGROTORK BRAIN — CI da aplicação (módulo src/modules/brain + app Next).
+#
+# O que protege: o código TypeScript do BRAIN e o app que o consome. O
+# brain.yml cuida de outra coisa — banco, deploy/reversão e ingestão — e só
+# dispara em supabase/**; um PR que mexa apenas em src/modules/brain/*.ts
+# passava sem CI nenhum. Este workflow fecha esse buraco.
+#
+# Provider nunca é chamado: as suítes são determinísticas (mesma entrada,
+# mesmo veredito) e a chave do provider é server-only — o Preview do
+# Netlify deliberadamente não a recebe, e o CI também não. Sem segredo aqui.
+#
+# Suíte que falha = job vermelho. O contrato é o exit code de cada script;
+# nada de conferir contagem fixa de asserções (foi assim que o CI anterior
+# ficou verde com teste quebrado). conferir-ci-app.mjs garante que todo
+# check:brain* do package.json tenha step aqui.
+name: BRAIN App
+
+on:
+  pull_request:
+    # Os imports compartilhados (supabase/server, types/db, permissions,
+    # auth/session) são transitivos: listar arquivo a arquivo deixaria
+    # buraco. src/** inteiro custa pouco e não esquece ninguém.
+    paths:
+      - 'src/**'
+      - 'supabase/db-tests/check-brain*.mjs'
+      - 'supabase/db-tests/conferir-ci-app.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'eslint.config.mjs'
+      - 'next.config.ts'
+      - 'postcss.config.mjs'
+      - '.github/workflows/brain-app.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'supabase/db-tests/check-brain*.mjs'
+      - 'supabase/db-tests/conferir-ci-app.mjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - 'eslint.config.mjs'
+      - 'next.config.ts'
+      - 'postcss.config.mjs'
+      - '.github/workflows/brain-app.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: brain-app-${{ github.workflow }}-${{ github.ref }}
+  # Push novo no PR cancela a rodada velha; em main nunca — cada merge
+  # precisa do seu veredito.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  app-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+    # Ordem: barato antes de caro. Guarda e suítes (menos de um segundo cada)
+    # apontam o erro antes de lint, typecheck e build, que levam dezenas de
+    # segundos.
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+      - name: Node
+        uses: actions/setup-node@v4
+        with:
+          # 22 = LTS atual, é o runtime em que o projeto é desenvolvido e
+          # validado; Next 16 exige >= 20.9, e --experimental-strip-types
+          # roda limpo no 22.22.
+          node-version: "22"
+          cache: npm
+      - name: Dependencies
+        run: npm ci
+      - name: CI guard
+        run: npm run check:brain-ci
+      - name: BRAIN core
+        run: npm run check:brain
+      - name: Answer validator
+        run: npm run check:brain-answer
+      - name: Provider adapter
+        run: npm run check:brain-provider
+      - name: BRAIN UI
+        run: npm run check:brain-ui
+      - name: Comparison V1
+        run: npm run check:brain-comparison
+      - name: ESLint
+        run: npm run lint
+      - name: TypeScript
+        run: npm run typecheck
+      - name: Next build
+        run: npm run build
