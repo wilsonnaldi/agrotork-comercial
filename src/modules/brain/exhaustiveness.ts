@@ -423,7 +423,11 @@ export type DerivedLiteral = { texto: string };
  * saem; "40 psi", "0,86 L/min" e os códigos ficam, para a associação
  * conferir o que sobrou. As duas grafias do par (com e sem espaço antes da
  * unidade) são as mesmas que o grounding aceita. A fronteira é a de
- * `contemLiteral`: "0,76 L/min" não sai de dentro de "10,76 L/min".
+ * `contemLiteral`: "0,76 L/min" não sai de dentro de "10,76 L/min". Cada
+ * literal sai UMA vez por item (a primeira ocorrência); as demais ficam.
+ *
+ * Só é chamada para item que `isDerivedStatement` reconhece como frase de
+ * cálculo — ver o porquê em `checkAssociation`.
  */
 function semDerivados(item: string, derivados: DerivedLiteral[]): string {
   let texto = item;
@@ -432,6 +436,13 @@ function semDerivados(item: string, derivados: DerivedLiteral[]): string {
     const formas = pares.length === 1 && pares[0]
       ? [`${pares[0].numero} ${pares[0].unidade}`, `${pares[0].numero}${pares[0].unidade}`]
       : [d.texto];
+    // UMA ocorrência só, a primeira em qualquer das grafias. A frase de
+    // cálculo anuncia o valor calculado uma vez; uma segunda cópia do mesmo
+    // literal na mesma frase ou é redundância ou é afirmação documental ("a
+    // MJ701CAP entrega 0,76 L/min a 40 psi") — e, na dúvida, fica no item
+    // para a associação conferir. Falhar fechado custa uma resposta
+    // extractiva; tirar as duas deixaria passar o par errado (COL9b).
+    let melhor: { de: number; tamanho: number } | null = null;
     for (const forma of formas) {
       let de = texto.indexOf(forma);
       while (de !== -1) {
@@ -440,15 +451,45 @@ function semDerivados(item: string, derivados: DerivedLiteral[]): string {
         const coladoAntes = /[\d.,]/.test(antes) && /\d/.test(texto[de - 2] ?? antes);
         const coladoDepois = /[\d.,]/.test(depois) && /\d/.test(texto[de + forma.length + 1] ?? depois);
         if (!coladoAntes && !coladoDepois) {
-          texto = `${texto.slice(0, de)} ${texto.slice(de + forma.length)}`;
-          de = texto.indexOf(forma, de);
-        } else {
-          de = texto.indexOf(forma, de + 1);
+          if (melhor === null || de < melhor.de) melhor = { de, tamanho: forma.length };
+          break;
         }
+        de = texto.indexOf(forma, de + 1);
       }
+    }
+    if (melhor !== null) {
+      texto = `${texto.slice(0, melhor.de)} ${texto.slice(melhor.de + melhor.tamanho)}`;
     }
   }
   return texto.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Palavras que marcam uma frase de CÁLCULO — as formas que o próprio prompt
+ * manda escrever ("Diferença entre A e B: …", "Variação percentual entre A e
+ * B: …") e as que o provedor escreveu de fato ("entrega 98,7% a mais").
+ * Comparadas sem acento e sem caixa, como palavras inteiras.
+ */
+const MARCAS_DE_DERIVADO = [
+  "diferenca",
+  "diferencas",
+  "variacao percentual",
+  "percentual",
+  "por cento",
+  "a mais",
+  "a menos",
+];
+
+/**
+ * O item é, sem ambiguidade, uma frase que ANUNCIA um cálculo? A lista é
+ * fechada e conservadora de propósito: linha de tabela ("- 40 psi -> 0,76
+ * L/min", "MJ981CAP: 40 psi -> 0,76 L/min") não tem nenhuma dessas marcas, e
+ * é exatamente nela que um literal derivado não pode sumir. Na dúvida, não é
+ * derivação — e o item é conferido inteiro, como qualquer outro.
+ */
+export function isDerivedStatement(texto: string): boolean {
+  const t = ` ${normaliza(texto)} `;
+  return MARCAS_DE_DERIVADO.some((m) => t.includes(` ${m} `));
 }
 
 export function checkAssociation(
@@ -465,7 +506,8 @@ export function checkAssociation(
    * construção não existe em linha nenhuma. Exigir que ele apareça numa
    * única linha ao lado de "40 psi" contradiz o que o sistema acabou de
    * calcular: era o falso positivo que derrubava a comparação com percentual
-   * mesmo com todos os números certos e citados. O derivado sai do item;
+   * mesmo com todos os números certos e citados. O derivado sai do item
+   * que anuncia o cálculo (`isDerivedStatement`), e só dele;
    * tudo o que sobra — pares documentais, números soltos, códigos — continua
    * submetido à mesma linha única de sempre.
    */
@@ -498,7 +540,17 @@ export function checkAssociation(
     // O derivado sai ANTES de contar pares e números: "a 40 psi é de 0,76
     // L/min e 98,7% a mais" vira "a 40 psi é de e a mais", que é o ponto de
     // operação sozinho — sem segundo número, não há relação a conferir.
-    const item = derivados.length > 0 ? semDerivados(bruto, derivados) : bruto;
+    //
+    // Mas SÓ em frase de cálculo (auditoria de 25/09). O literal derivado é
+    // um texto, não um carimbo de origem: "0,76 L/min" pode ser a diferença a
+    // 40 psi E, por coincidência, o valor documental do mesmo produto noutra
+    // linha (a 50 psi). Tirado de todo item, "- 40 psi -> 0,76 L/min" debaixo
+    // desse produto perdia o 0,76, sobrava "40 psi" sozinho e o par errado
+    // saía sem conferência — grounding (o número existe) e comparação (o
+    // valor é do produto, em alguma linha) não olham a linha. Fora de frase
+    // de cálculo, o item é conferido inteiro, e o 0,76 tem de estar na linha
+    // do 40 psi.
+    const item = derivados.length > 0 && isDerivedStatement(bruto) ? semDerivados(bruto, derivados) : bruto;
     const pares = extractUnitPairs(item).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
     if (pares.length === 0) continue;
     const numeros = extractNumbers(item);

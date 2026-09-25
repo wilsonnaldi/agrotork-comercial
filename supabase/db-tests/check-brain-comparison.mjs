@@ -741,9 +741,16 @@ confere("ISO2 par documental certo + derivado no mesmo item → conferido (1) e 
 const a3 = EX.checkAssociation(Q_DA, "MJ985CAP: 40 psi -> 10,76 L/min", EV, DERIV);
 confere("ISO3 '10,76 L/min' não perde o '0,76 L/min' de dentro: continua reprovado",
   a3.status === "failed", JSON.stringify(a3));
-const a4 = EX.checkAssociation(Q_DA, "Variação: 98,7 % a 40 psi e 0,76L/min", EV, DERIV);
-confere("ISO4 as grafias com/sem espaço do derivado também saem ('98,7 %', '0,76L/min')",
-  a4.status === "ok" && a4.checked === 0, JSON.stringify(a4));
+// ISO4 — a entrada mudou em 25/09 (colisão derivado × documental): o
+// derivado agora só sai de frase de cálculo, e a antiga ("Variação: …")
+// passava pela regra do item sem dono, não pela remoção. Com a MJ985CAP
+// escrita no item, ele É julgado: sem a remoção, "40 psi" + "0,76 L/min" na
+// linha da MJ985CAP reprovaria — a segunda asserção prova isso.
+const ISO4 = "MJ985CAP: variação percentual de 98,7 % a 40 psi e 0,76L/min a mais";
+const a4 = EX.checkAssociation(Q_DA, ISO4, EV, DERIV);
+confere("ISO4 em frase de cálculo, as grafias com/sem espaço do derivado também saem ('98,7 %', '0,76L/min'): sobra só '40 psi'",
+  a4.status === "ok" && a4.checked === 0 &&
+  EX.checkAssociation(Q_DA, ISO4, EV, []).status === "failed", JSON.stringify(a4));
 confere("ISO5 a mensagem de falha mostra o item como foi escrito, não o texto sem derivados",
   /98,7%/.test(a1.failures[0]));
 
@@ -943,6 +950,199 @@ confere("H21 depois do ponto fixado, nada mais: 'MJ981CAP a 40 psi e maior vazã
 const critH = gates(Q_PB, "MJ981CAP a 40 psi [1]:\n- 40 psi -> 1,53 L/min [1]\n\nMJ985CAP a 40 psi [1]:\n- 40 psi -> 0,77 L/min [1]");
 confere("HDR-CRÍTICO produtos trocados sob 'X a 40 psi [1]:' → grounding PASS, association FAIL, comparison FAIL, validateAnswer FAIL",
   critH.grounding && critH.association === "failed" && critH.comparison === "failed" && !critH.ok, critH.resumo);
+
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Colisão derivado × documental (COL0–COL12, 25/09)\n");
+//
+// Achado de auditoria: `checkAssociation` tirava o literal derivado de TODO
+// item antes de conferir a linha. O literal é texto, não carimbo de origem —
+// se a diferença calculada (0,76 L/min, A−B a 40 psi) coincide com um valor
+// documental do próprio produto noutra linha (A a 50 psi = 0,76 L/min), a
+// linha ERRADA "- 40 psi -> 0,76 L/min" debaixo de A perdia o 0,76, sobrava
+// "40 psi" sozinho e o par não era conferido. O grounding passa (0,76 L/min
+// existe no documento e é derivado liberado) e a comparação passa (o valor é
+// de A, em ALGUMA linha — o bloco 1 não olha a linha). Reproduzido em HEAD
+// 152708b, com o fixture sintético abaixo, nos dois formatos e nas duas
+// perguntas (com e sem percentual): grounding=PASS association=ok(1)
+// comparison=ok validateAnswer=PASS — bypass.
+//
+// O conserto: o derivado só sai de item que ANUNCIA cálculo
+// (`isDerivedStatement`: diferença, variação percentual, percentual, por
+// cento, a mais, a menos). Linha de tabela é conferida inteira.
+//
+// Fixture SINTÉTICO de propósito: os números do Magnojet não colidem, e a
+// prova não pode depender de um catálogo que muda.
+const COL_TAB = [
+  "LITROS POR HECTARE (ESPAÇAMENTO 50CM)",
+  "CÓDIGO PONTAS GOTAS BAR PSI kPa L/min 4 km/h 5 km/h 6 km/h",
+  LINHA("MJ701CAP", "02", "2,76", "40", "276", "0,77", "230 L/ha"),
+  LINHA("MJ701CAP", "02", "3,45", "50", "345", "0,76", "228 L/ha"),
+  LINHA("MJ702CAP", "04", "2,76", "40", "276", "1,53", "460 L/ha"),
+].join("\n");
+const COL_EV = (content = COL_TAB) => [ev({
+  chunkId: 500, content, codes: ["MJ701CAP", "MJ702CAP"], headingPath: ["TABELA SINTÉTICA"],
+  source: "Sintético", document: { title: "Tabela sintética", type: "catalog" },
+  version: { label: "T1", status: "active" }, page: { from: 1, to: 1 },
+  citation: "Sintético — Tabela sintética T1 · p. 1",
+})];
+const EVCOL = COL_EV();
+const Q_COL = "Compare a vazão da MJ701CAP e MJ702CAP a 40 psi.";
+const Q_COLP = "Compare a vazão da MJ701CAP e MJ702CAP a 40 psi. Quanto por cento a MJ702CAP entrega a mais?";
+const planoCol = C.planComparison(Q_COL, EVCOL);
+const planoColP = C.planComparison(Q_COLP, EVCOL);
+const BLC = (a, b, cauda = "") => `MJ701CAP [1]:\n- ${a} [1]\n\nMJ702CAP [1]:\n- ${b} [1]${cauda}`;
+const BLC_OK = BLC("40 psi -> 0,77 L/min", "40 psi -> 1,53 L/min");
+
+// O percentual esperado sai das parcelas do PLANO, não de constante.
+const [colA, colB] = planoColP.blocks.map((b) => Number(b.values[0].numero.replace(",", ".")));
+const PCT_COL = `${(((colB - colA) / colA) * 100).toFixed(1).replace(".", ",")}%`;
+
+confere("COL0 fixture: plano A@40=0,77, B@40=1,53, diferença 0,76 L/min — e A tem 0,76 L/min DE VERDADE na linha de 50 psi",
+  planoCol.status === "ready" &&
+  planoCol.blocks.map((b) => `${b.code}=${b.values.map((v) => v.numero).join("/")}`).join(",") === "MJ701CAP=0,77,MJ702CAP=1,53" &&
+  planoCol.derived.length === 1 && planoCol.derived[0].texto === "0,76 L/min" &&
+  COL_TAB.split("\n").some((l) => l.includes("MJ701CAP") && l.includes("50 psi") && l.includes("0,76 L/min")),
+  planoCol.derived.map((d) => `${d.tipo}:${d.texto}`).join(" · "));
+confere("COL0b com percentual: o plano calcula 0,76 L/min e o percentual que as parcelas dão",
+  planoColP.derived.map((d) => d.texto).join(" · ") === `0,76 L/min · ${PCT_COL}` && PCT_COL === "98,7%",
+  planoColP.derived.map((d) => d.texto).join(" · "));
+
+// COL1 — a linha errada, sozinha, direto no gate
+const col1 = EX.checkAssociation(Q_COL, "MJ701CAP: 40 psi -> 0,76 L/min", EVCOL, planoCol.derived);
+const col1g = gates(Q_COL, "MJ701CAP: 40 psi -> 0,76 L/min [1]\nMJ702CAP: 40 psi -> 1,53 L/min [1]", EVCOL);
+confere("COL1 'MJ701CAP: 40 psi -> 0,76 L/min' com o derivado 0,76 no plano → association FAIL (0,76 é de 50 psi)",
+  col1.status === "failed" && /40 psi com 0,76 L\/min/.test(col1.failures[0]) &&
+  col1g.grounding && col1g.association === "failed" && col1g.comparison === "ok" && col1g.kind === "association",
+  col1g.resumo);
+
+// COL2 / COL3 — as duas formas da auditoria, nas duas perguntas
+const COL_BLOCO = BLC("40 psi -> 0,76 L/min", "40 psi -> 1,53 L/min", "\n\nDiferença entre MJ701CAP e MJ702CAP: 0,76 L/min [1]");
+const COL_INLINE = "MJ701CAP: 40 psi -> 0,76 L/min [1]\nMJ702CAP: 40 psi -> 1,53 L/min [1]\nDiferença: 0,76 L/min [1]";
+const col2 = gates(Q_COL, COL_BLOCO, EVCOL);
+const col2p = gates(Q_COLP, COL_BLOCO, EVCOL);
+confere("COL2 bloco: 40 psi -> 0,76 L/min sob MJ701CAP → association FAIL (em HEAD: tudo PASS)",
+  col2.grounding && col2.association === "failed" && col2.comparison === "ok" && col2.kind === "association" &&
+  col2p.association === "failed" && col2p.kind === "association",
+  `${col2.resumo} | pct: ${col2p.resumo}`);
+const col3 = gates(Q_COL, COL_INLINE, EVCOL);
+const col3p = gates(Q_COLP, COL_INLINE, EVCOL);
+confere("COL3 inline: 'MJ701CAP: 40 psi -> 0,76 L/min' → association FAIL (em HEAD: tudo PASS)",
+  col3.grounding && col3.association === "failed" && col3.comparison === "ok" && col3.kind === "association" &&
+  col3p.association === "failed" && col3p.kind === "association",
+  `${col3.resumo} | pct: ${col3p.resumo}`);
+
+// COL4–COL6 — a frase de cálculo continua liberada
+const col4 = gates(Q_COL, `${BLC_OK}\n\nDiferença entre MJ701CAP e MJ702CAP: 0,76 L/min [1]`, EVCOL);
+confere("COL4 blocos certos + 'Diferença entre MJ701CAP e MJ702CAP: 0,76 L/min [1]' → PASSA", col4.ok, col4.resumo);
+const col5 = gates(Q_COLP, `${BLC_OK}\n\nVariação percentual entre MJ701CAP e MJ702CAP: ${PCT_COL} [1]`, EVCOL);
+confere(`COL5 blocos certos + 'Variação percentual entre MJ701CAP e MJ702CAP: ${PCT_COL} [1]' → PASSA`, col5.ok, col5.resumo);
+const col6 = gates(Q_COLP, `${BLC_OK}\n\nA diferença entre MJ701CAP e MJ702CAP a 40 psi é de 0,76 L/min e a MJ702CAP entrega ${PCT_COL} a mais [1].`, EVCOL);
+confere("COL6 frase natural (diferença a 40 psi + percentual 'a mais') → PASSA — e só passa porque o derivado sai dela",
+  col6.ok && col6.checked === 2 &&
+  EX.checkAssociation(Q_COLP, `A diferença entre MJ701CAP e MJ702CAP a 40 psi é de 0,76 L/min e a MJ702CAP entrega ${PCT_COL} a mais`, EVCOL, []).status === "failed",
+  col6.resumo);
+
+// COL7 — 0,76 onde ele É documental. A pergunta fixa 40 psi, então a linha
+// de 50 psi vai como linha EXTRA no bloco da MJ701CAP, ao lado da de 40 psi
+// (uma pergunta sem ponto fixado daria duas vazões para a MJ701CAP e
+// nenhuma diferença — não haveria colisão para provar).
+const col7 = gates(Q_COL, `MJ701CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- 50 psi -> 0,76 L/min [1]\n\nMJ702CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\nDiferença entre MJ701CAP e MJ702CAP: 0,76 L/min [1]`, EVCOL);
+confere("COL7 MJ701CAP '- 50 psi -> 0,76 L/min' (linha verdadeira) + diferença 0,76 → PASSA, e a linha de 50 psi é conferida (checked=3)",
+  col7.ok && col7.checked === 3, col7.resumo);
+
+// COL8 — 0,76 na pressão errada, noutra grafia de pressão
+const col8 = gates(Q_COL, `MJ701CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- 2,76 bar -> 0,76 L/min [1]\n\nMJ702CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\nDiferença entre MJ701CAP e MJ702CAP: 0,76 L/min [1]`, EVCOL);
+confere("COL8 MJ701CAP '2,76 bar -> 0,76 L/min' (0,76 é de 3,45 bar) → association FAIL",
+  col8.grounding && col8.association === "failed" && col8.kind === "association", col8.resumo);
+
+// COL9 — frase de cálculo certa + par documental errado na MESMA frase
+const col9 = gates(Q_COLP, `${BLC_OK}\n\nA diferença entre MJ701CAP e MJ702CAP é de 0,76 L/min, e a MJ701CAP entrega 0,77 L/min a 50 psi [1].`, EVCOL);
+confere("COL9 'diferença … 0,76 L/min, e a MJ701CAP entrega 0,77 L/min a 50 psi' → FAIL (só o derivado sai; o par errado fica)",
+  col9.grounding && !col9.ok && col9.association === "failed", col9.resumo);
+// COL9b — a colisão DENTRO da frase de cálculo. Era o limite que sobrou do
+// primeiro conserto: `semDerivados` tirava o literal em todas as ocorrências,
+// e a segunda cópia do 0,76 — afirmação documental na pressão errada — saía
+// junto. Agora cada literal sai UMA vez por item; a segunda fica e é
+// conferida contra a linha da MJ701CAP a 40 psi, que traz 0,77.
+const col9b = gates(Q_COLP, `${BLC_OK}\n\nA diferença é de 0,76 L/min e a MJ701CAP entrega 0,76 L/min a 40 psi [1].`, EVCOL);
+confere("COL9b colisão DENTRO da frase de cálculo: o derivado sai uma vez, a 2ª cópia (0,76 a 40 psi na MJ701CAP) fica → association FAIL",
+  col9b.grounding && col9b.association === "failed" && col9b.kind === "association", col9b.resumo);
+// COL9c — o preço aceito da regra "uma vez só": frase honesta que repete a
+// diferença E carrega outro número documental. A 2ª cópia do 0,76 fica ao
+// lado de "40 psi", sem código no item e fora de bloco; com os códigos da
+// pergunta como sujeito, nenhuma linha traz os dois, e o item não é julgado
+// (regra conservadora de sempre para item sem dono). Resultado consciente:
+// passa, e passa por ESSA regra — não porque o 0,76 repetido sumiu.
+const COL9C = "A diferença a 40 psi é de 0,76 L/min, isto é, 0,76 L/min a mais [1].";
+const col9c = gates(Q_COLP, `${BLC_OK}\n\n${COL9C}`, EVCOL);
+const col9cDentro = gates(Q_COLP, `MJ701CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- A diferença a 40 psi é de 0,76 L/min, isto é, 0,76 L/min a mais [1]\n\nMJ702CAP [1]:\n- 40 psi -> 1,53 L/min [1]`, EVCOL);
+confere("COL9c trade-off: diferença repetida + '40 psi' em parágrafo próprio → PASSA (item sem código nem bloco não é julgado, checked=2); dentro do bloco da MJ701CAP → FAIL fechado",
+  col9c.ok && col9c.checked === 2 && col9cDentro.association === "failed" && col9cDentro.kind === "association",
+  `${col9c.resumo} | no bloco: ${col9cDentro.resumo}`);
+
+// COL10 — o literal sozinho, sem palavra de cálculo: nenhum bypass
+// automático. Ele não é tirado (isDerivedStatement = false) e é julgado como
+// qualquer item; como UM número sozinho não afirma relação, a associação não
+// tem o que conferir e ele passa — pela regra de sempre, não pela exceção
+// do derivado. O mesmo literal ao lado de uma pressão, dentro de bloco, é
+// conferido e reprova.
+const col10 = gates(Q_COL, `${BLC_OK}\n\n0,76 L/min [1]`, EVCOL);
+const col10b = gates(Q_COL, `MJ701CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- 0,76 L/min a 40 psi [1]\n\nMJ702CAP [1]:\n- 40 psi -> 1,53 L/min [1]`, EVCOL);
+confere("COL10 '0,76 L/min [1]' solto: não é frase de cálculo, não é tirado; um número só não é relação → PASSA sem ser conferido (checked=2)",
+  !EX.isDerivedStatement("0,76 L/min") && col10.ok && col10.checked === 2, col10.resumo);
+confere("COL10b '- 0,76 L/min a 40 psi' dentro do bloco da MJ701CAP, sem palavra de cálculo → association FAIL",
+  col10b.association === "failed" && col10b.kind === "association", col10b.resumo);
+
+// COL11 — colisão de PERCENTUAL. "%" não é unidade de linha na associação
+// (UNIDADES_DE_LINHA), mas o NÚMERO 98,7 entra na lista de números do item e
+// tem de estar na mesma linha. Aqui 98,7% é valor documental da MJ701CAP a
+// 50 psi (coluna sintética) e é também o percentual calculado.
+const COL_TAB_PCT = [
+  "CÓDIGO PONTAS GOTAS BAR PSI kPa L/min L/ha EFIC.",
+  LINHA("MJ701CAP", "02", "2,76", "40", "276", "0,77", "230 L/ha 97,1%"),
+  LINHA("MJ701CAP", "02", "3,45", "50", "345", "0,86", "257 L/ha 98,7%"),
+  LINHA("MJ702CAP", "04", "2,76", "40", "276", "1,53", "460 L/ha 99,0%"),
+].join("\n");
+const EVPCT = COL_EV(COL_TAB_PCT);
+const planoPctCol = C.planComparison(Q_COLP, EVPCT);
+confere("COL11a fixture: o percentual calculado (98,7%) é também valor documental da MJ701CAP a 50 psi",
+  planoPctCol.derived.some((d) => d.tipo === "percentual" && d.texto === PCT_COL) &&
+  COL_TAB_PCT.split("\n").some((l) => l.includes("MJ701CAP") && l.includes("50 psi") && l.includes(PCT_COL)),
+  planoPctCol.derived.map((d) => d.texto).join(" · "));
+const col11 = gates(Q_COLP, `MJ701CAP [1]:\n- 40 psi -> 0,77 L/min, ${PCT_COL} [1]\n\nMJ702CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\nVariação percentual entre MJ701CAP e MJ702CAP: ${PCT_COL} [1]`, EVPCT);
+confere("COL11 '40 psi -> 0,77 L/min, 98,7%' (98,7% é da linha de 50 psi) → association FAIL: o percentual documental não some por colisão",
+  col11.grounding && col11.association === "failed" && col11.kind === "association", col11.resumo);
+const col11b = gates(Q_COLP, `MJ701CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- 50 psi -> 0,86 L/min, ${PCT_COL} [1]\n\nMJ702CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\nVariação percentual entre MJ701CAP e MJ702CAP: ${PCT_COL} [1]`, EVPCT);
+confere("COL11b o mesmo 98,7% na linha certa (50 psi) + a variação percentual → PASSA",
+  col11b.ok && col11b.checked === 3, col11b.resumo);
+
+// COL12 — sem derivado, nada muda: listagem, par trocado reprova; a palavra
+// de cálculo sozinha não tira nada (não há o que tirar)
+const Q_COL_LISTA = "Quais as vazões da MJ701CAP?";
+const col12 = gates(Q_COL_LISTA, "Vazões da MJ701CAP [1]:\n- 40 psi -> 0,76 L/min [1]\n- 50 psi -> 0,77 L/min [1]", EVCOL);
+const col12b = gates(Q_COL_LISTA, "Vazões da MJ701CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n- 50 psi -> 0,76 L/min [1]", EVCOL);
+confere("COL12 listagem sem derivados: pares trocados → association FAIL; certos → PASSA",
+  C.planComparison(Q_COL_LISTA, EVCOL).status === "not_applicable" &&
+  col12.association === "failed" && col12.kind === "association" && col12b.ok,
+  `${col12.resumo} | ${col12b.resumo}`);
+confere("COL12b sem derivados, nem frase com 'diferença' perde número",
+  EX.checkAssociation(Q_COL_LISTA, "Diferença: MJ701CAP 40 psi -> 0,76 L/min", EVCOL, []).status === "failed");
+
+// isDerivedStatement — a fronteira, isolada
+const DERIV_SIM = ["Diferença: 0,76 L/min", "Variação percentual entre X e Y: 98,7%", "A MJ985CAP entrega 98,7% a mais",
+  "98,7 por cento", "A DIFERENCA é 0,76 L/min", "entrega 0,76 L/min a menos", "As diferenças são 0,76 L/min e 98,7%"];
+const DERIV_NAO = ["- 40 psi -> 0,76 L/min", "MJ981CAP: 40 psi -> 0,76 L/min", "MJ981CAP a 40 psi", "0,76 L/min",
+  "A MJ985CAP tem maior vazão", "mais de 0,76 L/min a 40 psi", "40 psi -> 0,76 L/min (máximo)"];
+confere("COL-D1 isDerivedStatement reconhece as frases de cálculo (sem acento e sem caixa)",
+  DERIV_SIM.every((t) => EX.isDerivedStatement(t)), DERIV_SIM.filter((t) => !EX.isDerivedStatement(t)).join(" | ") || `${DERIV_SIM.length}/${DERIV_SIM.length}`);
+confere("COL-D2 e NÃO reconhece linha de tabela, cabeçalho nem valor solto",
+  DERIV_NAO.every((t) => !EX.isDerivedStatement(t)), DERIV_NAO.filter((t) => EX.isDerivedStatement(t)).join(" | ") || `${DERIV_NAO.length}/${DERIV_NAO.length}`);
+
+// As formas reais do provedor seguem passando (DA1/DA1b/PB12/PB12b/H18 acima
+// já rodaram com o conserto); aqui, as mesmas, lado a lado, no fixture sintético.
+const colReal = gates(Q_COLP, `${BLC_OK}\n\nA diferença entre as duas é de 0,76 L/min, e a MJ702CAP entrega ${PCT_COL} a mais que a MJ701CAP a 40 psi [1].`, EVCOL);
+confere("COL-R forma bruta do provedor (RUN 2 de 25/09) no fixture com colisão → PASSA",
+  colReal.ok && da1.ok && da1b.ok && pb12.ok && pb12b.ok && h18.ok, colReal.resumo);
 
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ comparação entre códigos\n" : `✗ ${falhas} falha(s)\n`);
