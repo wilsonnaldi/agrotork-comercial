@@ -15,9 +15,10 @@
  * hash. O `console.info` é capturado para conferir a linha
  * `[brain.synthesis]` de cada caminho.
  *
- * SYN16–SYN18 reproduzem uma lacuna conhecida (comparação incompleta ainda
- * chama o provedor). Afirmam o comportamento de HOJE, com o rótulo "GAP",
- * para o commit que a fechar ter de virar a asserção de propósito.
+ * SYN16–SYN18 eram a reprodução de uma lacuna (comparação incompleta
+ * chamava o provedor); fechada, viraram a regra. SYN24c e LOG6 ainda
+ * afirmam o comportamento de HOJE com o rótulo "GAP"/"ACHADO", para o
+ * commit que os fechar ter de virar a asserção de propósito.
  */
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -363,52 +364,80 @@ async function suite({ S, A, C, P, L, E, ProviderError }) {
   process.stdout.write("▶ Comparação: teto e incompleta (SYN15–SYN19)\n");
 
   const Q_SEIS = "Compare MJ980CAP, MJ981CAP, MJ982CAP, MJ983CAP, MJ984CAP e MJ985CAP a 40 psi";
+  const AVISO_SEIS = `A pergunta compara 6 códigos, acima do limite de ${C.MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`;
   const s15 = await rodar({ rotulo: "SYN15", pergunta: Q_SEIS, prov: provedor(OK_PONTUAL) });
   confere("SYN15 seis códigos com provedor disponível → provider 0, extractive, comparison true",
     s15.chamadas === 0 && s15.r.mode === "extractive" && s15.r.comparison === true &&
-    s15.log?.outcome === "comparison_too_many: 6" &&
-    s15.r.warning === `A pergunta compara 6 códigos, acima do limite de ${C.MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`,
+    s15.log?.outcome === "comparison_too_many: 6" && s15.r.warning === AVISO_SEIS,
     s15.log?.outcome);
+  const s15b = await rodar({ rotulo: "SYN15b", pergunta: Q_SEIS, prov: null });
+  confere("SYN15b seis códigos SEM provedor → o teto vence a falta de provedor (comparison true, aviso do teto)",
+    s15b.r.mode === "extractive" && s15b.r.comparison === true && s15b.r.warning === AVISO_SEIS &&
+    s15b.log?.outcome === "comparison_too_many: 6" && s15b.conta.resolve === 0,
+    `outcome=${s15b.log?.outcome} resolve=${s15b.conta.resolve}`);
 
   const Q_999 = "Compare a vazão da MJ981CAP e MJ999CAP a 40 psi.";
   const plano999 = C.planComparison(Q_999, [E.toEvidence(MAG, false)]);
   confere("SYN16 plano da comparação incompleta: ready, incomplete=true, derived=[]",
     plano999.status === "ready" && plano999.incomplete === true && plano999.derived.length === 0 &&
     plano999.blocks.find((b) => b.code === "MJ999CAP")?.missing === true);
+  const AVISO_999 = "Não dá para concluir a comparação: não encontrei documentação para MJ999CAP nesta consulta. Os trechos encontrados para os demais códigos estão abaixo, na íntegra.";
+  /** O fim determinístico da comparação incompleta, igual com ou sem provedor. */
+  const encerrada = (t, aviso = AVISO_999, faltam = "MJ999CAP") =>
+    t.chamadas === 0 && t.conta.resolve === 0 &&
+    t.r.status === "answered" && t.r.mode === "extractive" && t.r.comparison === true &&
+    t.r.warning === aviso && t.r.answer === extractivaDe(MAG) &&
+    t.r.citations?.length === 1 && t.r.citations[0].label === "Magnojet — Catálogo Magnojet V41 · p. 20" &&
+    t.r.evidence.length === 1 && t.r.evidence[0].content.includes(LINHAS_P20[9]) &&
+    t.log?.outcome === `comparison_incomplete: ${faltam}`;
   const SEM_CITACAO = "Não encontrei documentação suficiente para MJ999CAP.";
   const s16a = await rodar({ rotulo: "SYN16a", pergunta: Q_999, prov: provedor(SEM_CITACAO) });
-  confere("SYN16a hoje chama o provider — GAP, fecha no próximo commit",
-    s16a.chamadas === 1, `calls=${s16a.chamadas}`);
-  confere("SYN16b e a mensagem vai sem CÁLCULOS VERIFICADOS (não há derivado)",
-    !s16a.entrada?.userMessage.includes("CÁLCULOS VERIFICADOS"));
-  confere("SYN16c GAP (reprodução): falta declarada SEM citação → extractive, format, aviso genérico, comparison true",
-    s16a.r.status === "answered" && s16a.r.mode === "extractive" && s16a.r.warning === AVISO_GENERICO &&
-    s16a.r.comparison === true && s16a.log?.outcome.startsWith("answer_rejected (format):"),
-    `status=${s16a.r.status} mode=${s16a.r.mode} comparison=${s16a.r.comparison} outcome=${s16a.log?.outcome}`);
+  confere("SYN16a incompleta com provedor configurado → provider NÃO é chamado (0×)",
+    s16a.chamadas === 0, `calls=${s16a.chamadas}`);
+  confere("SYN16b sem chamada, nenhum CÁLCULOS VERIFICADOS sai daqui (o falso não recebeu mensagem alguma)",
+    s16a.entrada === null && s16a.prov.chamadas.length === 0);
+  confere("SYN16c fim determinístico: extractive, comparison true, aviso nomeando MJ999CAP, citações = aceitas, MJ981CAP na tela",
+    encerrada(s16a), `status=${s16a.r.status} mode=${s16a.r.mode} outcome=${s16a.log?.outcome}`);
   const INCOMPLETA_OK = [
     "MJ981CAP: 0,77 L/min a 40 psi [1].",
     "",
     "Não encontrei documentação suficiente para a MJ999CAP nesse mesmo critério, então não dá para concluir a comparação. [1]",
   ].join("\n");
   const s16d = await rodar({ rotulo: "SYN16d", pergunta: Q_999, prov: provedor(INCOMPLETA_OK) });
-  confere("SYN16d GAP (reprodução): falta declarada COM citação → synthesized, comparison true, provider 1×",
-    s16d.chamadas === 1 && s16d.r.status === "answered" && s16d.r.mode === "synthesized" &&
-    s16d.r.comparison === true && s16d.r.warning === undefined && s16d.log?.outcome === "answered",
-    `status=${s16d.r.status} mode=${s16d.r.mode} warning=${s16d.r.warning ?? "—"}`);
+  confere("SYN16d nem uma resposta 'boa' do modelo é pedida: mesmo fim, provider 0×, nada de synthesized",
+    encerrada(s16d) && s16d.r.mode !== "synthesized", `mode=${s16d.r.mode} calls=${s16d.chamadas}`);
+  confere("SYN16e sem diferença, vencedor nem percentual: nada de 'Diferença', 'maior', '%' na resposta",
+    !/Diferença|maior|menor|%/.test(s16a.r.answer));
+  const Q_DOIS_FALTAM = "Compare a vazão da MJ981CAP, MJ998CAP e MJ999CAP a 40 psi.";
+  const s16f = await rodar({ rotulo: "SYN16f", pergunta: Q_DOIS_FALTAM, prov: provedor(OK_PONTUAL) });
+  confere("SYN16f dois códigos sem documentação → plural, na ordem da pergunta",
+    encerrada(s16f,
+      "Não dá para concluir a comparação: não encontrei documentação para MJ998CAP e MJ999CAP nesta consulta. Os trechos encontrados para os demais códigos estão abaixo, na íntegra.",
+      "MJ998CAP,MJ999CAP"), s16f.r.warning);
+  const Q_NENHUM = "Compare a vazão da MJ998CAP e MJ999CAP a 40 psi.";
+  const s16g = await rodar({ rotulo: "SYN16g", pergunta: Q_NENHUM, prov: provedor(OK_PONTUAL) });
+  confere("SYN16g nenhum código com documentação → aviso sem 'demais códigos'",
+    encerrada(s16g,
+      "Não dá para concluir a comparação: não encontrei documentação para MJ998CAP e MJ999CAP nesta consulta. Os trechos encontrados estão abaixo, na íntegra.",
+      "MJ998CAP,MJ999CAP"), `${s16g.log?.outcome} — ${s16g.r.warning}`);
+  confere("SYN16h o aviso não sugere código parecido nem fala de documento invisível",
+    [s16a, s16f, s16g].every((t) => !/MJ98[0-5]CAP|parecid|semelhant|acesso|permiss|restrit|oculto/i.test(t.r.warning)));
 
   const s17 = await rodar({ rotulo: "SYN17", pergunta: Q_999, prov: null });
-  confere("SYN17 GAP (reprodução): incompleta + provedor ausente → no_provider vence, extractive, SEM selo de comparação",
-    s17.r.mode === "extractive" && s17.r.warning === AVISO_SEM_PROVEDOR && s17.r.comparison === undefined &&
-    s17.log?.outcome === "no_provider",
-    `mode=${s17.r.mode} comparison=${s17.r.comparison} outcome=${s17.log?.outcome}`);
+  confere("SYN17 incompleta + provedor ausente → mesmo fim determinístico",
+    encerrada(s17), `mode=${s17.r.mode} comparison=${s17.r.comparison} outcome=${s17.log?.outcome}`);
+  confere("SYN17b a razão estrutural vence 'síntese não configurada' (aviso da incompleta, comparison true)",
+    s17.r.warning === AVISO_999 && s17.r.warning !== AVISO_SEM_PROVEDOR && s17.r.comparison === true &&
+    s17.log?.outcome !== "no_provider");
 
   const s18 = await rodar({ rotulo: "SYN18", pergunta: Q_999,
     prov: provedor("- MJ981CAP: 0,77 L/min [1]\n- MJ999CAP: sem dados [1]\n- Diferença: 0,77 L/min [1]") });
-  confere("SYN18 GAP (reprodução): incompleta + provedor disponível → chamado 1×; diferença inventada reprova em comparison",
-    s18.chamadas === 1 && s18.r.mode === "extractive" && s18.r.comparison === true &&
-    /misturou valores entre os produtos/.test(s18.r.warning ?? "") &&
-    s18.log?.outcome.startsWith("answer_rejected (comparison):"),
-    `calls=${s18.chamadas} outcome=${s18.log?.outcome}`);
+  confere("SYN18 incompleta + provedor que inventaria diferença → nunca é chamado, mesmo fim",
+    encerrada(s18) && !s18.r.answer.includes("Diferença"), `calls=${s18.chamadas} outcome=${s18.log?.outcome}`);
+  confere("SYN18b ORDEM observada: na incompleta, resolveProvider é consultado 0× (a estrutura vem antes da disponibilidade)",
+    [s16a, s16d, s16f, s16g, s17, s18].every((t) => t.conta.resolve === 0 && t.conta.externo.length === 1) &&
+    s1.conta.resolve === 1,
+    "incompleta: resolve=0 · caminho feliz: resolve=1");
 
   const Q_999_ARAG = "Compare a vazão da MJ981CAP e MJ999CAP a 40 psi com o sensor 466113200.";
   const s19 = await rodar({
@@ -587,21 +616,37 @@ async function suite({ S, A, C, P, L, E, ProviderError }) {
     s12.brutos[0].includes("MJ981CAP MUG-CV 02 MALHA 50 UG 4,83 bar …") && !s12.brutos[0].includes(LINHAS_P20[12]) &&
     s13.brutos[0].includes("- 2,07 bar -> 1,08 L/min") && !s13.brutos[0].includes(LINHAS_P20[8]));
 
+  // O aviso é lido por quem pergunta, não por quem mantém o código: nada do
+  // vocabulário interno (nomes de gate, de kind, de outcome) chega à tela.
+  const INTERNO = /\b(gate|plan|plano|grounding|association|comparison|external|refusal|provider|validator|outcome|evidence)\b|[a-z]+_[a-z]+/i;
+  const comAviso = TODAS.filter((t) => typeof t.r.warning === "string");
+  const vazouJargao = comAviso.filter((t) => INTERNO.test(t.r.warning));
+  confere("LOG7 nenhum aviso ao usuário usa vocabulário interno (gate, grounding, association, comparison, external, refusal…)",
+    vazouJargao.length === 0 && comAviso.length >= 20,
+    vazouJargao.map((t) => `${t.rotulo}: ${t.r.warning}`).join(" | ") || `${comAviso.length} avisos em ${TODAS.length} consultas`);
+  const FONTE = readFileSync(join(RAIZ, "src/modules/brain/synthesis.ts"), "utf8");
+  const trechoAviso = FONTE.slice(FONTE.indexOf("function avisoComparacaoIncompleta"), FONTE.indexOf("export type SynthesisDeps"));
+  confere("LOG7b em synthesis.ts, o texto do aviso da incompleta não traz grounding/association/comparison/gate/external/refusal",
+    trechoAviso.includes("Não dá para concluir a comparação") &&
+    !/grounding|association|comparison|gate|external|refusal/i.test(
+      [...trechoAviso.matchAll(/"([^"]*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2]).join(" ")));
+
   const prefixo = (o) => {
     const m = o.match(/^answer_rejected \((\w+)\):/);
     if (m) return `answer_rejected (${m[1]}):`;
     if (o.startsWith("no_evidence:")) return "no_evidence:";
     if (o.startsWith("comparison_too_many:")) return "comparison_too_many:";
+    if (o.startsWith("comparison_incomplete:")) return "comparison_incomplete:";
     if (o.startsWith("provider_error:")) return "provider_error:";
     return o;
   };
   const observados = [...new Set(TODAS.map((t) => prefixo(t.log.outcome)))].sort();
   const ESPERADOS = [
-    "answered", "no_evidence:", "external_processing_forbidden", "no_provider", "comparison_too_many:",
+    "answered", "no_evidence:", "external_processing_forbidden", "no_provider", "comparison_too_many:", "comparison_incomplete:",
     "provider_error:", "model_refusal",
     "answer_rejected (grounding):", "answer_rejected (completeness):", "answer_rejected (association):",
     "answer_rejected (comparison):", "answer_rejected (format):",
   ].sort();
-  confere("LOG7 taxonomia de outcome: todos os prefixos conhecidos foram exercitados, nenhum desconhecido",
+  confere("LOG8 taxonomia de outcome: todos os prefixos conhecidos foram exercitados, nenhum desconhecido",
     JSON.stringify(observados) === JSON.stringify(ESPERADOS), observados.join(" · "));
 }

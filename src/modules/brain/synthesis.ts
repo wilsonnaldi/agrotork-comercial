@@ -21,7 +21,8 @@ import type { KnowledgeQuery } from "./schema";
  * A cadeia inteira, num lugar só:
  *
  *   busca autorizada → Evidence Gate → gate de processamento externo
- *   → prompt → provedor → Answer Validator → resposta com citações
+ *   → comparação estrutural → provedor disponível? → prompt → provedor
+ *   → Answer Validator → resposta com citações
  *
  * Três coisas que este arquivo NÃO faz, e é o mais importante dele:
  *
@@ -51,6 +52,23 @@ function registrar(log: GenerationLog) {
   // migration sem necessidade provada. A pergunta entra porque ela já está
   // na trilha do banco; o conteúdo das evidências e o prompt, não.
   console.info("[brain.synthesis]", JSON.stringify(log));
+}
+
+/**
+ * O aviso da comparação sem um dos lados. Os códigos vêm da PERGUNTA, então
+ * repeti-los não revela nada; "não encontrei … nesta consulta" vale igual
+ * para documento inexistente e para documento que esta pessoa não pode ver
+ * — as duas situações têm de ser indistinguíveis. Nenhuma sugestão de código
+ * parecido, pelo mesmo motivo.
+ */
+function avisoComparacaoIncompleta(faltantes: string[], todosFaltam: boolean): string {
+  const lista = faltantes.length === 1
+    ? faltantes[0]
+    : `${faltantes.slice(0, -1).join(", ")} e ${faltantes[faltantes.length - 1]}`;
+  return `Não dá para concluir a comparação: não encontrei documentação para ${lista} nesta consulta. ` +
+    (todosFaltam
+      ? "Os trechos encontrados estão abaixo, na íntegra."
+      : "Os trechos encontrados para os demais códigos estão abaixo, na íntegra.");
 }
 
 /**
@@ -141,25 +159,16 @@ export async function answerWith(
     });
   }
 
-  // ── provedor ──────────────────────────────────────────────
-  const provider = deps.resolveProvider();
-  if (!provider) {
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null, outcome: "no_provider",
-    });
-    return base({
-      answer: extractiveAnswer(aceitas),
-      citations: citacoes,
-      mode: "extractive",
-      warning: "A síntese automática não está configurada neste ambiente. Os trechos encontrados estão abaixo.",
-    });
-  }
-
-  // ── comparação: o cálculo é nosso, não do modelo ──────────
-  // O plano sai das MESMAS evidências que vão ao provedor, com a mesma
+  // ── comparação estrutural: antes de saber se há provedor ──
+  // O plano sai das MESMAS evidências que iriam ao provedor, com a mesma
   // função que o validador usa depois. Se os dois discordassem, a resposta
   // seria descartada — eles não discordam porque é o mesmo código.
+  //
+  // Vem ANTES da disponibilidade do provedor porque o que ele decide não
+  // depende de modelo nenhum: comparação grande demais ou sem um dos lados
+  // não tem resposta conferível, com ou sem chave. Assim o resultado é o
+  // mesmo em qualquer ambiente, e o provedor não é chamado para escrever
+  // algo que o sistema já sabe que não pode concluir.
   const plano = planComparison(input.query, aceitas);
   if (plano.status === "too_many") {
     registrar({
@@ -175,6 +184,40 @@ export async function answerWith(
       warning: `A pergunta compara ${plano.codes.length} códigos, acima do limite de ${MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`,
     });
   }
+  if (plano.status === "ready" && plano.incomplete) {
+    // Sem evidência para um dos códigos não há diferença, vencedor nem
+    // percentual — e o modelo só poderia errar isso (SYN16–SYN18 mostravam
+    // o provedor chamado à toa). Fim determinístico, com os trechos na tela.
+    const faltantes = plano.blocks.filter((b) => b.missing).map((b) => b.code);
+    registrar({
+      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
+      provider: null, model: null, durationMs: null,
+      outcome: `comparison_incomplete: ${faltantes.join(",")}`,
+    });
+    return base({
+      answer: extractiveAnswer(aceitas),
+      citations: citacoes,
+      mode: "extractive",
+      comparison: true,
+      warning: avisoComparacaoIncompleta(faltantes, faltantes.length === plano.blocks.length),
+    });
+  }
+
+  // ── provedor ──────────────────────────────────────────────
+  const provider = deps.resolveProvider();
+  if (!provider) {
+    registrar({
+      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
+      provider: null, model: null, durationMs: null, outcome: "no_provider",
+    });
+    return base({
+      answer: extractiveAnswer(aceitas),
+      citations: citacoes,
+      mode: "extractive",
+      warning: "A síntese automática não está configurada neste ambiente. Os trechos encontrados estão abaixo.",
+    });
+  }
+
   // Cada linha leva a referência que o modelo deve escrever ao lado do
   // número: o derivado só é aceito no parágrafo que cita as evidências de
   // origem, e o modelo não tem como adivinhar quais são.
