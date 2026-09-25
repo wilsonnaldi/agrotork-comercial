@@ -300,55 +300,80 @@ const URL = /\bhttps?:\/\/\S+/i;
  * `relate`); "melhor" solto é vocabulário técnico de catálogo. Só a forma
  * que ASSERTA preferência entra.
  */
-const POSTURA: readonly string[] = [
-  // primeira pessoa do singular: o BRAIN não é "eu". O plural ("recomendamos")
-  // fica fora: é a voz típica de manual, e o modelo a repete sem atribuir.
+/**
+ * Voz própria: primeira pessoa e imperativo. Nenhuma atribuição isenta —
+ * "Conforme a tabela, recomendo a MJ981CAP" continua sendo o BRAIN
+ * recomendando (revisão de 25/09). O plural ("recomendamos") fica fora: é a
+ * voz típica de manual, e o modelo a repete sem atribuir.
+ */
+const VOZ_PROPRIA: readonly string[] = [
   "recomendo", "sugiro",
-  // imperativo e dever de compra
   "compre", "voce deve comprar", "voce deveria comprar", "nao deixe de",
-  // juízo de valor e superlativo de venda
-  "vale a pena", "e o melhor", "e a melhor", "sao os melhores", "sao as melhores",
+];
+
+/** Juízo de valor e superlativo de venda — o documento pode dizê-los. */
+const JUIZO: readonly string[] = [
+  // "é" com acento, de propósito: sem ele, "entre a MJ981CAP e o melhor
+  // ponto de operação" (conjunção) virava "e o melhor" (verbo). `plana`
+  // preserva o verbo como "eh".
+  "vale a pena", "eh o melhor", "eh a melhor", "sao os melhores", "sao as melhores",
   "melhor opcao", "melhor escolha", "melhor do mercado", "melhores do mercado",
   "sem duvida o melhor", "sem duvida a melhor", "ideal para voce",
 ];
 
-/**
- * Atribuição documental ANTES da frase, na mesma sentença, isenta: "Segundo o
- * catálogo, a ponta é a melhor opção para herbicidas" é o documento falando,
- * e o leitor vê que é. A lista exige o SUBSTANTIVO do documento — "segundo"
- * ou "conforme" sozinhos não bastam, senão "conforme os cálculos
- * verificados, é o melhor" passaria. "qual" antes da frase também isenta: é
- * pergunta indireta, não afirmação ("não indica qual é o melhor").
- */
-const ATRIBUICAO = new RegExp(
-  String.raw`(?:^| )(?:(?:segundo|conforme|de acordo com) (?:(?:o|a|os|as) )?|(?:o|a|os|as|no|na|nos|nas|do|da|dos|das|pelo|pela) )` +
-    String.raw`(?:manual|manuais|documento|documentos|documentacao|catalogo|catalogos|tabela|tabelas|fabricante|ficha tecnica)(?= |$)`,
-);
-const INTERROGATIVA = /(?:^| )(?:qual|quais)(?= |$)/;
+const POSTURA: readonly string[] = [...VOZ_PROPRIA, ...JUIZO];
 
-/** Sem acento, minúsculas, pontuação vira espaço — com fronteira nas pontas. */
+/**
+ * Atribuição documental isenta um JUÍZO quando abre a oração: "Segundo o
+ * catálogo, a ponta é a melhor opção para herbicidas" ou "O manual diz que
+ * é a melhor…" é o documento falando, e o leitor vê que é. A lista exige o
+ * SUBSTANTIVO do documento — "segundo" ou "conforme" sozinhos não bastam,
+ * senão "conforme os cálculos verificados, é o melhor" passaria. Só no
+ * INÍCIO da oração (revisão de 25/09): "A MJ981CAP da tabela é o melhor
+ * produto do mercado" tem "da tabela" como adjunto, não como atribuição, e
+ * passava. "qual" logo antes da frase também isenta: é pergunta indireta,
+ * não afirmação ("não indica qual é o melhor").
+ */
+const DOCUMENTO = String.raw`(?:manual|manuais|documento|documentos|documentacao|catalogo|catalogos|tabela|tabelas|fabricante|ficha tecnica)`;
+const ATRIBUICAO = new RegExp(
+  String.raw`^ (?:(?:segundo|conforme|de acordo com) (?:(?:o|a|os|as) )?${DOCUMENTO} ` +
+    String.raw`|(?:o|a|os|as) ${DOCUMENTO} (?:diz|indica|afirma|informa|descreve|aponta|classifica|apresenta|recomenda|traz|contem) )`,
+);
+const INTERROGATIVA = /(?:^| )(?:qual|quais)(?: [a-z0-9]+){0,3} $/;
+
+/**
+ * Sem acento, minúsculas, pontuação vira espaço — com fronteira nas pontas.
+ * O verbo "é" sobrevive como "eh", para não se confundir com a conjunção.
+ */
 const plana = (t: string) =>
-  ` ${t.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+  ` ${t.normalize("NFC").replace(/(?<![A-Za-zÀ-ÿ])[éÉ](?![A-Za-zÀ-ÿ])/g, "eh")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
 
 export type StanceHit = { frase: string; trecho: string };
 
+/** A frase como o leitor a reconhece — o "eh" interno volta a ser "é". */
+const legivel = (frase: string) => frase.replace(/\beh\b/g, "é");
+
 /**
- * As frases de postura de um texto. Sentença = quebra de linha, ou [.!?]
- * seguido de maiúscula — "p. 20" e "0,77" não partem nada.
+ * As frases de postura de um texto. Oração = quebra de linha, `;`, `:`,
+ * travessão, [!?] seguido de espaço, ou `.` seguido de maiúscula — "p. 20"
+ * e "0,77" não partem nada. Partir em `;` importa: "A tabela mostra a
+ * vazão; recomendo a MJ981CAP" são duas orações, e a atribuição da
+ * primeira não alcança a segunda.
  */
 export function detectStance(texto: string): StanceHit[] {
   const achados: StanceHit[] = [];
   const sentencas = texto
     .replace(/[ \t]*\[\d{1,3}\]/g, "")
-    .split(/\r?\n|(?<=[.!?])\s+(?=[A-ZÀ-Ý"“(])/);
+    .split(/\r?\n|[;:]|\s[—–]\s|(?<=[!?])\s+|(?<=\.)\s+(?=[A-ZÀ-Ý"“(])/);
   for (const bruta of sentencas) {
     const s = plana(bruta);
     for (const frase of POSTURA) {
       const pos = s.indexOf(` ${frase} `);
       if (pos === -1) continue;
       const antes = s.slice(0, pos + 1);
-      if (ATRIBUICAO.test(antes) || INTERROGATIVA.test(antes)) continue;
-      achados.push({ frase, trecho: bruta.replace(/\s+/g, " ").trim().slice(0, 80) });
+      if (JUIZO.includes(frase) && (ATRIBUICAO.test(antes) || INTERROGATIVA.test(antes))) continue;
+      achados.push({ frase: legivel(frase), trecho: bruta.replace(/\s+/g, " ").trim().slice(0, 80) });
     }
   }
   return achados;
