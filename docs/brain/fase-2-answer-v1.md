@@ -6,6 +6,49 @@
 
 Implementado em 17/09/2026, sobre o Query Console v0.
 
+> **Estado atual em 25/09/2026** — desde que este documento nasceu, três
+> rodadas mudaram a cadeia e fecharam o gate que faltava:
+>
+> - **Cadeia hoje:** busca → Evidence Gate → processamento externo →
+>   **comparação estrutural** (`too_many` | `incomplete`, sem chamar
+>   provedor) → provedor disponível? → provedor → Answer Validator
+>   (**format → grounding → completeness → association → comparison →
+>   stance**, nessa ordem) → resposta + citações + evidências. `synthesis.ts`
+>   expõe `answerWith(deps, input, opts)` com as três portas injetáveis
+>   (`search`, `externalProcessing`, `resolveProvider`); `answer()` é o
+>   wrapper com as portas reais que o app chama — nada na cadeia mudou.
+> - **Credencial do provedor:** ainda é o único gate de disponibilidade —
+>   sem `BRAIN_LLM_PROVIDER`/`BRAIN_LLM_API_KEY`/`BRAIN_LLM_MODEL` a resposta
+>   é extractiva — mas deixou de ser "o que falta": a cadeia inteira que roda
+>   quando ela existir já está testada com provedor falso, ponta a ponta.
+> - **Comparação (§12) deixou de ser v1 "recém-saída":** hardening
+>   pré-deploy (18/09) fechou proveniência do derivado, a tripla
+>   produto+valor+citação e `relate()`; citação por parágrafo também vale
+>   dentro da comparação (§12.2); a comparação estruturalmente incompleta
+>   (um código sem evidência) é decidida **antes** do provedor, sem
+>   chamada nem custo (§12.3); e um valor sem código nem cabeçalho de bloco
+>   que traga L/min ou L/ha **reprova** numa comparação — não é mais
+>   ignorado (§12.4, regra `UNIDADES_DE_VALOR`).
+> - **Terceira barreira contra injeção:** além da arquitetura do prompt e do
+>   grounding numérico, `detectStance` reprova postura de vendedor/conselheiro
+>   ("é o melhor", "compre", "vale a pena"…) mesmo sem número para conferir
+>   (§4, "Injeção").
+> - **Achados da suíte da state machine (e956b6e), fechados em 25/09:** a
+>   citação `[n]` na tela sempre abre o card certo, mesmo com evidência
+>   descartada antes de uma aceita (`buildCitations` numera sobre as
+>   ACEITAS; a tradução para o índice de tela é só na saída); e o log de
+>   rejeição por completeness/association não carrega mais o início da
+>   linha da evidência — só o valor que faltou.
+> - **Citação ainda não linka para a página do arquivo:** o bucket
+>   `brain-documents` não foi criado, então `[n]` mostra fonte/documento/
+>   versão/página como texto, sem `href` — ver §11 e o gap register.
+> - **Suítes e contagens (25/09, `npm run check:brain-all`, todas
+>   passando):** `check:brain-ci` 7 · `check:brain` 29 · `check:brain-answer`
+>   210 · `check:brain-provider` 31 · `check:brain-ui` 48 ·
+>   `check:brain-comparison` 220 · `check:brain-synthesis` 88. CI:
+>   `BRAIN App` (`brain-app.yml`), job `app-gates`, os sete gates em série
+>   antes de lint/typecheck/build — `docs/brain/ci.md`.
+
 ## 1. A cadeia
 
 ```
@@ -19,6 +62,11 @@ pergunta
                                 └─ Answer Validator   a resposta se sustenta?
                                      └─ resposta + citações + evidências
 ```
+
+*(histórico — este era o diagrama de 17/09, antes de existir comparação.
+Desde 18/09 há uma fase de comparação estrutural entre o gate de
+processamento externo e a disponibilidade do provedor; ver a nota de estado
+atual no topo do arquivo para a cadeia como ela é hoje.)*
 
 Cada seta é uma chance de recusar. Nenhuma delas é uma chance de inventar.
 
@@ -442,8 +490,10 @@ provável. O prompt (regra 9a2) pede um ponto por item.
   lido como enumeração;
 - relação entre linhas diferentes numa evidência que não é tabela.
 
-Testes: `check:brain-answer`, seção **P1–P9** e as fronteiras PA–PF (198
-asserções no total).
+Testes: `check:brain-answer`, seção **P1–P9** e as fronteiras PA–PF. *(histórico
+— eram 198 asserções no total em 17/09; a suíte cresceu com a matriz
+adversarial e a postura de venda e está em 210 em 25/09, ver a nota de estado
+atual no topo do arquivo.)*
 
 ### Recusa do modelo não é falha
 
@@ -572,8 +622,9 @@ saiu do rodapé que fica sobre o fundo areia (4,16:1, abaixo do mínimo AA).
 fora do repositório (bundle do componente + CSS do projeto + Chromium):
 nenhuma rolagem horizontal de página, nenhum erro de runtime.
 
-Testes: `npm run check:brain-ui` (47 asserções) — blocos, preservação de
-marcadores e dígitos, rótulos, código consultado, `aria-*` e contraste.
+Testes: `npm run check:brain-ui` (48 asserções, *histórico: 47 em 18/09*) —
+blocos, preservação de marcadores e dígitos, rótulos, código consultado,
+`aria-*` e contraste.
 
 ## 9. Os casos reais
 
@@ -599,6 +650,10 @@ pgvector · embeddings · busca web · agentes · ferramentas autônomas ·
 conhecimento geral como fallback · deploy · ingestão · escrita em produção.
 
 ## 11. O que falta
+
+*(confirmado em 25/09/2026: as duas pendências abaixo seguem exatamente
+como descritas — nenhuma das rodadas desde 17/09 mexeu em credencial ou em
+Storage.)*
 
 1. **credencial do provedor** — o único gate que resta entre o que está
    pronto e a resposta redigida de verdade;
@@ -714,6 +769,11 @@ Comparativo em construção fora das duas formas lidas não é conferido — nã
 é deliberadamente conservadora: quanto mais o modelo separa em parágrafos,
 mais estrito fica o conjunto de evidências exigido.
 
-Testes: `npm run check:brain-comparison` (74 asserções) — C1 a C15 e L1 a
-L3 como antes, mais P0–P15: proveniência do derivado, prova cruzada entre
-evidências gêmeas e as relações maior/menor/igual.
+Testes: `npm run check:brain-comparison` — C1 a C15 e L1 a L3 como antes,
+mais P0–P15: proveniência do derivado, prova cruzada entre evidências gêmeas
+e as relações maior/menor/igual. *(histórico — 74 asserções em 18/09; a
+suíte cresceu nas rodadas de 25/09 — citação por parágrafo dentro da
+comparação, product binding em blocos, cabeçalho com ponto fixado, colisão
+derivado × documental e a matriz adversarial ADV1–ADV30, que fechou o valor
+sem dono numa comparação (regra `UNIDADES_DE_VALOR`, ver a nota de estado
+atual no topo do arquivo) — e está em 220.)*
