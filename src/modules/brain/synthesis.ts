@@ -5,6 +5,7 @@ import {
   buildCitations,
   extractiveAnswer,
   validateAnswer,
+  type BrainCitation,
   type BrainNaturalAnswer,
 } from "./answer";
 import { MAX_CODIGOS_COMPARADOS, planComparison } from "./comparison";
@@ -72,6 +73,24 @@ function avisoComparacaoIncompleta(faltantes: string[], todosFaltam: boolean): s
 }
 
 /**
+ * As citações como a TELA as lê. Duas numerações convivem aqui, e trocá-las
+ * é o erro: `buildCitations(aceitas)` numera `evidenceIndex` sobre as
+ * evidências ACEITAS — é o que o validador (grounding, comparação) espera —,
+ * mas o console indexa `resposta.evidence`, que é TUDO o que a busca trouxe,
+ * inclusive o que o Evidence Gate descartou. Com um descarte antes de uma
+ * aceita, [1] abria o card errado. A tradução acontece só na saída; o
+ * validador continua recebendo as citações sobre as aceitas.
+ */
+function citacoesParaTela(
+  citacoes: BrainCitation[],
+  aceitas: KnowledgeEvidence[],
+  evidencias: KnowledgeEvidence[],
+): BrainCitation[] {
+  const posicao = new Map(evidencias.map((e, i) => [e, i]));
+  return citacoes.map((c) => ({ ...c, evidenceIndex: posicao.get(aceitas[c.evidenceIndex]!) ?? c.evidenceIndex }));
+}
+
+/**
  * As três portas por onde a cadeia sai deste arquivo: banco (busca e
  * política) e provedor. Injetáveis só para a máquina de estados ser
  * exercitada sem banco, sem rede e sem chave
@@ -128,6 +147,7 @@ export async function answerWith(
 
   const aceitas = avaliacao.accepted;
   const citacoes = buildCitations(aceitas);
+  const citacoesDaTela = citacoesParaTela(citacoes, aceitas, evidencias);
 
   // ── gate de processamento externo ─────────────────────────
   // ANTES do provedor, sempre. Autorizar leitura não autoriza saída.
@@ -153,7 +173,7 @@ export async function answerWith(
     });
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       warning: `${externo.reason} A consulta continua disponível, com os trechos na íntegra.`,
     });
@@ -178,7 +198,7 @@ export async function answerWith(
     });
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       comparison: true,
       warning: `A pergunta compara ${plano.codes.length} códigos, acima do limite de ${MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`,
@@ -196,7 +216,7 @@ export async function answerWith(
     });
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       comparison: true,
       warning: avisoComparacaoIncompleta(faltantes, faltantes.length === plano.blocks.length),
@@ -212,7 +232,7 @@ export async function answerWith(
     });
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       warning: "A síntese automática não está configurada neste ambiente. Os trechos encontrados estão abaixo.",
     });
@@ -247,7 +267,7 @@ export async function answerWith(
     // Falha do provedor não apaga o que o BRAIN achou.
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       warning: "Não consegui redigir a resposta agora. Os trechos encontrados estão abaixo.",
     });
@@ -278,7 +298,7 @@ export async function answerWith(
     // número trocado NÃO vira número certo aqui — vira resposta descartada.
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       comparison: plano.status === "ready" || undefined,
       warning: validacao.kind === "comparison"
@@ -298,7 +318,7 @@ export async function answerWith(
 
   return base({
     answer: texto.trim(),
-    citations: citacoes,
+    citations: citacoesDaTela,
     mode: "synthesized",
     comparison: plano.status === "ready" || undefined,
     warning: avaliacao.dropped.length > 0

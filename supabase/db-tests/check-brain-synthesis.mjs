@@ -15,10 +15,9 @@
  * hash. O `console.info` é capturado para conferir a linha
  * `[brain.synthesis]` de cada caminho.
  *
- * SYN16–SYN18 eram a reprodução de uma lacuna (comparação incompleta
- * chamava o provedor); fechada, viraram a regra. SYN24c e LOG6 ainda
- * afirmam o comportamento de HOJE com o rótulo "GAP"/"ACHADO", para o
- * commit que os fechar ter de virar a asserção de propósito.
+ * SYN16–SYN18 (comparação incompleta chamava o provedor), SYN24c (citação
+ * abrindo o card errado) e LOG6 (trecho de evidência no log) nasceram como
+ * reprodução de lacunas; fechadas, viraram a regra.
  */
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -524,15 +523,62 @@ async function suite({ S, A, C, P, L, E, ProviderError }) {
     cit24.map((c) => `[${c.index}]→${c.evidenceIndex}`).join(" "));
   confere("SYN24b com nada descartado, evidenceIndex aponta o card certo em `evidence`",
     cit24.every((c) => s24.r.evidence[c.evidenceIndex]?.citation === c.label));
-  // Descarte ANTES de uma aceita desloca a numeração: as citações são
-  // montadas sobre `aceitas`, mas a tela indexa `evidence` (tudo o que veio
-  // da busca). Reprodução do comportamento de hoje.
+  // Descarte ANTES de uma aceita desloca a numeração: as citações nascem
+  // sobre `aceitas` (é o que o validador usa), mas a tela indexa `evidence`,
+  // que é tudo o que veio da busca. A saída traduz o índice.
   const s24c = await rodar({ rotulo: "SYN24c", pergunta: Q, linhas: [GRANDE, MAG], prov: provedor(OK_PONTUAL) });
   const c24c = s24c.r.citations?.[0];
-  confere("SYN24c GAP (reprodução): descartada antes da aceita → [1] aponta evidence[0], que é a DESCARTADA",
-    s24c.r.mode === "synthesized" && c24c?.evidenceIndex === 0 && s24c.r.evidence[0].chunkId === 99 &&
-    c24c.label === "Magnojet — Catálogo Magnojet V41 · p. 20",
+  confere("SYN24c descartada antes da aceita → [1] aponta o card da Magnojet aceita, não o descartado",
+    s24c.r.mode === "synthesized" && c24c?.index === 1 && c24c.evidenceIndex === 1 &&
+    s24c.r.evidence[c24c.evidenceIndex].chunkId === 72 &&
+    c24c.label === "Magnojet — Catálogo Magnojet V41 · p. 20" && s24c.r.evidence[c24c.evidenceIndex].citation === c24c.label,
     `citação [1] "${c24c?.label}" → evidence[${c24c?.evidenceIndex}].chunkId=${s24c.r.evidence[c24c?.evidenceIndex]?.chunkId}`);
+
+  const SUPERSEDED = linha({ chunk_id: 98, version_label: "V40", version_status: "superseded" });
+  const GRANDE2 = linha({ chunk_id: 97, content: GRANDE_CONTEUDO, codes: ["MJ981CAP"] });
+  const TEXTO_24D = "A MJ981CAP entrega 0,77 L/min a 40 psi [1]. O sensor 466113200 aparece no orçamento [2].";
+  const cardCerto = (t) => (t.r.citations ?? []).length > 0 && t.r.citations.every((c, i) =>
+    t.r.evidence[c.evidenceIndex]?.citation === c.label && c.index === i + 1);
+  const s24d = await rodar({ rotulo: "SYN24d", pergunta: Q_MISTO, linhas: [GRANDE, MAG, SUPERSEDED, ARAG, GRANDE2],
+    politicas: { [DOC_MAG]: "allowed", [DOC_ARAG]: "allowed" }, prov: provedor(TEXTO_24D) });
+  confere("SYN24d descartadas antes, entre e depois das aceitas → cada citação resolve para o seu card",
+    s24d.r.mode === "synthesized" && cardCerto(s24d) &&
+    s24d.r.citations.map((c) => `${c.index}:${s24d.r.evidence[c.evidenceIndex].chunkId}`).join() === "1:72,2:90",
+    s24d.r.citations?.map((c) => `[${c.index}]→evidence[${c.evidenceIndex}]`).join(" "));
+  const saidasComCitacao = TODAS.filter((t) => (t.r.citations ?? []).length > 0);
+  const fora = saidasComCitacao.filter((t) => !cardCerto(t));
+  confere("SYN24d2 em TODOS os caminhos que devolvem citação (extractive, teto, incompleta, sem provedor, erro, rejeição, sucesso), [n] abre o card certo",
+    fora.length === 0 && new Set(saidasComCitacao.map((t) => t.log.outcome.split(/[:(]/)[0].trim())).size >= 7,
+    fora.map((t) => t.rotulo).join(",") || `${saidasComCitacao.length} respostas conferidas`);
+  // Cada caminho de retorno com citação, com um descarte NA FRENTE: sem a
+  // tradução, todos apontariam evidence[0], que é o descartado.
+  const CAMINHOS = [
+    ["externo", { pergunta: Q, politicas: { [DOC_MAG]: "forbidden" }, prov: provedor(OK_PONTUAL) }, "external_processing_forbidden"],
+    ["teto", { pergunta: Q_SEIS, prov: provedor(OK_PONTUAL) }, "comparison_too_many"],
+    ["incompleta", { pergunta: Q_999, prov: provedor(OK_PONTUAL) }, "comparison_incomplete"],
+    ["sem provedor", { pergunta: Q, prov: null }, "no_provider"],
+    ["erro do provedor", { pergunta: Q, prov: provedor(new ProviderError("x", "network")) }, "provider_error"],
+    ["rejeição", { pergunta: Q, prov: provedor(TEXTO_RUIM) }, "answer_rejected"],
+    ["sucesso", { pergunta: Q, prov: provedor(OK_PONTUAL) }, "answered"],
+  ];
+  const errados = [];
+  for (const [nome, cfg, esperado] of CAMINHOS) {
+    const t = await rodar({ rotulo: `SYN24f ${nome}`, linhas: [GRANDE, MAG], ...cfg });
+    const c = t.r.citations?.[0];
+    if (!t.log?.outcome.startsWith(esperado) || c?.evidenceIndex !== 1 || t.r.evidence[1].chunkId !== 72 || !cardCerto(t)) {
+      errados.push(`${nome}: ${t.log?.outcome} → evidence[${c?.evidenceIndex}]`);
+    }
+  }
+  confere("SYN24f os 7 caminhos com citação, cada um com descarte na frente → [1] abre evidence[1], a aceita",
+    errados.length === 0, errados.join(" | ") || CAMINHOS.map(([n]) => n).join(" · "));
+  // O validador segue recebendo as citações sobre as ACEITAS: se recebesse
+  // as da tela, [2] valeria evidence[3] e não existiria entre as aceitas —
+  // o grounding reprovaria SYN24d, que passou.
+  const s24e = await rodar({ rotulo: "SYN24e", pergunta: Q, linhas: [GRANDE, MAG], prov: provedor(TEXTO_RUIM) });
+  confere("SYN24e o validador ainda vê índices das aceitas: SYN24d passa, e com descarte antes o número errado segue reprovado",
+    s24d.r.mode === "synthesized" && s1.r.mode === "synthesized" && s11.r.mode === "extractive" &&
+    s24e.r.mode === "extractive" && s24e.log?.outcome.startsWith("answer_rejected (grounding):") && cardCerto(s24e),
+    s24e.log?.outcome);
 
   const s25 = await rodar({ rotulo: "SYN25", pergunta: Q, linhas: [MAG, GRANDE], prov: provedor(OK_PONTUAL), isAdmin: true });
   const msg25 = s25.entrada?.userMessage ?? "";
@@ -609,12 +655,20 @@ async function suite({ S, A, C, P, L, E, ProviderError }) {
     confere(`LOG5 o log nunca contém ${nome}`, culpados.length === 0, culpados.map((t) => t.rotulo).join(",") || `${TODAS.length} linhas`);
   }
 
-  // Achado, não regra: o motivo da rejeição vai ao log com um PREFIXO da
-  // linha da evidência (cortado em "…") e o item da resposta reprovado.
-  // Nunca a linha inteira — LOG5 prova isso —, mas também não é zero.
-  confere("LOG6 ACHADO (reprodução): rejeição por completeness/association leva ao log prefixo truncado da linha, nunca a linha inteira",
-    s12.brutos[0].includes("MJ981CAP MUG-CV 02 MALHA 50 UG 4,83 bar …") && !s12.brutos[0].includes(LINHAS_P20[12]) &&
-    s13.brutos[0].includes("- 2,07 bar -> 1,08 L/min") && !s13.brutos[0].includes(LINHAS_P20[8]));
+  // Regra: o log pode levar o texto do MODELO (é saída nossa, e é o que se
+  // precisa para depurar), mas não conteúdo de documento. O começo de cada
+  // linha de evidência — o que o motivo da listagem incompleta carregava —
+  // não aparece em linha de log nenhuma.
+  const linhasDeEvidencia = [...new Set(TODAS.flatMap((t) => t.r.evidence.flatMap((e) => e.content.split("\n"))))]
+    .filter((l) => l.trim().length >= 25);
+  const comPrefixo = TODAS.filter((t) => linhasDeEvidencia.some((l) => t.brutos.join("\n").includes(l.slice(0, 25))));
+  confere("LOG6 nenhuma linha de log contém o começo (25 caracteres) de qualquer linha de evidência",
+    comPrefixo.length === 0 && linhasDeEvidencia.length >= 20,
+    comPrefixo.map((t) => t.rotulo).join(",") || `${linhasDeEvidencia.length} linhas × ${TODAS.length} logs`);
+  confere("LOG6b o motivo segue útil: a listagem incompleta diz o valor que faltou, e a associação traz o item do modelo",
+    s12.log.outcome.includes("faltou pressão 4,83") && s12.log.outcome.includes("faltou vazão 1,01") &&
+    !s12.log.outcome.includes("MJ981CAP MUG-CV") && s13.log.outcome.includes("- 2,07 bar -> 1,08 L/min"),
+    s12.log.outcome);
 
   // O aviso é lido por quem pergunta, não por quem mantém o código: nada do
   // vocabulário interno (nomes de gate, de kind, de outcome) chega à tela.

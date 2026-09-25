@@ -227,9 +227,13 @@ export function checkExhaustiveness(
 /** Linhas legíveis para o log. */
 export function describeExhaustiveness(r: Extract<ExhaustivenessResult, { status: "incomplete" }>): string[] {
   const nomes: Record<Campo, string> = { pressao: "pressão", vazao: "vazão", volume: "volume" };
+  // Estas linhas vão para o LOG do servidor (`answer_rejected`). O valor que
+  // faltou fica — um número solto é o que se precisa para depurar, e não
+  // reconstrói documento. O começo da linha da evidência, que ia entre
+  // parênteses, saiu: era conteúdo de documento no log.
   return [
     ...r.missing.map(
-      (m) => `listagem incompleta: faltou ${nomes[m.campo]} ${m.alternativas.join(" / ")} (${m.linha.slice(0, 40)}…)`,
+      (m) => `listagem incompleta: faltou ${nomes[m.campo]} ${m.alternativas.join(" / ")}`,
     ),
     ...r.extraneous.map((x) => `listagem com valor fora das linhas do código consultado: ${x}`),
   ];
