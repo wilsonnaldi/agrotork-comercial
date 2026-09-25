@@ -367,8 +367,13 @@ export function validateAnswer(
 
     // A terceira: cada item liga valores da MESMA linha. Todos os números
     // existirem, e todos os pedidos estarem lá, não prova que a vazão está
-    // ao lado da SUA pressão.
-    const associacao = checkAssociation(pergunta, limpo, evidencias);
+    // ao lado da SUA pressão. Os derivados do MESMO plano vão junto: um
+    // valor calculado sobre duas linhas não mora em linha nenhuma, e o
+    // grounding acima já provou que o parágrafo citou as parcelas dele.
+    const associacao = checkAssociation(
+      pergunta, limpo, evidencias,
+      plano?.status === "ready" ? plano.derived : [],
+    );
     if (associacao.status === "failed") {
       return {
         ok: false, kind: "association",

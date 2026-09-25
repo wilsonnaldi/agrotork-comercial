@@ -282,6 +282,124 @@ export function answerItems(resposta: string): string[] {
     .filter((i) => /\d/.test(i));
 }
 
+// ════════════════════════════════════════════════════════════
+// Contexto de bloco: o cabeçalho empresta o código às linhas de baixo
+// ════════════════════════════════════════════════════════════
+
+/**
+ * O formato que o prompt manda o modelo usar numa comparação é em BLOCOS:
+ *
+ *   MJ981CAP [1]:
+ *   - 40 psi -> 0,77 L/min [1]
+ *
+ * A linha do valor não carrega o código — ele está na linha de cima. Até
+ * 25/09 os dois gates que provam o vínculo produto → valor (associação e
+ * comparação) olhavam cada linha sozinha: a do valor, sem código, caía nos
+ * códigos da PERGUNTA (linha da tabela com os dois → nenhuma) e era
+ * pulada. Valor errado, produto trocado e linha trocada passavam — no
+ * formato oficial, o que o provedor escreve de fato.
+ *
+ * A regra aqui é estrutural, e só isso: um CABEÇALHO é uma linha que, sem
+ * as citações, a ênfase de markdown e os dois-pontos finais, é exatamente
+ * UM código conhecido. "MJ981CAP:", "MJ981CAP [1]:", "**MJ981CAP** [1][2]:"
+ * são cabeçalhos; "A MJ981CAP tem maior vazão", "MJ981CAP e MJ985CAP:",
+ * "Para MJ981CAP a 40 psi:" não são — prosa não cria contexto. O contexto
+ * vale para as linhas seguintes até uma linha em branco ou outro cabeçalho,
+ * e um código escrito na própria linha vence o herdado. Nada disto altera
+ * o texto mostrado: é metadado de validação.
+ */
+/** Um ponto de operação fixado pela pergunta, como o parser o extraiu. */
+export type PinnedPoint = { numero: string; unidade: string };
+
+/**
+ * A gramática do cabeçalho, e ela é fechada de propósito:
+ *
+ *   CÓDIGO [ (a|@) PONTO-FIXADO ]* [:]
+ *
+ * — depois de tirar citações, marcador de lista, ênfase de markdown e
+ * espaços. "MJ981CAP a 40 psi [1]:" é a variante que o provedor escreveu
+ * em execuções reais (2 de 10, em 25/09) e que ficava sem contexto; com a
+ * pergunta fixando "40 psi", ela passa a ser cabeçalho. O ponto tem de
+ * ser EXATAMENTE um dos que a pergunta fixou, escrito igual: "a 50 psi"
+ * não é, e "a 2,76 bar" também não, mesmo sendo a mesma pressão — aqui
+ * não se converte unidade, e "igual" é literal. Qualquer outra palavra
+ * antes ou depois do código ("Compare MJ981CAP:", "Para MJ981CAP a 40
+ * psi:", "MJ981CAP tem maior vazão:", "MJ981CAP e MJ985CAP:") continua
+ * sendo prosa, e prosa não cria bloco.
+ */
+export function blockHeaderCode(
+  linha: string,
+  conhecidos: Set<string>,
+  pinned: PinnedPoint[] = [],
+): string | null {
+  const limpa = linha
+    .replace(/\[\d{1,3}\]/g, " ")
+    .replace(/^\s*[-•*]\s+/, " ")
+    .replace(/[*_`#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/:$/, "")
+    .trim();
+  const [codigo, ...resto] = limpa.split(" ");
+  if (codigo === undefined || !/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(codigo)) return null;
+  if (!pareceCodigo(codigo)) return null;
+  const canonico = codigo.toUpperCase();
+  if (!conhecidos.has(canonico)) return null;
+  if (resto.length === 0) return canonico;
+
+  // O que vier depois do código só pode ser "a <ponto fixado>" (ou "@"),
+  // repetido para cada ponto que a pergunta fixou — nada mais.
+  const fixados = new Set(pinned.flatMap((p) => [`${p.numero} ${p.unidade}`, `${p.numero}${p.unidade}`]));
+  if (fixados.size === 0) return null;
+  let i = 0;
+  while (i < resto.length) {
+    const conector = resto[i];
+    if (conector !== "a" && conector !== "@") return null;
+    const espacado = `${resto[i + 1] ?? ""} ${resto[i + 2] ?? ""}`.trim();
+    const colado = resto[i + 1] ?? "";
+    if (fixados.has(espacado)) i += 3;
+    else if (fixados.has(colado)) i += 2;
+    else return null;
+  }
+  return canonico;
+}
+
+export type ContextLine = { linha: string; contexto: string | null; cabecalho: boolean };
+
+/** Cada linha da resposta com o código de bloco que vale para ela. */
+export function blockContexts(resposta: string, conhecidos: Set<string>, pinned: PinnedPoint[] = []): ContextLine[] {
+  let ativo: string | null = null;
+  return resposta.split(/\r?\n/).map((linha) => {
+    if (linha.trim().length === 0) {
+      ativo = null;                       // linha em branco encerra o bloco
+      return { linha, contexto: null, cabecalho: false };
+    }
+    const cabecalho = blockHeaderCode(linha, conhecidos, pinned);
+    if (cabecalho !== null) {
+      ativo = cabecalho;                  // novo cabeçalho substitui o anterior
+      return { linha, contexto: cabecalho, cabecalho: true };
+    }
+    return { linha, contexto: ativo, cabecalho: false };
+  });
+}
+
+export type ContextItem = { texto: string; contexto: string | null };
+
+/**
+ * `answerItems` com o contexto de bloco de cada item — a mesma quebra
+ * (linha, ';', fim de frase), sem os [n], só itens com dígito.
+ */
+export function answerItemsWithContext(resposta: string, conhecidos: Set<string>, pinned: PinnedPoint[] = []): ContextItem[] {
+  const saida: ContextItem[] = [];
+  for (const { linha, contexto } of blockContexts(resposta, conhecidos, pinned)) {
+    for (const bruto of linha.replace(/\[\d{1,3}\]/g, " ").split(/;|\.\s+/)) {
+      const texto = bruto.replace(/\s+/g, " ").trim();
+      if (/\d/.test(texto)) saida.push({ texto, contexto });
+    }
+  }
+  return saida;
+}
+
 type Linha = { texto: string; pares: Set<string>; unidades: Set<string> };
 
 const temPar = (linha: string, numero: string, unidade: string) =>
@@ -291,12 +409,112 @@ export type AssociationResult =
   | { status: "ok"; checked: number }
   | { status: "failed"; checked: number; failures: string[] };
 
+/**
+ * Um valor DERIVADO que o sistema calculou (ver `comparison.ts`): o literal
+ * exato que a resposta pode escrever sem que ele exista numa linha do
+ * documento. Só o texto interessa aqui — a proveniência (quais evidências o
+ * parágrafo precisa citar) é conferida ANTES, pelo grounding, e este gate
+ * não a repete.
+ */
+export type DerivedLiteral = { texto: string };
+
+/**
+ * Tira de um item os literais derivados, e SÓ eles — "0,76 L/min" e "98,7%"
+ * saem; "40 psi", "0,86 L/min" e os códigos ficam, para a associação
+ * conferir o que sobrou. As duas grafias do par (com e sem espaço antes da
+ * unidade) são as mesmas que o grounding aceita. A fronteira é a de
+ * `contemLiteral`: "0,76 L/min" não sai de dentro de "10,76 L/min". Cada
+ * literal sai UMA vez por item (a primeira ocorrência); as demais ficam.
+ *
+ * Só é chamada para item que `isDerivedStatement` reconhece como frase de
+ * cálculo — ver o porquê em `checkAssociation`.
+ */
+function semDerivados(item: string, derivados: DerivedLiteral[]): string {
+  let texto = item;
+  for (const d of derivados) {
+    const pares = extractUnitPairs(d.texto);
+    const formas = pares.length === 1 && pares[0]
+      ? [`${pares[0].numero} ${pares[0].unidade}`, `${pares[0].numero}${pares[0].unidade}`]
+      : [d.texto];
+    // UMA ocorrência só, a primeira em qualquer das grafias. A frase de
+    // cálculo anuncia o valor calculado uma vez; uma segunda cópia do mesmo
+    // literal na mesma frase ou é redundância ou é afirmação documental ("a
+    // MJ701CAP entrega 0,76 L/min a 40 psi") — e, na dúvida, fica no item
+    // para a associação conferir. Falhar fechado custa uma resposta
+    // extractiva; tirar as duas deixaria passar o par errado (COL9b).
+    let melhor: { de: number; tamanho: number } | null = null;
+    for (const forma of formas) {
+      let de = texto.indexOf(forma);
+      while (de !== -1) {
+        const antes = de === 0 ? "" : (texto[de - 1] ?? "");
+        const depois = texto[de + forma.length] ?? "";
+        const coladoAntes = /[\d.,]/.test(antes) && /\d/.test(texto[de - 2] ?? antes);
+        const coladoDepois = /[\d.,]/.test(depois) && /\d/.test(texto[de + forma.length + 1] ?? depois);
+        if (!coladoAntes && !coladoDepois) {
+          if (melhor === null || de < melhor.de) melhor = { de, tamanho: forma.length };
+          break;
+        }
+        de = texto.indexOf(forma, de + 1);
+      }
+    }
+    if (melhor !== null) {
+      texto = `${texto.slice(0, melhor.de)} ${texto.slice(melhor.de + melhor.tamanho)}`;
+    }
+  }
+  return texto.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Palavras que marcam uma frase de CÁLCULO — as formas que o próprio prompt
+ * manda escrever ("Diferença entre A e B: …", "Variação percentual entre A e
+ * B: …") e as que o provedor escreveu de fato ("entrega 98,7% a mais").
+ * Comparadas sem acento e sem caixa, como palavras inteiras.
+ */
+const MARCAS_DE_DERIVADO = [
+  "diferenca",
+  "diferencas",
+  "variacao percentual",
+  "percentual",
+  "por cento",
+  "a mais",
+  "a menos",
+];
+
+/**
+ * O item é, sem ambiguidade, uma frase que ANUNCIA um cálculo? A lista é
+ * fechada e conservadora de propósito: linha de tabela ("- 40 psi -> 0,76
+ * L/min", "MJ981CAP: 40 psi -> 0,76 L/min") não tem nenhuma dessas marcas, e
+ * é exatamente nela que um literal derivado não pode sumir. Na dúvida, não é
+ * derivação — e o item é conferido inteiro, como qualquer outro.
+ */
+export function isDerivedStatement(texto: string): boolean {
+  const t = ` ${normaliza(texto)} `;
+  return MARCAS_DE_DERIVADO.some((m) => t.includes(` ${m} `));
+}
+
 export function checkAssociation(
   pergunta: string,
   resposta: string,
   evidencias: KnowledgeEvidence[],
+  /**
+   * Os valores derivados que o plano de comparação calculou — os MESMOS que
+   * o grounding recebeu, vindos do mesmo `planComparison()`. Sem eles (o
+   * caso normal, fora de comparação) a regra é exatamente a de antes.
+   *
+   * Por que precisam chegar aqui: um derivado nasce de DUAS linhas — "0,76
+   * L/min" é a MJ985CAP a 40 psi menos a MJ981CAP a 40 psi — e por
+   * construção não existe em linha nenhuma. Exigir que ele apareça numa
+   * única linha ao lado de "40 psi" contradiz o que o sistema acabou de
+   * calcular: era o falso positivo que derrubava a comparação com percentual
+   * mesmo com todos os números certos e citados. O derivado sai do item
+   * que anuncia o cálculo (`isDerivedStatement`), e só dele;
+   * tudo o que sobra — pares documentais, números soltos, códigos — continua
+   * submetido à mesma linha única de sempre.
+   */
+  derivados: DerivedLiteral[] = [],
 ): AssociationResult {
-  const codigosDaPergunta = parseListingQuestion(pergunta).codes;
+  const daPergunta = parseListingQuestion(pergunta);
+  const codigosDaPergunta = daPergunta.codes;
   const codigosConhecidos = new Set(evidencias.flatMap((e) => e.codes.map((c) => c.toUpperCase())));
 
   const linhas: Linha[] = [];
@@ -316,7 +534,23 @@ export function checkAssociation(
   const failures: string[] = [];
   let checked = 0;
 
-  for (const item of answerItems(resposta)) {
+  // O ponto fixado vem da PERGUNTA: é ele, e só ele, que um cabeçalho pode
+  // repetir depois do código ("MJ981CAP a 40 psi:").
+  for (const { texto: bruto, contexto } of answerItemsWithContext(resposta, codigosConhecidos, daPergunta.pinned)) {
+    // O derivado sai ANTES de contar pares e números: "a 40 psi é de 0,76
+    // L/min e 98,7% a mais" vira "a 40 psi é de e a mais", que é o ponto de
+    // operação sozinho — sem segundo número, não há relação a conferir.
+    //
+    // Mas SÓ em frase de cálculo (auditoria de 25/09). O literal derivado é
+    // um texto, não um carimbo de origem: "0,76 L/min" pode ser a diferença a
+    // 40 psi E, por coincidência, o valor documental do mesmo produto noutra
+    // linha (a 50 psi). Tirado de todo item, "- 40 psi -> 0,76 L/min" debaixo
+    // desse produto perdia o 0,76, sobrava "40 psi" sozinho e o par errado
+    // saía sem conferência — grounding (o número existe) e comparação (o
+    // valor é do produto, em alguma linha) não olham a linha. Fora de frase
+    // de cálculo, o item é conferido inteiro, e o 0,76 tem de estar na linha
+    // do 40 psi.
+    const item = derivados.length > 0 && isDerivedStatement(bruto) ? semDerivados(bruto, derivados) : bruto;
     const pares = extractUnitPairs(item).filter((p) => UNIDADES_DE_LINHA.has(p.unidade));
     if (pares.length === 0) continue;
     const numeros = extractNumbers(item);
@@ -329,17 +563,24 @@ export function checkAssociation(
           .filter((t) => pareceCodigo(t) && codigosConhecidos.has(t.toUpperCase())),
       ),
     ];
-    const sujeito = codigosDoItem.length > 0 ? codigosDoItem : codigosDaPergunta;
+    // O sujeito: o código escrito no item; senão, o do cabeçalho do bloco;
+    // senão, os da pergunta. A ordem importa — o explícito vence o herdado.
+    const sujeito = codigosDoItem.length > 0
+      ? codigosDoItem
+      : contexto !== null
+      ? [contexto]
+      : codigosDaPergunta;
     const candidatas = sujeito.length > 0
       ? linhas.filter((l) => sujeito.every((c) => contemToken(l.texto, c)))
       : linhas;
 
     // Sem linha de tabela entre as candidatas, não há relação a conferir aqui.
     if (!candidatas.some((l) => l.unidades.size >= 2)) {
-      if (codigosDoItem.length > 0 && candidatas.length === 0 && linhas.some((l) => l.unidades.size >= 2)) {
-        // O item põe um código numa tabela em que esse código não tem linha.
+      if ((codigosDoItem.length > 0 || contexto !== null) && candidatas.length === 0 && linhas.some((l) => l.unidades.size >= 2)) {
+        // O item põe um código (escrito ou herdado do cabeçalho) numa tabela
+        // em que esse código não tem linha.
         checked += 1;
-        failures.push(`associação sem lastro: "${item.slice(0, 60)}" — nenhuma linha traz ${codigosDoItem.join(", ")} com esses valores`);
+        failures.push(`associação sem lastro: "${bruto.slice(0, 60)}" — nenhuma linha traz ${sujeito.join(", ")} com esses valores`);
       }
       continue;
     }
@@ -360,7 +601,7 @@ export function checkAssociation(
     if (!mesmaLinha) {
       const sujeitoTxt = sujeito.length > 0 ? ` de ${sujeito.join(", ")}` : "";
       failures.push(
-        `associação sem lastro: "${item.slice(0, 60)}" — nenhuma linha${sujeitoTxt} traz ${pares
+        `associação sem lastro: "${bruto.slice(0, 60)}" — nenhuma linha${sujeitoTxt} traz ${pares
           .map((p) => `${p.numero} ${p.unidade}`)
           .join(" com ")}${numeros.length > pares.length ? " e os demais números do item" : ""}`,
       );
