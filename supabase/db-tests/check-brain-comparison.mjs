@@ -496,6 +496,115 @@ confere("P13c dois valores por produto (pergunta sem ponto fixado) não ordena n
   C.relate(C.planComparison("Qual tem maior vazão: MJ981CAP ou MJ985CAP?", EV)).status === "not_applicable",
   C.relate(C.planComparison("Qual tem maior vazão: MJ981CAP ou MJ985CAP?", EV)).reason);
 
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Citação por parágrafo na comparação (T1–T8, 25/09)\n");
+//
+// O teste H ("quanto por cento a mais?") caía 3/3 com provedor real, e a
+// causa provada no log do servidor não era o percentual: era parágrafo
+// factual SEM citação — a linha de abertura ("A 40 psi (2,76 bar / 276
+// kPa):") ou a conclusão ("A MJ985CAP tem maior vazão a 40 psi. A diferença
+// é…"). O grounding estava certo em descartar. O que faltava era (a) o
+// prompt dizer, no lugar certo, que diferença, percentual e conclusão também
+// citam, e (b) a linha do bloco CÁLCULOS VERIFICADOS trazer a referência que
+// o modelo precisa escrever. Estes casos provam que o pipeline de resposta
+// inteiro — não só o plano — aceita a forma que o prompt pede e continua
+// recusando o que ele proíbe. O validador não mudou.
+
+const Q_H = "Compare a vazão da MJ981CAP e MJ985CAP a 40 psi. Quanto por cento a MJ985CAP entrega a mais?";
+const BLOCOS = [
+  "MJ981CAP [1]:",
+  "- 40 psi -> 0,77 L/min [1]",
+  "",
+  "MJ985CAP [1]:",
+  "- 40 psi -> 1,53 L/min [1]",
+].join("\n");
+const planoH = C.planComparison(Q_H, EV);
+const CALC_H = planoH.derived.map((d) => P.renderCalculation(d, CIT));
+
+confere("T0  a linha do bloco de cálculos leva a referência da evidência de origem",
+  CALC_H.join(" | ") === "Diferença entre MJ981CAP e MJ985CAP: 0,76 L/min [1] | Variação percentual entre MJ981CAP e MJ985CAP: 98,7% [1]",
+  CALC_H.join(" | "));
+confere("T0b e a referência é o número da CITAÇÃO, não o índice da evidência (evidência 1 → [2])",
+  P.renderCalculation(planoH.derived[0], [{ index: 2, evidenceIndex: 0 }]).endsWith("0,76 L/min [2]"));
+confere("T0c parcelas em evidências diferentes → as duas referências na linha",
+  P.renderCalculation(
+    { ...planoH.derived[0], sources: [{ code: "MJ981CAP", numero: "0,77", unidade: "L/min", evidenceIndex: 0 }, { code: "MJ985CAP", numero: "1,53", unidade: "L/min", evidenceIndex: 1 }] },
+    [{ index: 1, evidenceIndex: 0 }, { index: 2, evidenceIndex: 1 }],
+  ).endsWith("0,76 L/min [1][2]"));
+const MSG_H = P.buildUserMessage(Q_H, EV, CALC_H);
+confere("T0d a mensagem manda copiar as linhas com a referência, e as linhas vão com ela",
+  /Copie cada linha abaixo como está, com a referência indicada/.test(MSG_H) && MSG_H.includes("98,7% [1]"));
+
+// T1 — a forma que o prompt pede (regra 11g), com os valores reais: PASSA
+const T1 = `${BLOCOS}\n\n${CALC_H.join("\n")}`;
+const r_t1 = vq(Q_H, T1);
+confere("T1  blocos + linhas de cálculo copiadas com [1] → PASSA (98,7% aceito no pipeline inteiro)",
+  r_t1.ok === true, r_t1.problem ?? "ok");
+confere("T1b e a conclusão com a sua referência no mesmo parágrafo também passa",
+  vq(Q_H, `${T1}\nA MJ985CAP tem maior vazão [1]`).ok === true);
+
+// T2 — a conclusão SEM [1], como o modelo escreveu nos RUNs 2 e 3 de 25/09: grounding
+const r_t2 = vq(Q_H, `${BLOCOS}\n\nA MJ985CAP tem maior vazão a 40 psi. A diferença entre MJ981CAP e MJ985CAP é de 0,76 L/min (98,7%).`);
+confere("T2  parágrafo de conclusão sem citação → grounding reprova (parágrafo 3 afirma sem citar)",
+  r_t2.kind === "grounding" && /parágrafo 3 afirma sem citar/.test(r_t2.problem), r_t2.problem);
+const r_t2b = vq(Q_H, `A 40 psi (2,76 bar / 276 kPa):\n\nMJ981CAP: 0,77 L/min [1]\n\nMJ985CAP: 1,53 L/min [1]`);
+confere("T2b linha de abertura sem citação, como no RUN 1 de 25/09 → grounding reprova (parágrafo 1)",
+  r_t2b.kind === "grounding" && /parágrafo 1 afirma sem citar/.test(r_t2b.problem), r_t2b.problem);
+
+// T3 — percentual certo, sem citação: FAIL
+const r_t3 = vq(Q_H, `${BLOCOS}\n\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7%`);
+confere("T3  percentual correto sem citação → grounding reprova",
+  r_t3.kind === "grounding" && /afirma sem citar/.test(r_t3.problem), r_t3.problem);
+confere("T3b e \"conforme cálculos verificados\" não substitui a referência",
+  vq(Q_H, `${BLOCOS}\n\nA MJ985CAP entrega 98,7% a mais (conforme cálculos verificados).`).kind === "grounding");
+
+// T4 — percentual certo, com a citação certa: PASS
+const r_t4 = vq(Q_H, `${BLOCOS}\n\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7% [1]`);
+confere("T4  percentual correto com citação correta → PASSA", r_t4.ok === true, r_t4.problem ?? "ok");
+confere("T4b e o percentual só vale escrito como o sistema calculou: 98,70% e 98.7% continuam reprovados",
+  vq(Q_H, `${BLOCOS}\n\nVariação percentual entre MJ981CAP e MJ985CAP: 98,70% [1]`).kind === "grounding" &&
+  vq(Q_H, `${BLOCOS}\n\nVariação percentual entre MJ981CAP e MJ985CAP: 98.7% [1]`).kind === "grounding");
+
+// T5 — parcelas em documentos diferentes: o parágrafo derivado cita as DUAS
+// Reaproveita DOC_A/DOC_B (P1b): MJ981CAP só em [1], MJ985CAP só em [2].
+const plano2 = C.planComparison(Q_H, EVD);
+const CALC_2 = plano2.derived.map((d) => P.renderCalculation(d, A.buildCitations(EVD)));
+confere("T5a com as parcelas em [1] e [2], as linhas de cálculo pedem as duas referências",
+  CALC_2.every((l) => l.endsWith("[1][2]")), CALC_2.join(" | "));
+const BLOCOS2 = "MJ981CAP [1]:\n- 40 psi -> 0,77 L/min [1]\n\nMJ985CAP [2]:\n- 40 psi -> 1,53 L/min [2]";
+confere("T5  derivado citando as duas evidências de origem → PASSA",
+  vq(Q_H, `${BLOCOS2}\n\n${CALC_2.join("\n")}`, EVD).ok === true,
+  vq(Q_H, `${BLOCOS2}\n\n${CALC_2.join("\n")}`, EVD).problem ?? "ok");
+const r_t5b = vq(Q_H, `${BLOCOS2}\n\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7% [1]`, EVD);
+confere("T5b derivado citando só uma das duas → REPROVADO (a conta não é conferível por [1] sozinho)",
+  r_t5b.ok === false, r_t5b.problem);
+
+// T6 — citação errada: a evidência citada não sustenta o que o parágrafo diz
+const r_t6 = vq(Q_H, `MJ981CAP [2]:\n- 40 psi -> 0,77 L/min [2]\n\nMJ985CAP [1]:\n- 40 psi -> 1,53 L/min [1]\n\n${CALC_2.join("\n")}`, EVD);
+confere("T6  citação trocada (valor da MJ981CAP atribuído à evidência da MJ985CAP) → REPROVADO",
+  r_t6.ok === false, r_t6.problem);
+confere("T6b citação para evidência inexistente → format",
+  vq(Q_H, `${BLOCOS}\n\nVariação percentual entre MJ981CAP e MJ985CAP: 98,7% [3]`).kind === "format");
+
+// T7 / T8 — conclusão maior/menor com e sem citação, na pergunta relacional
+const Q_QUAL = "Qual tem maior vazão a 40 psi: MJ981CAP ou MJ985CAP?";
+const CALC_Q = C.planComparison(Q_QUAL, EV).derived.map((d) => P.renderCalculation(d, CIT));
+const r_t7 = vq(Q_QUAL, `${BLOCOS}\n\n${CALC_Q.join("\n")}\nA MJ985CAP tem maior vazão [1]`);
+confere("T7  conclusão maior/menor com citação correta → PASSA", r_t7.ok === true, r_t7.problem ?? "ok");
+const r_t8 = vq(Q_QUAL, `${BLOCOS}\n\n${CALC_Q.join("\n")}\n\nA MJ985CAP tem maior vazão.`);
+confere("T8  conclusão maior/menor sem citação → grounding reprova", r_t8.kind === "grounding", r_t8.problem);
+
+// O contrato do prompt, no lugar onde o modelo lê sobre comparação
+const secaoComp = P.SYSTEM_PROMPT.slice(P.SYSTEM_PROMPT.indexOf("COMPARAÇÃO ENTRE CÓDIGOS"), P.SYSTEM_PROMPT.indexOf("VALOR PEDIDO QUE NÃO ESTÁ NA TABELA"));
+confere("T9  o prompt exige, NA SEÇÃO de comparação, referência para diferença, percentual e conclusão",
+  /11f\./.test(secaoComp) && /variação percentual e a conclusão/.test(secaoComp) && /ÚLTIMO parágrafo/.test(secaoComp) &&
+  /linha de abertura/.test(secaoComp) && /conforme cálculos verificados/.test(secaoComp));
+confere("T9b e traz exemplo positivo com cada linha citando, inclusive a diferença e a conclusão",
+  /CÓDIGO-A \[1\]:/.test(secaoComp) && /Diferença entre CÓDIGO-A e CÓDIGO-B: 0,20 L\/min \[1\]/.test(secaoComp) &&
+  /Variação percentual entre CÓDIGO-A e CÓDIGO-B: 200,0% \[1\]/.test(secaoComp) && /A CÓDIGO-B tem maior vazão \[1\]/.test(secaoComp));
+confere("T9c a regra de forma não limita a comparação a dois parágrafos sem citar o terceiro",
+  /um bloco por código e mais um parágrafo para diferença e conclusão/.test(P.SYSTEM_PROMPT) && /o último inclusive/.test(P.SYSTEM_PROMPT));
+
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ comparação entre códigos\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);

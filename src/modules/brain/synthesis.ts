@@ -13,7 +13,7 @@ import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } fro
 import { TIMEOUT_PROVIDER_MS } from "./limits";
 import { resolveProvider } from "./llm";
 import { ProviderError } from "./llm/provider";
-import { buildUserMessage, SYSTEM_PROMPT } from "./prompt";
+import { buildUserMessage, renderCalculation, SYSTEM_PROMPT } from "./prompt";
 import * as repository from "./repository";
 import type { KnowledgeQuery } from "./schema";
 
@@ -147,8 +147,11 @@ export async function answer(
       warning: `A pergunta compara ${plano.codes.length} códigos, acima do limite de ${MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`,
     });
   }
+  // Cada linha leva a referência que o modelo deve escrever ao lado do
+  // número: o derivado só é aceito no parágrafo que cita as evidências de
+  // origem, e o modelo não tem como adivinhar quais são.
   const calculos = plano.status === "ready"
-    ? plano.derived.map((d) => `${d.tipo === "percentual" ? "Variação percentual" : "Diferença"} entre ${d.de} e ${d.para}: ${d.texto}`)
+    ? plano.derived.map((d) => renderCalculation(d, citacoes))
     : [];
 
   let texto: string;
