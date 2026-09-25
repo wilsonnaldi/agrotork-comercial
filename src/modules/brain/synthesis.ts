@@ -307,6 +307,8 @@ export async function answerWith(
         ? "A resposta gerada não listava todos os valores pedidos e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
         : validacao.kind === "association"
         ? "A resposta gerada ligava valores de linhas diferentes da tabela e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
+        : validacao.kind === "stance"
+        ? "A resposta gerada opinava ou recomendava em vez de documentar e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
         : "A resposta gerada não passou na conferência e foi descartada. Os trechos encontrados estão abaixo.",
     });
   }
