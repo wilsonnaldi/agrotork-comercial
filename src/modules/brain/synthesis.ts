@@ -5,6 +5,7 @@ import {
   buildCitations,
   extractiveAnswer,
   validateAnswer,
+  type BrainCitation,
   type BrainNaturalAnswer,
 } from "./answer";
 import { MAX_CODIGOS_COMPARADOS, planComparison } from "./comparison";
@@ -12,7 +13,7 @@ import { assessExternalProcessing, parsePolicy, type EvidenceRef } from "./exter
 import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } from "./evidence";
 import { TIMEOUT_PROVIDER_MS } from "./limits";
 import { resolveProvider } from "./llm";
-import { ProviderError } from "./llm/provider";
+import { ProviderError, type BrainLlmProvider } from "./llm/provider";
 import { buildUserMessage, renderCalculation, SYSTEM_PROMPT } from "./prompt";
 import * as repository from "./repository";
 import type { KnowledgeQuery } from "./schema";
@@ -21,7 +22,8 @@ import type { KnowledgeQuery } from "./schema";
  * A cadeia inteira, num lugar só:
  *
  *   busca autorizada → Evidence Gate → gate de processamento externo
- *   → prompt → provedor → Answer Validator → resposta com citações
+ *   → comparação estrutural → provedor disponível? → prompt → provedor
+ *   → Answer Validator → resposta com citações
  *
  * Três coisas que este arquivo NÃO faz, e é o mais importante dele:
  *
@@ -53,11 +55,100 @@ function registrar(log: GenerationLog) {
   console.info("[brain.synthesis]", JSON.stringify(log));
 }
 
-export async function answer(
+/**
+ * O aviso da comparação sem um dos lados. Os códigos vêm da PERGUNTA, então
+ * repeti-los não revela nada; "não encontrei … nesta consulta" vale igual
+ * para documento inexistente e para documento que esta pessoa não pode ver
+ * — as duas situações têm de ser indistinguíveis. Nenhuma sugestão de código
+ * parecido, pelo mesmo motivo.
+ */
+function lista(codigos: string[]): string {
+  return codigos.length === 1
+    ? codigos[0]!
+    : `${codigos.slice(0, -1).join(", ")} e ${codigos[codigos.length - 1]}`;
+}
+
+/**
+ * Dois motivos, ditos separados (revisão de 25/09): o código que NENHUMA
+ * evidência traz ("não encontrei documentação") e o que está documentado
+ * mas sem valor no ponto ou na unidade pedidos ("não encontrei o valor …
+ * a 45 psi"). Juntá-los dizia "não encontrei documentação para MJ981CAP"
+ * com a tabela da MJ981CAP logo abaixo. O segundo motivo só cita o ponto
+ * que a própria pergunta fixou, então também não revela nada.
+ */
+function avisoComparacaoIncompleta(
+  semDocumentacao: string[],
+  semValor: string[],
+  pontoPedido: string | null,
+  todosFaltam: boolean,
+): string {
+  const motivos: string[] = [];
+  if (semDocumentacao.length > 0) {
+    motivos.push(`não encontrei documentação para ${lista(semDocumentacao)} nesta consulta`);
+  }
+  if (semValor.length > 0) {
+    motivos.push(
+      `não encontrei, nos trechos encontrados, o valor pedido para ${lista(semValor)}` +
+        (pontoPedido ? ` no ponto ${pontoPedido}` : ""),
+    );
+  }
+  return `Não dá para concluir a comparação: ${motivos.join("; ")}. ` +
+    (todosFaltam
+      ? "Os trechos encontrados estão abaixo, na íntegra."
+      : "Os trechos encontrados para os demais códigos estão abaixo, na íntegra.");
+}
+
+/**
+ * As citações como a TELA as lê. Duas numerações convivem aqui, e trocá-las
+ * é o erro: `buildCitations(aceitas)` numera `evidenceIndex` sobre as
+ * evidências ACEITAS — é o que o validador (grounding, comparação) espera —,
+ * mas o console indexa `resposta.evidence`, que é TUDO o que a busca trouxe,
+ * inclusive o que o Evidence Gate descartou. Com um descarte antes de uma
+ * aceita, [1] abria o card errado. A tradução acontece só na saída; o
+ * validador continua recebendo as citações sobre as aceitas.
+ */
+function citacoesParaTela(
+  citacoes: BrainCitation[],
+  aceitas: KnowledgeEvidence[],
+  evidencias: KnowledgeEvidence[],
+): BrainCitation[] {
+  const posicao = new Map(evidencias.map((e, i) => [e, i]));
+  return citacoes.map((c) => ({ ...c, evidenceIndex: posicao.get(aceitas[c.evidenceIndex]!) ?? c.evidenceIndex }));
+}
+
+/**
+ * As três portas por onde a cadeia sai deste arquivo: banco (busca e
+ * política) e provedor. Injetáveis só para a máquina de estados ser
+ * exercitada sem banco, sem rede e sem chave
+ * (`supabase/db-tests/check-brain-synthesis.mjs`). Nada de container: o app
+ * chama `answer`, que liga as portas de verdade; o teste chama `answerWith`
+ * com falsos.
+ */
+export type SynthesisDeps = {
+  search: (input: KnowledgeQuery) => Promise<KnowledgeHitRow[]>;
+  externalProcessing: (documentIds: string[]) => Promise<Map<string, string>>;
+  resolveProvider: () => BrainLlmProvider | null;
+};
+
+const DEPS: SynthesisDeps = {
+  search: repository.search,
+  externalProcessing: repository.externalProcessing,
+  resolveProvider,
+};
+
+export function answer(
   input: KnowledgeQuery,
   opts: { isAdmin: boolean },
 ): Promise<BrainNaturalAnswer> {
-  const rows: KnowledgeHitRow[] = await repository.search(input);
+  return answerWith(DEPS, input, opts);
+}
+
+export async function answerWith(
+  deps: SynthesisDeps,
+  input: KnowledgeQuery,
+  opts: { isAdmin: boolean },
+): Promise<BrainNaturalAnswer> {
+  const rows: KnowledgeHitRow[] = await deps.search(input);
   const evidencias: KnowledgeEvidence[] = rows.map((r) => toEvidence(r, opts.isAdmin));
 
   const base = (extra: Partial<BrainNaturalAnswer>): BrainNaturalAnswer => ({
@@ -82,6 +173,7 @@ export async function answer(
 
   const aceitas = avaliacao.accepted;
   const citacoes = buildCitations(aceitas);
+  const citacoesDaTela = citacoesParaTela(citacoes, aceitas, evidencias);
 
   // ── gate de processamento externo ─────────────────────────
   // ANTES do provedor, sempre. Autorizar leitura não autoriza saída.
@@ -93,7 +185,7 @@ export async function answer(
       documentTitle: e.document.title,
     };
   });
-  const politicas = await repository.externalProcessing(refs.map((r) => r.documentId));
+  const politicas = await deps.externalProcessing(refs.map((r) => r.documentId));
   const externo = assessExternalProcessing(
     refs,
     new Map([...politicas].map(([id, p]) => [id, parsePolicy(p)])),
@@ -107,31 +199,22 @@ export async function answer(
     });
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       warning: `${externo.reason} A consulta continua disponível, com os trechos na íntegra.`,
     });
   }
 
-  // ── provedor ──────────────────────────────────────────────
-  const provider = resolveProvider();
-  if (!provider) {
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null, outcome: "no_provider",
-    });
-    return base({
-      answer: extractiveAnswer(aceitas),
-      citations: citacoes,
-      mode: "extractive",
-      warning: "A síntese automática não está configurada neste ambiente. Os trechos encontrados estão abaixo.",
-    });
-  }
-
-  // ── comparação: o cálculo é nosso, não do modelo ──────────
-  // O plano sai das MESMAS evidências que vão ao provedor, com a mesma
+  // ── comparação estrutural: antes de saber se há provedor ──
+  // O plano sai das MESMAS evidências que iriam ao provedor, com a mesma
   // função que o validador usa depois. Se os dois discordassem, a resposta
   // seria descartada — eles não discordam porque é o mesmo código.
+  //
+  // Vem ANTES da disponibilidade do provedor porque o que ele decide não
+  // depende de modelo nenhum: comparação grande demais ou sem um dos lados
+  // não tem resposta conferível, com ou sem chave. Assim o resultado é o
+  // mesmo em qualquer ambiente, e o provedor não é chamado para escrever
+  // algo que o sistema já sabe que não pode concluir.
   const plano = planComparison(input.query, aceitas);
   if (plano.status === "too_many") {
     registrar({
@@ -141,12 +224,51 @@ export async function answer(
     });
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       comparison: true,
       warning: `A pergunta compara ${plano.codes.length} códigos, acima do limite de ${MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`,
     });
   }
+  if (plano.status === "ready" && plano.incomplete) {
+    // Sem evidência para um dos códigos não há diferença, vencedor nem
+    // percentual — e o modelo só poderia errar isso (SYN16–SYN18 mostravam
+    // o provedor chamado à toa). Fim determinístico, com os trechos na tela.
+    const faltantes = plano.blocks.filter((b) => b.missing);
+    const semDocumentacao = faltantes.filter((b) => !b.documented).map((b) => b.code);
+    const semValor = faltantes.filter((b) => b.documented).map((b) => b.code);
+    const pontoPedido = plano.spec.pinned.length > 0
+      ? plano.spec.pinned.map((p) => `${p.numero} ${p.unidade}`).join(" e ")
+      : null;
+    registrar({
+      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
+      provider: null, model: null, durationMs: null,
+      outcome: `comparison_incomplete: ${faltantes.map((b) => b.code).join(",")}`,
+    });
+    return base({
+      answer: extractiveAnswer(aceitas),
+      citations: citacoesDaTela,
+      mode: "extractive",
+      comparison: true,
+      warning: avisoComparacaoIncompleta(semDocumentacao, semValor, pontoPedido, faltantes.length === plano.blocks.length),
+    });
+  }
+
+  // ── provedor ──────────────────────────────────────────────
+  const provider = deps.resolveProvider();
+  if (!provider) {
+    registrar({
+      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
+      provider: null, model: null, durationMs: null, outcome: "no_provider",
+    });
+    return base({
+      answer: extractiveAnswer(aceitas),
+      citations: citacoesDaTela,
+      mode: "extractive",
+      warning: "A síntese automática não está configurada neste ambiente. Os trechos encontrados estão abaixo.",
+    });
+  }
+
   // Cada linha leva a referência que o modelo deve escrever ao lado do
   // número: o derivado só é aceito no parágrafo que cita as evidências de
   // origem, e o modelo não tem como adivinhar quais são.
@@ -176,7 +298,7 @@ export async function answer(
     // Falha do provedor não apaga o que o BRAIN achou.
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       warning: "Não consegui redigir a resposta agora. Os trechos encontrados estão abaixo.",
     });
@@ -207,7 +329,7 @@ export async function answer(
     // número trocado NÃO vira número certo aqui — vira resposta descartada.
     return base({
       answer: extractiveAnswer(aceitas),
-      citations: citacoes,
+      citations: citacoesDaTela,
       mode: "extractive",
       comparison: plano.status === "ready" || undefined,
       warning: validacao.kind === "comparison"
@@ -216,6 +338,8 @@ export async function answer(
         ? "A resposta gerada não listava todos os valores pedidos e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
         : validacao.kind === "association"
         ? "A resposta gerada ligava valores de linhas diferentes da tabela e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
+        : validacao.kind === "stance"
+        ? "A resposta gerada opinava ou recomendava em vez de documentar e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
         : "A resposta gerada não passou na conferência e foi descartada. Os trechos encontrados estão abaixo.",
     });
   }
@@ -227,7 +351,7 @@ export async function answer(
 
   return base({
     answer: texto.trim(),
-    citations: citacoes,
+    citations: citacoesDaTela,
     mode: "synthesized",
     comparison: plano.status === "ready" || undefined,
     warning: avaliacao.dropped.length > 0

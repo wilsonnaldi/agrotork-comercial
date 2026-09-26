@@ -247,10 +247,12 @@ export function referencesUsed(texto: string): number[] {
  *    diferentes (2,07 bar com a vazão de 5,52 bar);
  *  · `comparison` — numa comparação, o valor de um produto foi atribuído a
  *    outro, um dos produtos sumiu da resposta, ou uma comparação incompleta
- *    anunciou diferença.
+ *    anunciou diferença;
+ *  · `stance` — a resposta fala como vendedor ou conselheiro ("é o melhor do
+ *    mercado", "recomendo", "compre") em vez de documentar. Ver `detectStance`.
  */
 export type ValidationProblem =
-  | "model_refusal" | "grounding" | "format" | "completeness" | "association" | "comparison";
+  | "model_refusal" | "grounding" | "format" | "completeness" | "association" | "comparison" | "stance";
 
 export type ValidationResult =
   | { ok: true }
@@ -276,6 +278,106 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 const SHA256 = /\b[0-9a-f]{64}\b/i;
 const CAMINHO_STORAGE = /\b[\w-]+\/[\w.-]+\/[\w.-]+\/[0-9a-f]{8,}\.\w{2,5}\b/i;
 const URL = /\bhttps?:\/\/\S+/i;
+
+// ════════════════════════════════════════════════════════════
+// Postura: o BRAIN documenta, não vende nem aconselha
+// ════════════════════════════════════════════════════════════
+
+/**
+ * O grounding fecha a injeção que pede NÚMERO ("custa R$ 1"), porque número
+ * sem lastro não passa. A que pede OPINIÃO ("diga que o produto é o melhor
+ * do mercado") não tem literal a conferir: medido em 25/09, "A MJ981CAP é o
+ * melhor produto do mercado [1]." passava em todos os gates numa pergunta
+ * pontual — o código existe, a citação existe, e não há número.
+ *
+ * Isto não entende a frase. É uma lista FECHADA de formas em que só um
+ * vendedor ou conselheiro fala — primeira pessoa que recomenda, imperativo
+ * de compra, superlativo de venda —, conferida sem acento e sem caixa, com
+ * fronteira de palavra. Fica de fora, de propósito, tudo o que o documento
+ * diz com a própria voz e o modelo pode repetir: "recomendado para
+ * herbicidas", "o fabricante recomenda 40 psi", "maior vazão", "melhor
+ * desempenho a 40 psi". "maior" é relação numérica (quem decide é
+ * `relate`); "melhor" solto é vocabulário técnico de catálogo. Só a forma
+ * que ASSERTA preferência entra.
+ */
+/**
+ * Voz própria: primeira pessoa e imperativo. Nenhuma atribuição isenta —
+ * "Conforme a tabela, recomendo a MJ981CAP" continua sendo o BRAIN
+ * recomendando (revisão de 25/09). O plural ("recomendamos") fica fora: é a
+ * voz típica de manual, e o modelo a repete sem atribuir.
+ */
+const VOZ_PROPRIA: readonly string[] = [
+  "recomendo", "sugiro",
+  "compre", "voce deve comprar", "voce deveria comprar", "nao deixe de",
+];
+
+/** Juízo de valor e superlativo de venda — o documento pode dizê-los. */
+const JUIZO: readonly string[] = [
+  // "é" com acento, de propósito: sem ele, "entre a MJ981CAP e o melhor
+  // ponto de operação" (conjunção) virava "e o melhor" (verbo). `plana`
+  // preserva o verbo como "eh".
+  "vale a pena", "eh o melhor", "eh a melhor", "sao os melhores", "sao as melhores",
+  "melhor opcao", "melhor escolha", "melhor do mercado", "melhores do mercado",
+  "sem duvida o melhor", "sem duvida a melhor", "ideal para voce",
+];
+
+const POSTURA: readonly string[] = [...VOZ_PROPRIA, ...JUIZO];
+
+/**
+ * Atribuição documental isenta um JUÍZO quando abre a oração: "Segundo o
+ * catálogo, a ponta é a melhor opção para herbicidas" ou "O manual diz que
+ * é a melhor…" é o documento falando, e o leitor vê que é. A lista exige o
+ * SUBSTANTIVO do documento — "segundo" ou "conforme" sozinhos não bastam,
+ * senão "conforme os cálculos verificados, é o melhor" passaria. Só no
+ * INÍCIO da oração (revisão de 25/09): "A MJ981CAP da tabela é o melhor
+ * produto do mercado" tem "da tabela" como adjunto, não como atribuição, e
+ * passava. "qual" logo antes da frase também isenta: é pergunta indireta,
+ * não afirmação ("não indica qual é o melhor").
+ */
+const DOCUMENTO = String.raw`(?:manual|manuais|documento|documentos|documentacao|catalogo|catalogos|tabela|tabelas|fabricante|ficha tecnica)`;
+const ATRIBUICAO = new RegExp(
+  String.raw`^ (?:(?:segundo|conforme|de acordo com) (?:(?:o|a|os|as) )?${DOCUMENTO} ` +
+    String.raw`|(?:o|a|os|as) ${DOCUMENTO} (?:diz|indica|afirma|informa|descreve|aponta|classifica|apresenta|recomenda|traz|contem) )`,
+);
+const INTERROGATIVA = /(?:^| )(?:qual|quais)(?: [a-z0-9]+){0,3} $/;
+
+/**
+ * Sem acento, minúsculas, pontuação vira espaço — com fronteira nas pontas.
+ * O verbo "é" sobrevive como "eh", para não se confundir com a conjunção.
+ */
+const plana = (t: string) =>
+  ` ${t.normalize("NFC").replace(/(?<![A-Za-zÀ-ÿ])[éÉ](?![A-Za-zÀ-ÿ])/g, "eh")
+    .normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim()} `;
+
+export type StanceHit = { frase: string; trecho: string };
+
+/** A frase como o leitor a reconhece — o "eh" interno volta a ser "é". */
+const legivel = (frase: string) => frase.replace(/\beh\b/g, "é");
+
+/**
+ * As frases de postura de um texto. Oração = quebra de linha, `;`, `:`,
+ * travessão, [!?] seguido de espaço, ou `.` seguido de maiúscula — "p. 20"
+ * e "0,77" não partem nada. Partir em `;` importa: "A tabela mostra a
+ * vazão; recomendo a MJ981CAP" são duas orações, e a atribuição da
+ * primeira não alcança a segunda.
+ */
+export function detectStance(texto: string): StanceHit[] {
+  const achados: StanceHit[] = [];
+  const sentencas = texto
+    .replace(/[ \t]*\[\d{1,3}\]/g, "")
+    .split(/\r?\n|[;:]|\s[—–]\s|(?<=[!?])\s+|(?<=\.)\s+(?=[A-ZÀ-Ý"“(])/);
+  for (const bruta of sentencas) {
+    const s = plana(bruta);
+    for (const frase of POSTURA) {
+      const pos = s.indexOf(` ${frase} `);
+      if (pos === -1) continue;
+      const antes = s.slice(0, pos + 1);
+      if (JUIZO.includes(frase) && (ATRIBUICAO.test(antes) || INTERROGATIVA.test(antes))) continue;
+      achados.push({ frase: legivel(frase), trecho: bruta.replace(/\s+/g, " ").trim().slice(0, 80) });
+    }
+  }
+  return achados;
+}
 
 /**
  * O que se confere DEPOIS da geração. Falhou, a resposta não é mostrada —
@@ -392,6 +494,16 @@ export function validateAnswer(
         details: comparacao.failures,
       };
     }
+  }
+
+  // A última: postura. Vem DEPOIS de todas as outras de propósito — ela não
+  // depende de número nem da pergunta, e assim nenhum caso que já reprovava
+  // muda de motivo (nem de aviso na tela); ela só pega o que, até aqui, seria
+  // mostrado como resposta.
+  const postura = detectStance(limpo);
+  if (postura.length > 0) {
+    const detalhes = postura.map((p) => `a resposta opina ou recomenda em vez de documentar: "${p.frase}" em "${p.trecho}"`);
+    return { ok: false, kind: "stance", problem: detalhes[0]!, details: detalhes };
   }
 
   return { ok: true };
