@@ -116,7 +116,7 @@ Antes do passo 4, e depois de qualquer mudança, `npm run brain:preflight`
 - **exit 0** `PRONTO PARA PRODUÇÃO (configuração)` · **exit 1** `NÃO
   CONFIGURADO: <reason>` · **exit 2** existe `NEXT_PUBLIC_BRAIN_LLM*`;
 - `npm run brain:preflight -- --contract` só imprime o contrato (nomes,
-  valores aceitos, regras e os cinco motivos) e não lê o ambiente;
+  valores aceitos, regras e os sete motivos) e não lê o ambiente;
 - **não** prova que a chave é válida (exigiria chamar o provedor) e **não**
   lê o painel da Netlify: roda onde as variáveis existem, ou confere-se no
   painel só os NOMES e o escopo.
@@ -187,7 +187,7 @@ Não precisa de feature flag nem de deploy de código:
 
 Prova em teste: **SYN34b** (`none` com chave e modelo presentes →
 `no_provider:provider_disabled`, provedor 0×), SYN34a (`provider_missing`),
-SYN34f (a tela não distingue os motivos) em `check-brain-synthesis.mjs`;
+SYN34h (a tela não distingue os motivos) em `check-brain-synthesis.mjs`;
 **CFG3c** em `check-brain-provider.mjs`.
 
 Religar: voltar `BRAIN_LLM_PROVIDER=anthropic` + redeploy + P1.
@@ -226,15 +226,22 @@ Uma linha por consulta, tipo `GenerationEvent`
 | outcome | reasons |
 | --- | --- |
 | `no_evidence` | `none_retrieved`, `none_passed_gate`, `none_fit_context` |
-| `no_provider` | `provider_missing`, `provider_disabled`, `provider_unsupported`, `model_missing`, `key_missing` |
+| `no_provider` | `provider_missing`, `provider_disabled`, `provider_unsupported`, `model_missing`, `model_invalid`, `key_missing`, `key_invalid` |
 | `provider_error` | `timeout`, `auth`, `rate_limit`, `network`, `invalid_response`, `unknown` |
 | `answer_rejected` | `grounding`, `format`, `completeness`, `association`, `comparison`, `stance` |
-| `internal_error` | `citation_mapping` |
+| `internal_error` | `citation_mapping`, `search`, `policy`, `provider_config` |
 
-Dois valores declarados e **inalcançáveis hoje**: `internal_error` (SYN33b;
-garantia pelo helper puro, CIT1–CIT4) e `none_fit_context` (toda evidência
-aceita tem ≤ 20.000 caracteres e o orçamento é 62.000, então a primeira
-sempre cabe — `limits.ts`, SYN23). Se aparecerem em produção, é defeito.
+`provider_error` só aceita as seis categorias: um `kind` fora delas (texto
+livre posto no erro em tempo de execução) vira `unknown` (OBS14).
+
+`internal_error` é **alcançável** desde a revisão adversarial de 26/09:
+`citation_mapping` quando a busca devolve o mesmo trecho (`chunkId`) duas
+vezes (SYN33), e `search` / `policy` / `provider_config` quando a porta
+correspondente LANÇA — o evento sai e o erro é relançado para o `catch` da
+action (SYN35a–c). Em produção a contagem deve ser 0; qualquer ocorrência é
+defeito a investigar pela `reason`. Único valor declarado e inalcançável
+hoje: `none_fit_context` (toda evidência aceita tem ≤ 20.000 caracteres e o
+orçamento é 62.000, então a primeira sempre cabe — `limits.ts`, SYN23).
 
 ### 5.3 O que NÃO vai ao log
 
@@ -244,7 +251,7 @@ evidência · prompt · corpo ou mensagem de erro do provedor · chave · ids
 (UUID, `chunk_id`, `document_id`) · caminho de Storage · sha256 · detalhe da
 rejeição do validador · código de produto fora de `comparison_incomplete` (e
 ali só os que o catálogo das evidências aceitas conhece). Testes: LOG1–LOG8b
-e OBS1–OBS13 em `check-brain-synthesis.mjs`.
+e OBS1–OBS14 em `check-brain-synthesis.mjs`.
 
 ### 5.4 O que contar
 

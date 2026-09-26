@@ -11,12 +11,21 @@
 | Variável | Valor | Obrigatória para sintetizar |
 |---|---|---|
 | `BRAIN_LLM_PROVIDER` | `anthropic` — ou `none` / `off` / `disabled` para desligar | sim |
-| `BRAIN_LLM_MODEL` | identificador do modelo, não vazio | sim |
-| `BRAIN_LLM_API_KEY` | `<secret>` | sim |
+| `BRAIN_LLM_MODEL` | identificador do modelo: letras, dígitos e `. _ : @ -`, começando por letra ou dígito, até 100 caracteres, **nunca** começando por `sk-` | sim |
+| `BRAIN_LLM_API_KEY` | `<secret>`, só ASCII visível (0x21–0x7E) | sim |
 
 - Valores são aparados; vazio ou só espaço conta como **ausente**.
-- Conferência em ordem **provedor → modelo → chave**: sem chave, o resto
-  ainda é validado, e o motivo aponta a chave só quando o resto está certo.
+- Conferência em ordem **provedor → modelo (ausente → inválido) → chave
+  (ausente → inválida)**: sem chave, o resto ainda é validado, e o motivo
+  aponta a chave só quando o resto está certo.
+- O modelo vai ao log em todo evento `[brain.synthesis]`; por isso ele tem
+  de ter forma de identificador, e o prefixo de chave `sk-` é recusado — a
+  chave colada na variável errada não chega ao log (revisão adversarial de
+  26/09, S1).
+- A chave vai crua ao cabeçalho `x-api-key`: espaço interno, quebra de
+  linha, caractere de controle, ZWSP ou acento fariam o HTTP recusá-la em
+  toda consulta, e o sintoma seria `provider_error:network`. Agora é
+  `key_invalid` na configuração (S2).
 - Configuração pela metade = síntese **desligada**. Nunca há tentativa às
   cegas: o console responde de forma extractiva, com os trechos na íntegra.
 - Neste documento, e em qualquer relatório, valor de chave só aparece como
@@ -45,6 +54,19 @@ npm run brain:preflight              # lê o ambiente + .env.local do diretório
 npm run brain:preflight -- --contract  # só o contrato; ignora o ambiente (seguro para CI/docs)
 ```
 
+**Fonte:** o ambiente do processo e **só** o `.env.local` do diretório
+atual (nem `.env`, nem `.env.production`, nem arquivo de diretório pai); o
+ambiente vence o arquivo. Regras de leitura, iguais às do dotenv no que
+importa: `export NOME=valor` aceito; aspas simples ou duplas em volta, com
+comentário opcional depois (`NOME="a b" # nota`); valor sem aspas cortado no
+primeiro ` #`, e valor sem aspas que **começa** com `#` vale vazio
+(`NOME=#x` → ausente); BOM e CRLF ignorados. **Uma variável por linha**:
+valor multilinha entre aspas é erro (`valor multilinha não suportado em
+NOME; use uma linha`, exit 1, sem o valor). `.env.local` ilegível
+(diretório com esse nome, permissão) dá `não foi possível ler .env.local
+(<código>)`, exit 1, sem pilha; argumento que não seja `--contract` dá a
+linha de uso, exit 1, sem ecoar o argumento.
+
 Imprime, por variável, **só** `presente` / `ausente` — nem valor, nem
 pedaço, nem tamanho —, se existe alguma `NEXT_PUBLIC_BRAIN_LLM*`, se o
 provedor é suportado, se o modelo está preenchido e o veredito:
@@ -52,7 +74,7 @@ provedor é suportado, se o modelo está preenchido e o veredito:
 | Exit | Veredito |
 |---|---|
 | 0 | `PRONTO PARA PRODUÇÃO (configuração)` |
-| 1 | `NÃO CONFIGURADO: <reason>` (lista abaixo) |
+| 1 | `NÃO CONFIGURADO: <reason>` (lista abaixo) — ou `.env.local` ilegível, valor multilinha, argumento desconhecido |
 | 2 | existe `NEXT_PUBLIC_BRAIN_LLM*` — remover antes de qualquer coisa |
 
 O preflight **não** prova que a chave é válida (isso exigiria chamar o
@@ -74,11 +96,14 @@ ambiente…"): quem pergunta não precisa saber qual variável falta.
 | `provider_disabled` | `BRAIN_LLM_PROVIDER` = `none` / `off` / `disabled` |
 | `provider_unsupported` | outro valor (não é ecoado: pode ser a chave colada na variável errada) |
 | `model_missing` | `BRAIN_LLM_MODEL` ausente ou vazia |
+| `model_invalid` | `BRAIN_LLM_MODEL` fora da forma de identificador, ou começando por `sk-` (não é ecoado: pode ser a chave) |
 | `key_missing` | `BRAIN_LLM_API_KEY` ausente ou vazia |
+| `key_invalid` | `BRAIN_LLM_API_KEY` com espaço interno, controle ou caractere fora do ASCII visível |
 
-Testes: `check-brain-provider.mjs` CFG1–CFG15 (parser e `resolveProvider`
-com ambiente inventado) e PF1–PF6 (o preflight como processo filho);
-`check-brain-synthesis.mjs` SYN34a–f (cada motivo chega ao log, provedor
+Testes: `check-brain-provider.mjs` CFG1–CFG17c (parser e `resolveProvider`
+com ambiente inventado) e PF1–PF11 (o preflight como processo filho, com
+`.env.local` de verdade em diretório temporário a partir do PF8);
+`check-brain-synthesis.mjs` SYN34a–h (cada motivo chega ao log, provedor
 0×, aviso idêntico).
 
 ## 5. Rollback

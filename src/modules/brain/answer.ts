@@ -254,6 +254,11 @@ export function buildCitations(evidencias: KnowledgeEvidence[]): BrainCitation[]
  * `evidencias`, ou a citação aponta fora das aceitas, devolve `null`. Antes
  * havia um `?? c.evidenceIndex` que, nesse caso, apontava o card ERRADO em
  * silêncio; agora quem chama recebe `null` e não mostra citação nenhuma.
+ *
+ * `chunkId` REPETIDO entre as evidências da tela também é `null` (N1,
+ * revisão adversarial de 26/09): com duas linhas do mesmo trecho — uma
+ * descartada pelo teto, outra aceita —, "o primeiro índice vence" podia
+ * mandar a citação para o card do descartado. Chave ambígua não é chave.
  */
 export function mapCitationsToScreen(
   citacoes: BrainCitation[],
@@ -261,9 +266,10 @@ export function mapCitationsToScreen(
   evidencias: KnowledgeEvidence[],
 ): BrainCitation[] | null {
   const posicao = new Map<number, number>();
-  evidencias.forEach((e, i) => {
-    if (!posicao.has(e.chunkId)) posicao.set(e.chunkId, i);
-  });
+  for (const [i, e] of evidencias.entries()) {
+    if (posicao.has(e.chunkId)) return null;
+    posicao.set(e.chunkId, i);
+  }
   const saida: BrainCitation[] = [];
   for (const c of citacoes) {
     const aceita = Number.isInteger(c.evidenceIndex) ? aceitas[c.evidenceIndex] : undefined;

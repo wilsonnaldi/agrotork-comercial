@@ -60,15 +60,18 @@ fica em "Expected — Waiting for status" para sempre. Por isso o filtro do
 banco saiu do gatilho e foi para dentro do workflow (`scope`), e o
 `brain-app.yml` perdeu o filtro de vez.
 
-**Merge queue.** Se um dia for ligada, os dois workflows precisam do
-gatilho `merge_group:` — sem ele, os checks obrigatórios nunca reportam na
-fila. O `scope` trataria o evento novo como desconhecido (`db=true`, roda
-tudo), que é o lado seguro.
+**Merge queue.** Os dois workflows já têm o gatilho `merge_group:` (revisão
+adversarial de 26/09): sem merge queue ele nunca dispara; com ela, sem o
+gatilho, os checks obrigatórios nunca reportariam na fila. O `scope` trata o
+evento como desconhecido — cai no `*)` do `case` e dá `db=true`, roda tudo
+(CI9) —, que é o lado seguro.
 
-`check:brain-ci` (seção 8) reprova se alguém devolver `paths`, tirar o
-`if: always()` do gate, desligar o `needs`/`if` do ensaio, puser `if:` ou
-`continue-on-error` no `app-gates`, usar `pull_request_target`, ampliar
-`permissions` ou referenciar `secrets.`.
+`check:brain-ci` (seção 8) reprova se alguém devolver `paths` (ou qualquer
+filtro) ao `pull_request:`, tirar o `if: always()` do gate, desligar o
+`needs`/`if` do ensaio, puser `if:` ou `continue-on-error` onde não deve,
+mexer no veredito do gate ou nas saídas do `scope`, usar
+`pull_request_target`, ampliar ou redefinir `permissions`, referenciar
+`secrets` ou interpolar `${{ }}` dentro de `run:` — lista completa na §8.
 
 ## 4. Detecção de mudança (`scope`)
 
@@ -77,13 +80,17 @@ Git nativo, sem action de terceiro:
 1. Base: em PR, `github.event.pull_request.base.sha`; em push,
    `github.event.before`.
 2. `git merge-base <base> HEAD` (checkout com `fetch-depth: 0`).
-3. `git diff --name-only -z <merge-base> HEAD` para um arquivo em
-   `$RUNNER_TEMP`.
+3. `git diff --no-renames --name-only -z <merge-base> HEAD` para um
+   arquivo em `$RUNNER_TEMP`. `--no-renames` porque, com a detecção de
+   rename (padrão do `git diff`), um arquivo MOVIDO de `supabase/` para fora
+   aparecia só com o nome novo, fora do filtro, e o ensaio era pulado
+   (revisão adversarial de 26/09, CI8). Sem ela, o nome antigo sai como
+   removido e casa o filtro.
 4. `db=true` se algum caminho casar
    `^(supabase/|brain/|\.github/workflows/brain\.yml$)`; senão `db=false`.
 
-Na dúvida, roda tudo (`db=true`): `workflow_dispatch` ou evento
-desconhecido, base que não é um SHA de 40 hex, `before` só com zeros
+Na dúvida, roda tudo (`db=true`): `workflow_dispatch`, `merge_group` ou
+evento desconhecido, base que não é um SHA de 40 hex, `before` só com zeros
 (branch nova), base fora do histórico (force-push) ou sem merge-base.
 Errar para o lado caro, nunca para o lado que pula o ensaio.
 
@@ -109,6 +116,12 @@ merge ref, 26/09/2026):
 | CI6 | só `package.json` + `README.md` (PR e push) | `false` |
 | CI7 | `before` só zeros · base fora do histórico · base inválida · `workflow_dispatch` | `true` (todos) |
 | CI7 | `docs/$(touch pwned).md`, nome com `` ` `` e com quebra de linha | `false`, nenhum `pwned` criado |
+| CI8 | `git mv supabase/migrations/001.sql archive/001.sql` (PR e push) · `git mv brain/worker/w.py tools/w.py` · `git rm` de migration | `true` (todos; sem `--no-renames` os dois `git mv` davam `false`) |
+| CI9 | `merge_group` | `true` (cai no `*)`) |
+
+Rodada de novo em 26/09, depois do `--no-renames`, com o bloco `run:` do
+`scope` extraído do próprio `brain.yml`: CI1–CI7 com o mesmo resultado da
+tabela, CI8 e CI9 como acima.
 
 ## 5. Os gates do `app-gates`, em ordem
 
@@ -193,9 +206,39 @@ reprova. Esqueceu o step, o próprio CI fica vermelho. Única exceção:
 suíte apareça nele como `npm run <nome>` (comando a comando, separado por
 `&&`), para o "rodar local" não ficar menor que o CI.
 
-Além das suítes, a mesma guarda confere as regras de workflow da seção 3
-(sem `paths`, gate com `if: always()`, ensaio preso ao `scope`, sem
-`pull_request_target`, `permissions: contents: read`, sem `secrets.`).
+Além das suítes, a mesma guarda confere as regras de workflow da seção 3.
+Endurecida na revisão adversarial de 26/09 — continua **texto puro, sem
+parser de YAML** —, com duas regras de leitura: comentário YAML (linha
+inteira ou ` #…` no fim) não conta, então `workflow_dispatch: # not
+pull_request_target` não reprova; e o conteúdo de um bloco `run: |` é lido
+**cru**, porque o Actions interpola `${{ }}` antes do shell, inclusive numa
+linha de comentário do shell.
+
+| Onde | Regra |
+|---|---|
+| os dois | `pull_request:` e `merge_group:` presentes, sozinhos na linha e **sem filho** (nada de `paths`, `branches`, `types`, nem forma de fluxo `{…}`) |
+| os dois | sem `pull_request_target` |
+| os dois | uma única `permissions:`, no topo, com exatamente `contents: read`; nenhuma no nível de job (ali ela substitui a do topo) |
+| os dois | nenhuma menção a `secrets` (`secrets.X`, `secrets['X']`, `toJSON(secrets)`) |
+| os dois | nenhum `${{` dentro de `run:` (contexto só por `env:`) |
+| `brain-app.yml` | sem `paths`, sem `continue-on-error`, sem `if:`; `run: npm run lint`, `typecheck` e `build` como linhas exatas (sem `\|\| true`) |
+| `brain.yml` | job `scope`; `deploy-reversao` com `needs: scope` e `if: needs.scope.outputs.db == 'true'`; `brain-db-gate` com `if: always()` e `needs: [scope, deploy-reversao]` |
+| `brain.yml` | sem `continue-on-error`; só dois `if:` no arquivo, exatamente os dois acima |
+| `brain.yml` | veredito do gate fixado linha a linha (`SCOPE` = success; `true)` exige `success`; `false)` exige `skipped`; `*)` reprova) e o `env:` `SCOPE`/`DB`/`HEAVY` ligado a `needs.*` |
+| `brain.yml` | `scope` escreve `db=true` e `db=false`, o `*)` do evento chama `heavy`, o diff usa `--no-renames`, e o output `db` vem do step |
+
+Teste de mutação (26/09, fora do repositório): 34 cópias dos workflows e do
+`package.json`, cada uma com uma alteração que abriria um buraco (`paths`,
+`types:`, `pull_request: {paths: …}`, `pull_request` removido,
+`continue-on-error`, `if:` extra, `permissions` no job ou ampliada,
+`read-all`, `secrets.K`, `secrets['X']`, `toJSON(secrets)`, `${{ }}` num
+`run:` e num comentário dentro dele, `|| true` no veredito ou no lint,
+`skipped`→`success`, `HEAVY` constante, `scope` sempre `false`, sem
+`--no-renames`, evento desconhecido virando leve, build trocado, suíte fora
+do agregador, sem `merge_group`): as 34 reprovam. Controles aprovados: os
+arquivos reais, `workflow_dispatch: # not pull_request_target`, comentário
+depois de `pull_request:`, e os dois workflows em CRLF.
+
 Saída: uma linha `✓` por conferência e o total no fim.
 
 ## 9. Versão do Node e actions fixadas

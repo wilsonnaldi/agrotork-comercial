@@ -23,7 +23,7 @@
  * uma string inventada neste arquivo. Nenhuma credencial de verdade é lida,
  * pedida ou escrita.
  */
-import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -330,13 +330,50 @@ const falhos = [
   { BRAIN_LLM_PROVIDER: "none", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_10 },
   { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_API_KEY: CHAVE_10 },
   { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: "  " },
+  { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: CHAVE_10, BRAIN_LLM_API_KEY: CHAVE_10 },
+  { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: `${CHAVE_10} x` },
 ].map(cfg);
 const mensagens = CFG.PROVIDER_CONFIG_REASONS.map((r) => CFG.providerConfigMessage(r));
-confere("CFG10 nenhum resultado de falha nem mensagem traz valor com cara de chave (sk-ant-FAKE)",
+confere("CFG10 nenhum resultado de falha nem mensagem traz valor com cara de chave (sk-ant-FAKE); os 7 motivos, 7 mensagens",
   falhos.every((r) => r.configured === false && !JSON.stringify(r).includes("sk-ant-FAKE")) &&
-  new Set(falhos.map((r) => r.reason)).size === 5 &&
-  mensagens.length === 5 && mensagens.every((m) => typeof m === "string" && m.length > 0 && !m.includes("sk-ant")),
+  new Set(falhos.map((r) => r.reason)).size === 7 && CFG.PROVIDER_CONFIG_REASONS.length === 7 &&
+  mensagens.length === 7 && new Set(mensagens).size === 7 &&
+  mensagens.every((m) => typeof m === "string" && m.length > 0 && !m.includes("sk-ant")),
   falhos.map((r) => r.reason).join(" · "));
+
+// CFG16–CFG17 (revisão adversarial S1/S2, 26/09): o modelo vai ao LOG em
+// todo evento, então a chave colada nele virava `"model":"sk-ant-…"`; e uma
+// chave com espaço, controle ou não-ASCII passava na configuração e virava
+// erro de REDE (o undici recusa o cabeçalho) em toda consulta.
+const CANARIO_16 = "sk-ant-api03-CANARY";
+const r16 = cfg({ ...COMPLETO, BRAIN_LLM_MODEL: CANARIO_16 });
+confere("CFG16 modelo com cara de chave (\"sk-ant-api03-CANARY\") → model_invalid; o canário não está no resultado nem em mensagem nenhuma",
+  r16.configured === false && r16.reason === "model_invalid" && !JSON.stringify(r16).includes("CANARY") &&
+  !mensagens.join("\n").includes("CANARY") && !CFG.providerConfigMessage("model_invalid").includes("CANARY") &&
+  motivo({ ...COMPLETO, BRAIN_LLM_MODEL: "SK-live-1" }) === "model_invalid",
+  JSON.stringify(r16));
+const r16b = cfg({ ...COMPLETO, BRAIN_LLM_MODEL: "claude-sonnet-4.5" });
+confere("CFG16b \"claude-sonnet-4.5\" (e claude-x@2026, anthropic.claude-v2:1, 100 caracteres) → configured, modelo como veio",
+  r16b.configured === true && r16b.model === "claude-sonnet-4.5" &&
+  ["claude-x@2026", "anthropic.claude-v2:1", "a".repeat(100), "claude_3"].every((m) => motivo({ ...COMPLETO, BRAIN_LLM_MODEL: m }) === "configured"),
+  JSON.stringify(r16b));
+confere("CFG16c modelo com espaço interno, barra, aspas, quebra de linha, 101 caracteres ou começando por '-' → model_invalid",
+  ["claude sonnet", "claude/x", '"claude-x"', "claude\nx", "a".repeat(101), "-claude", "clau\u200bde", "modelo-ç"]
+    .every((m) => motivo({ ...COMPLETO, BRAIN_LLM_MODEL: m }) === "model_invalid"));
+confere("CFG16d ordem: modelo inválido vem antes da chave (sem chave nenhuma, o motivo é o modelo)",
+  motivo({ BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: CANARIO_16 }) === "model_invalid");
+const r17a = cfg({ ...COMPLETO, BRAIN_LLM_API_KEY: "sk-ant-a\nb" });
+confere("CFG17a chave com quebra de linha, tab ou espaço INTERNO → key_invalid, sem ecoar a chave",
+  r17a.configured === false && r17a.reason === "key_invalid" && !JSON.stringify(r17a).includes("sk-ant") &&
+  ["sk-ant-a\tb", "sk-ant-a b", "sk-ant-a\rb", "sk-ant-\u0000x", "sk-ant-\u007fx"].every((k) => motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: k }) === "key_invalid"));
+confere("CFG17b chave com ZWSP (U+200B) ou NBSP interno → key_invalid (trim não tira ZWSP)",
+  motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "sk-ant-\u200bx" }) === "key_invalid" &&
+  motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "\u200bsk-ant-x" }) === "key_invalid" &&
+  motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "sk-ant-\u00a0x" }) === "key_invalid");
+confere("CFG17c chave com não-ASCII (ç, €) → key_invalid; ASCII visível com espaço só nas pontas → configured",
+  motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "sk-ant-çx" }) === "key_invalid" &&
+  motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "sk-ant-€x" }) === "key_invalid" &&
+  motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "  sk-ant-FAKE_~!#$%&*+=?^{|}  " }) === "configured");
 const FONTE_CFG = readFileSync(join(RAIZ, "src/modules/brain/llm/config.ts"), "utf8");
 confere("CFG11 config.ts é puro: sem server-only e sem process.env (quem chama passa o ambiente)",
   !FONTE_CFG.includes('import "server-only"') && !/process\.env/.test(FONTE_CFG.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")));
@@ -400,6 +437,68 @@ try {
     pf5a.out.includes("BRAIN_LLM_API_KEY") && pf5a.out.includes("<secret>") &&
     !pf5a.out.includes(CHAVE_PF) && !pf5a.out.includes("modelo-pf-canario") && !pf5a.out.includes("sk-ant"),
     `exit ${pf5a.code}/${pf5b.code}`);
+  const pf7 = preflight({ ...ENV_PF, BRAIN_LLM_MODEL: "sk-ant-api03-CANARY-PF7" });
+  confere("PF7 BRAIN_LLM_MODEL com cara de chave → exit 1, model_invalid, o canário fora de stdout e stderr",
+    pf7.code === 1 && pf7.out.includes("NÃO CONFIGURADO: model_invalid") &&
+    !(pf7.out + pf7.err).includes("CANARY") && !(pf7.out + pf7.err).includes(CHAVE_PF),
+    `exit ${pf7.code}`);
+  const pf7b = preflight(ENV_PF, ["--verbose"]);
+  const pf7c = preflight(ENV_PF, [CHAVE_PF]);
+  confere("PF7b argumento desconhecido (--verbose, ou a chave colada como argumento) → exit 1, linha de uso, sem ecoar o argumento",
+    pf7b.code === 1 && pf7b.err.includes("uso: npm run brain:preflight") && !pf7b.out.includes("VEREDITO") &&
+    pf7c.code === 1 && !(pf7c.out + pf7c.err).includes(CHAVE_PF),
+    `exit ${pf7b.code}/${pf7c.code}`);
+
+  // PF8–PF11: o `.env.local` de verdade, escrito num diretório temporário
+  // (o processo filho não recebe as variáveis pelo ambiente). Cada caso tem
+  // o seu diretório.
+  const comArquivo = (conteudo, args = []) => {
+    const dir = mkdtempSync(join(tmpdir(), "brain-preflight-env-"));
+    try {
+      if (conteudo === null) mkdirSync(join(dir, ".env.local"));
+      else writeFileSync(join(dir, ".env.local"), conteudo);
+      const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", SCRIPT, ...args],
+        { cwd: dir, env: {}, encoding: "utf8" });
+      return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "" };
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const CHAVE_ARQ = "sk-ant-FAKE-ARQUIVO-PF8";
+  const pf8 = comArquivo([
+    "# comentário",
+    'export BRAIN_LLM_PROVIDER="anthropic"',
+    "export OUTRA=\"x y\"",
+    "BRAIN_LLM_MODEL='claude-x'   # nota depois das aspas",
+    `BRAIN_LLM_API_KEY=${CHAVE_ARQ} # comentário no fim`,
+    "",
+  ].join("\n"));
+  confere("PF8 .env.local com export, aspas duplas/simples, `export K=\"x y\"` e comentário depois do valor → exit 0, PRONTO, sem valor na saída",
+    pf8.code === 0 && pf8.out.includes("PRONTO PARA PRODUÇÃO") && pf8.out.includes("+ .env.local") &&
+    !(pf8.out + pf8.err).includes(CHAVE_ARQ) && !(pf8.out + pf8.err).includes("x y"),
+    `exit ${pf8.code} ${pf8.err.trim()}`);
+  const base9 = "BRAIN_LLM_PROVIDER=anthropic\nBRAIN_LLM_MODEL=claude-x\n";
+  const pf9a = comArquivo(`${base9}BRAIN_LLM_API_KEY=\n`);
+  const pf9b = comArquivo(`${base9}BRAIN_LLM_API_KEY=#${CHAVE_ARQ}\n`);
+  const pf9c = comArquivo(`${base9}BRAIN_LLM_API_KEY= # só comentário\n`);
+  confere("PF9 `KEY=` e `KEY=#x` (como no dotenv: valor que começa com # é comentário) → exit 1, key_missing, sem o valor",
+    [pf9a, pf9b, pf9c].every((r) => r.code === 1 && r.out.includes("NÃO CONFIGURADO: key_missing")) &&
+    !(pf9b.out + pf9b.err).includes(CHAVE_ARQ),
+    [pf9a, pf9b, pf9c].map((r) => `exit ${r.code}`).join(" "));
+  const pf10a = comArquivo(null);
+  const pf10b = comArquivo(`${base9}BRAIN_LLM_API_KEY="${CHAVE_ARQ}\ncontinua"\n`);
+  const semPilha = (r) => !/\n\s+at |Error:|node:internal|file:\/\//.test(r.out + r.err);
+  confere("PF10 .env.local que é DIRETÓRIO → exit 1, 'não foi possível ler .env.local (EISDIR)', sem pilha",
+    pf10a.code === 1 && pf10a.err.includes("não foi possível ler .env.local (EISDIR)") && semPilha(pf10a) && !pf10a.out.includes("VEREDITO"),
+    `exit ${pf10a.code} ${pf10a.err.trim()}`);
+  confere("PF10b valor multilinha entre aspas → exit 1, 'valor multilinha não suportado … use uma linha', nomeia só a variável, sem o valor",
+    pf10b.code === 1 && pf10b.err.includes("valor multilinha não suportado") && pf10b.err.includes("BRAIN_LLM_API_KEY") &&
+    pf10b.err.includes("use uma linha") && !(pf10b.out + pf10b.err).includes(CHAVE_ARQ) && !(pf10b.out + pf10b.err).includes("continua") && semPilha(pf10b),
+    `exit ${pf10b.code} ${pf10b.err.trim()}`);
+  const pf11 = comArquivo(`\uFEFFBRAIN_LLM_PROVIDER=anthropic\r\nBRAIN_LLM_MODEL=claude-x\r\nBRAIN_LLM_API_KEY=${CHAVE_ARQ}\r\n`);
+  confere("PF11 .env.local com BOM e CRLF → exit 0, PRONTO (nem o BOM entra no nome, nem o \\r entra no valor)",
+    pf11.code === 0 && pf11.out.includes("PRONTO PARA PRODUÇÃO") && !(pf11.out + pf11.err).includes(CHAVE_ARQ),
+    `exit ${pf11.code}`);
   const FONTE_PF = readFileSync(SCRIPT, "utf8");
   confere("PF6 o script não importa rede, banco nem provedor (só fs, path, url e o parser)",
     !/node:(http|https|net|tls|dgram|child_process)|fetch\(|@supabase|anthropic\.ts|llm\/index/.test(FONTE_PF));

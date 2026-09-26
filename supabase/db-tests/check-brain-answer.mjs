@@ -1123,7 +1123,7 @@ confere("INJ23 ponta a ponta: bloco factual correto + 2ª oração '1ª pessoa c
   inj23.g && inj23.kind === "stance", inj23.resumo ?? JSON.stringify(inj23));
 
 // ════════════════════════════════════════════════════════════
-process.stdout.write("▶ Citações para a tela, fail-closed (CIT1–CIT4)\n");
+process.stdout.write("▶ Citações para a tela, fail-closed (CIT1–CIT5)\n");
 //
 // `mapCitationsToScreen` traduz o índice sobre as ACEITAS para o índice em
 // `evidence` (tudo o que a busca trouxe). Antes, por identidade de objeto e
@@ -1163,6 +1163,16 @@ const foraDoIntervalo = [...citAB, { ...citAB[1], index: 3, evidenceIndex: 5 }];
 confere("CIT4 evidenceIndex fora do intervalo das aceitas → null",
   A.mapCitationsToScreen(foraDoIntervalo, [aceitaA, aceitaB], naTela) === null &&
   A.mapCitationsToScreen([{ ...citAB[0], evidenceIndex: -1 }], [aceitaA, aceitaB], naTela) === null);
+
+// CIT5 (N1, revisão adversarial de 26/09): o mesmo `chunkId` duas vezes na
+// tela — a cópia grande demais descartada ANTES da aceita. "O primeiro
+// índice vence" abria o card do descartado; chave ambígua agora é `null`.
+const aceitaDup = ev({ chunkId: 11, citation: "Magnojet — Catálogo Magnojet V41 · p. 20" });
+const descartadaDup = ev({ chunkId: 11, content: "x".repeat(50), citation: "Cópia descartada · p. 20" });
+confere("CIT5 chunkId repetido entre as evidências da tela (descartada antes da aceita) → null, nunca o card do descartado",
+  A.mapCitationsToScreen(A.buildCitations([aceitaDup]), [aceitaDup], [descartadaDup, aceitaDup]) === null &&
+  A.mapCitationsToScreen(A.buildCitations([aceitaDup]), [aceitaDup], [aceitaDup, structuredClone(aceitaDup)]) === null &&
+  A.mapCitationsToScreen(citAB, [aceitaA, aceitaB], [...naTela, structuredClone(descartada)]) === null);
 
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ camada de resposta natural\n" : `✗ ${falhas} falha(s)\n`);

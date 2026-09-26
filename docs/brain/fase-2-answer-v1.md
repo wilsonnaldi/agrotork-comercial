@@ -310,11 +310,14 @@ tipo `GenerationEvent` de `src/modules/brain/observability.ts` (puro):
 - `reason` só em `no_evidence` (`none_retrieved`/`none_passed_gate`/
   `none_fit_context`), `no_provider` (desde 26/09: `provider_missing`,
   `provider_disabled`, `provider_unsupported`, `model_missing`,
-  `key_missing` — qual parte da configuração falta, nunca o valor; a tela
-  segue com o aviso genérico), `provider_error` (a categoria do `ProviderError`),
-  `answer_rejected` (a trava: `grounding`, `format`, `completeness`,
-  `association`, `comparison`, `stance`) e `internal_error`
-  (`citation_mapping`).
+  `model_invalid`, `key_missing`, `key_invalid` — qual parte da
+  configuração falta ou está malformada, nunca o valor; a tela segue com o
+  aviso genérico), `provider_error` (a categoria do `ProviderError`, só uma
+  das seis — `kind` fora delas vira `unknown`), `answer_rejected` (a trava:
+  `grounding`, `format`, `completeness`, `association`, `comparison`,
+  `stance`) e `internal_error` (`citation_mapping` — `chunkId` repetido ou
+  aceita fora da tela —, ou `search`/`policy`/`provider_config` quando a
+  porta lança; o erro é relançado para a action).
 - **Sem a pergunta.** Ela já fica em `brain.knowledge_queries` (gravada por
   `public.brain_search`, sob RLS, leitura só de admin); o log da Netlify
   fica fora do RLS e serve para agregação, não para depurar pergunta. Sem
@@ -338,13 +341,15 @@ tipo `GenerationEvent` de `src/modules/brain/observability.ts` (puro):
   orçamento traz o CNPJ do cliente — vira contagem. O aviso da tela continua
   nomeando todos os faltantes (é a pergunta da própria pessoa); o log, não.
 
-Testes: `check-brain-synthesis.mjs` LOG1–LOG8b (forma e taxonomia) e
-OBS1–OBS13 (privacidade, com fixtures adversariais: chave na pergunta, na
+Testes: `check-brain-synthesis.mjs` LOG1–LOG8b (forma e taxonomia, os 10
+outcomes exercitados) e OBS1–OBS14 (privacidade, com fixtures adversariais: chave na pergunta, na
 evidência, no erro `Authorization: Bearer …` e no corpo do provedor; URL,
 UUID, caminho de Storage e sha256 na evidência; 50 erros diferentes do
-provedor dando um só evento; CNPJ e segredo curto numa comparação) e
-SYN34a–f (cada motivo de configuração chega ao log como `reason`, com o
-mesmo aviso genérico na tela).
+provedor dando um só evento; CNPJ e segredo curto numa comparação; `kind`
+adulterado no erro), SYN33 (`internal_error:citation_mapping` ponta a
+ponta), SYN34a–h (cada motivo de configuração chega ao log como `reason`,
+com o mesmo aviso genérico na tela) e SYN35a–c (porta que lança deixa um
+evento).
 
 ## 6. Answer Validator
 

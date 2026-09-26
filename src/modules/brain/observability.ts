@@ -37,22 +37,51 @@ export type { EvidenceGateReason };
  * existe em `no_evidence` (motivo do Evidence Gate), `no_provider` (qual
  * parte da configuração falta — só o motivo, nunca o valor), `provider_error`
  * (categoria da falha), `answer_rejected` (qual trava reprovou — a recusa do
- * modelo tem outcome próprio) e `internal_error` (qual invariante quebrou).
+ * modelo tem outcome próprio) e `internal_error` (qual invariante quebrou,
+ * ou qual porta — busca, política, configuração do provedor — lançou).
  */
+export type InternalErrorReason = "citation_mapping" | "search" | "policy" | "provider_config";
+
 export type GenerationReason =
   | EvidenceGateReason
   | ProviderConfigReason
   | ProviderErrorKind
   | Exclude<ValidationProblem, "model_refusal">
-  | "citation_mapping";
+  | InternalErrorReason;
 
 export const GENERATION_REASONS = [
   "none_retrieved", "none_passed_gate", "none_fit_context",
-  "provider_missing", "provider_disabled", "provider_unsupported", "model_missing", "key_missing",
+  "provider_missing", "provider_disabled", "provider_unsupported",
+  "model_missing", "model_invalid", "key_missing", "key_invalid",
   "timeout", "auth", "rate_limit", "network", "invalid_response", "unknown",
   "grounding", "format", "completeness", "association", "comparison", "stance",
-  "citation_mapping",
+  "citation_mapping", "search", "policy", "provider_config",
 ] as const satisfies readonly GenerationReason[];
+
+/** As categorias de falha do provedor — o único `reason` de `provider_error`. */
+export const PROVIDER_ERROR_REASONS = [
+  "timeout", "auth", "rate_limit", "network", "invalid_response", "unknown",
+] as const satisfies readonly ProviderErrorKind[];
+
+/** Mesma trava de compilação de `GENERATION_REASONS_COMPLETE`, para as categorias. */
+export const PROVIDER_ERROR_REASONS_COMPLETE: [Exclude<ProviderErrorKind, (typeof PROVIDER_ERROR_REASONS)[number]>] extends [never]
+  ? true
+  : false = true;
+
+/**
+ * O `reason` de um `provider_error`, a partir do que foi lançado. Achado da
+ * revisão adversarial (N4, 26/09): o `kind` era copiado sem conferência.
+ * `readonly` é só do TypeScript — em tempo de execução qualquer código (um
+ * adapter novo, uma lib que reembrulha o erro) pode pôr texto livre ali, e
+ * texto livre no log é exatamente o que a taxonomia fechada existe para
+ * impedir. Fora da lista das categorias, vira `unknown`.
+ */
+export function providerErrorReason(erro: unknown): ProviderErrorKind {
+  const kind: unknown = typeof erro === "object" && erro !== null ? (erro as { kind?: unknown }).kind : undefined;
+  return typeof kind === "string" && (PROVIDER_ERROR_REASONS as readonly string[]).includes(kind)
+    ? (kind as ProviderErrorKind)
+    : "unknown";
+}
 
 /**
  * Trava de compilação: se `GenerationReason` ganhar um membro (um kind novo

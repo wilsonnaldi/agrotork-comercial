@@ -26,6 +26,9 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  # Inofensivo sem merge queue; com ela, sem este gatilho o app-gates nunca
+  # reportaria na fila.
+  merge_group:
 
 permissions:
   contents: read

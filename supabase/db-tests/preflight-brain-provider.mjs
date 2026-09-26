@@ -20,14 +20,17 @@
  *     `check:brain-ci` não o exige lá). O CI roda sem chave, de propósito.
  *
  * Fonte: o ambiente do processo e, se existir, o `.env.local` do diretório
- * atual (o `npm run` roda na raiz do repositório). Como no Next, o ambiente
- * do processo vence o arquivo. O arquivo é lido linha a linha só para saber
- * quais nomes estão definidos e entregar os valores ao parser — nada dele é
- * impresso.
+ * atual (o `npm run` roda na raiz do repositório) — só esse arquivo: nem
+ * `.env`, nem `.env.production`, nem `.env.local` de diretório pai. Como no
+ * Next, o ambiente do processo vence o arquivo. O arquivo é lido linha a
+ * linha só para saber quais nomes estão definidos e entregar os valores ao
+ * parser — nada dele é impresso. Uma variável por linha: valor multilinha
+ * entre aspas é recusado (exit 1), em vez de lido pela metade.
  *
  * Saída (exit code):
  *   0  configuração completa (ou `--contract`)
- *   1  não configurado — o motivo sai da lista fechada de `config.ts`
+ *   1  não configurado — o motivo sai da lista fechada de `config.ts` —, ou
+ *      `.env.local` ilegível, ou valor multilinha, ou argumento desconhecido
  *   2  existe variável `NEXT_PUBLIC_BRAIN_LLM*`: isso mandaria o valor para o
  *      navegador, e é erro mesmo que o resto esteja certo
  */
@@ -47,6 +50,17 @@ const {
 
 const PREFIXO_PROIBIDO = "NEXT_PUBLIC_BRAIN_LLM";
 const out = (t = "") => process.stdout.write(`${t}\n`);
+const falha = (t) => {
+  process.stderr.write(`${t}\n`);
+  process.exit(1);
+};
+
+// Só `--contract` existe. Qualquer outro argumento é erro, e não é ecoado:
+// alguém pode ter colado a chave na linha de comando.
+const ARGS_ACEITOS = new Set(["--contract"]);
+if (process.argv.slice(2).some((a) => !ARGS_ACEITOS.has(a))) {
+  falha("uso: npm run brain:preflight [-- --contract]  (argumento desconhecido; nada foi conferido)");
+}
 
 if (process.argv.includes("--contract")) {
   // Só o contrato: nomes, valores ACEITOS e regras. O ambiente nem é lido.
@@ -54,12 +68,13 @@ if (process.argv.includes("--contract")) {
   out("");
   out("Variáveis (escopo: Production, só servidor; nunca NEXT_PUBLIC_):");
   out(`  ${PROVIDER_ENV.provider.padEnd(22)} ${SUPPORTED_PROVIDERS.join(" | ")}  ou  ${DISABLED_VALUES.join(" | ")} (desliga)`);
-  out(`  ${PROVIDER_ENV.model.padEnd(22)} identificador do modelo, não vazio`);
-  out(`  ${PROVIDER_ENV.apiKey.padEnd(22)} <secret>, não vazio`);
+  out(`  ${PROVIDER_ENV.model.padEnd(22)} identificador do modelo: letras, dígitos e . _ : @ - (até 100), nunca sk-…`);
+  out(`  ${PROVIDER_ENV.apiKey.padEnd(22)} <secret>, só ASCII visível (sem espaço interno, quebra de linha ou acento)`);
   out("");
   out("Regras:");
   out("  · valores com espaço nas pontas são aparados; vazio ou só espaço = ausente");
-  out("  · ordem das conferências: provedor → modelo → chave");
+  out("  · ordem das conferências: provedor → modelo (ausente → inválido) → chave (ausente → inválida)");
+  out("  · arquivo lido: só o .env.local do diretório atual, uma variável por linha (multilinha = erro)");
   out("  · configuração pela metade = síntese desligada (resposta extractiva)");
   out(`  · qualquer ${PREFIXO_PROIBIDO}* é erro (o valor iria para o navegador)`);
   out("");
@@ -72,18 +87,35 @@ if (process.argv.includes("--contract")) {
  * `.env.local` no formato do Next/dotenv, o bastante para este uso: `NOME=valor`,
  * `export NOME=valor`, comentário com `#`, aspas simples ou duplas em volta.
  * Linha que não fecha nesse formato é ignorada — nunca ecoada.
+ *
+ * Achados da revisão adversarial (S5, 26/09), agora iguais ao dotenv:
+ *  · valor sem aspas que COMEÇA com `#` é comentário: `NOME=#x` vale vazio;
+ *  · valor sem aspas é cortado no primeiro ` #` (espaço + cerquilha);
+ *  · valor entre aspas pode ter comentário depois: `NOME="a b" # nota`;
+ *  · BOM no começo do arquivo e CRLF não entram no valor.
+ * Valor multilinha (aspas que não fecham na mesma linha) NÃO é suportado:
+ * lê-lo pela metade daria um veredito falso, então é erro explícito — sem
+ * imprimir o valor, só o nome.
  */
-function lerEnvLocal(caminho) {
+function lerEnvLocal(texto) {
   const env = {};
-  for (const linha of readFileSync(caminho, "utf8").split(/\r?\n/)) {
+  for (const linha of texto.replace(/^\uFEFF/, "").split(/\r?\n/)) {
     const m = linha.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
     if (!m) continue;
-    let valor = m[2].trim();
-    const aspas = valor[0];
-    if ((aspas === '"' || aspas === "'") && valor.endsWith(aspas) && valor.length >= 2) {
-      valor = valor.slice(1, -1);
+    const bruto = m[2].trim();
+    const aspas = bruto[0];
+    let valor;
+    if (aspas === '"' || aspas === "'" || aspas === "`") {
+      const fecha = bruto.indexOf(aspas, 1);
+      const resto = fecha < 0 ? "" : bruto.slice(fecha + 1).trim();
+      if (fecha < 0) falha(`valor multilinha não suportado em ${m[1]} (.env.local); use uma linha`);
+      // Texto depois das aspas que não é comentário: fora do formato, ignorada.
+      if (resto !== "" && !resto.startsWith("#")) continue;
+      valor = bruto.slice(1, fecha);
+    } else if (bruto.startsWith("#")) {
+      valor = "";
     } else {
-      valor = valor.replace(/\s+#.*$/, "");
+      valor = bruto.replace(/\s+#.*$/, "");
     }
     env[m[1]] = valor;
   }
@@ -92,7 +124,17 @@ function lerEnvLocal(caminho) {
 
 const arquivo = join(process.cwd(), ".env.local");
 const temArquivo = existsSync(arquivo);
-const env = { ...(temArquivo ? lerEnvLocal(arquivo) : {}), ...process.env };
+let textoArquivo = "";
+if (temArquivo) {
+  try {
+    textoArquivo = readFileSync(arquivo, "utf8");
+  } catch (erro) {
+    // Diretório com esse nome, permissão negada…: só o código do erro, sem
+    // pilha (a pilha traz caminho absoluto e não ajuda quem roda).
+    falha(`não foi possível ler .env.local (${erro?.code ?? "erro desconhecido"}); nada foi conferido`);
+  }
+}
+const env = { ...(temArquivo ? lerEnvLocal(textoArquivo) : {}), ...process.env };
 
 const presente = (nome) => (typeof env[nome] === "string" && env[nome].trim() !== "" ? "presente" : "ausente");
 // Nomes não são segredo; valores são. Só os nomes saem.

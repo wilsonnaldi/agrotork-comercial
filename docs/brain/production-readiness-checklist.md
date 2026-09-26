@@ -19,17 +19,17 @@
 | Item | Estado | Evidência | O que falta | Quem |
 | --- | --- | --- | --- | --- |
 | PR #7 mergeado | NEEDS_WILSON | branch `hardening/brain-answer-v1-closure` em `98a80b0`, 10 commits sobre `main` `d80ae65`; aberto em 26/09 | merge depois de `app-gates` e `deploy-reversao` verdes | Wilson |
-| PR desta branch mergeado | NEEDS_WILSON | `hardening/brain-production-readiness`, 7 commits sobre `98a80b0` | abrir PR depois do PR #7; merge com `app-gates` e `brain-db-gate` verdes | Wilson |
-| CI da aplicação seguro como check obrigatório | READY | `brain-app.yml` sem `paths`, sem `if:`/`continue-on-error` no `app-gates` (commit `ecac757`); `check:brain-ci` trava essas regras (`conferir-ci-app.mjs`); `ci.md` §2–3 | vale em `main` só depois do merge; primeira rodada no GitHub não conferida daqui | — |
-| CI do banco seguro como check obrigatório | READY | `brain.yml`: `scope` (git diff contra o merge-base, na dúvida `db=true`) + `brain-db-gate` com `if: always()` (commit `ecac757`); simulação local CI1–CI7 (`ci.md` §4) | idem: vale em `main` depois do merge; rodada real no GitHub não conferida daqui | — |
+| PR desta branch mergeado | NEEDS_WILSON | `hardening/brain-production-readiness`, 8 commits sobre `98a80b0` | abrir PR depois do PR #7; merge com `app-gates` e `brain-db-gate` verdes | Wilson |
+| CI da aplicação seguro como check obrigatório | READY | `brain-app.yml` sem `paths`, sem `if:`/`continue-on-error` no `app-gates` (commit `ecac757`); `check:brain-ci` trava essas regras (`conferir-ci-app.mjs`, endurecida na revisão adversarial: 34 mutações reprovadas, 3 controles aprovados — `ci.md` §8); `ci.md` §2–3 | vale em `main` só depois do merge; primeira rodada no GitHub não conferida daqui | — |
+| CI do banco seguro como check obrigatório | READY | `brain.yml`: `scope` (git diff contra o merge-base, na dúvida `db=true`) + `brain-db-gate` com `if: always()` (commit `ecac757`); simulação local CI1–CI9 (`ci.md` §4), com arquivo MOVIDO para fora de `supabase/` dando `db=true` (`--no-renames`) e `merge_group:` nos dois workflows (commit `fix(brain): fecha achados da revisão adversarial`) | idem: vale em `main` depois do merge; rodada real no GitHub não conferida daqui | — |
 | Nomes dos checks obrigatórios | READY | `app-gates` (`BRAIN App`) e `brain-db-gate` (`BRAIN`); não `deploy-reversao`, não `scope` — `ci.md` §3 | — | — |
 | Branch protection ligada | NEEDS_WILSON | configuração do GitHub, não visível no repositório | ligar depois do merge desta branch e de uma rodada dos workflows novos | Wilson (admin do repo) |
 | Actions fixadas por SHA | READY | `checkout` v5.1.0, `setup-node` v4.4.0, `setup-python` v5.6.0 por SHA, `persist-credentials: false` (commit `ecac757`, `ci.md` §9) | — | — |
-| Contrato de configuração do provedor | READY | `readProviderConfig` (`llm/config.ts`), `resolveProvider` → `{ provider, reason }`; `npm run brain:preflight` (exit 0/1/2); CFG1–CFG15, PF1–PF6, SYN34a–f (commit `56de30e`); `env-contract.md` | — | — |
+| Contrato de configuração do provedor | READY | `readProviderConfig` (`llm/config.ts`), `resolveProvider` → `{ provider, reason }`; `npm run brain:preflight` (exit 0/1/2); CFG1–CFG17c, PF1–PF11, SYN34a–h (commit `56de30e`; `model_invalid`/`key_invalid` e parser do `.env.local` no commit `fix(brain): fecha achados da revisão adversarial`); `env-contract.md` | — | — |
 | Variáveis do provedor em Production | NEEDS_WILSON | `env-contract.md` §2 e §7; preflight local em 26/09: exit 1 (não configurado, esperado) | provedor + modelo + orçamento aprovados; 3 variáveis no painel, só Production, escopo de servidor | Wilson |
 | Preview sem segredo | NEEDS_WILSON | parte do repo pronta: nenhum workflow usa `secrets.` (`check:brain-ci`), Preview deliberadamente sem chave (`env-contract.md` §2) | conferir no painel que as 3 variáveis não têm valor em Deploy Preview / branch deploy | Wilson |
 | Timeout da função Netlify vs 30 s do provedor | NEEDS_WILSON | `TIMEOUT_PROVIDER_MS = 30_000` (`limits.ts`, E12); `netlify.toml` não fixa timeout; `env-contract.md` §6 | confirmar no painel que a função dura mais que busca + 30 s (~40 s) | Wilson |
-| Logs estruturados de outcome | READY | `GenerationEvent` tipado, sem `query` (commit `fc489a4`); privacidade OBS1–OBS13 (`d86332f`, `56de30e`); LOG1–LOG8b | — | — |
+| Logs estruturados de outcome | READY | `GenerationEvent` tipado, sem `query` (commit `fc489a4`); privacidade OBS1–OBS14 (`d86332f`, `56de30e`; OBS14 no commit `fix(brain): fecha achados da revisão adversarial`); LOG1–LOG8b, com os 10 outcomes exercitados (`internal_error` alcançável: SYN33, SYN35a–c) | — | — |
 | Destino e retenção da observabilidade | NEEDS_WILSON | hoje só `console.info` no log de função da Netlify; nenhum agregador no repo | decidir se a retenção do painel basta ou se haverá destino permanente (só decisão) | Wilson |
 | Rollback da síntese | READY | `BRAIN_LLM_PROVIDER=none` + redeploy → `no_provider:provider_disabled`; SYN34b, CFG3c; `production-readiness.md` §4 | executar só se preciso; confirmar no painel se mudança de variável exige redeploy (doc assume que sim) | Wilson, quando preciso |
 | Plano de smoke | READY | P1–P6 com resposta e evento esperados (`production-readiness.md` §3) | — | — |
@@ -120,7 +120,7 @@
   haverá destino permanente para `[brain.synthesis]`.
 - **POR QUÊ:** as contagens do §5.4 do runbook só valem pelo período que o
   log fica guardado; a retenção depende da conta e não está no repositório.
-- **RISCO:** baixo; o evento não carrega pergunta nem conteúdo (OBS1–OBS13),
+- **RISCO:** baixo; o evento não carrega pergunta nem conteúdo (OBS1–OBS14),
   então mandar para outro destino não expõe dado de cliente.
 - **PASSO EXATO:** conferir no painel onde ficam e por quanto tempo os logs
   de função; decidir. Só decisão nesta fase — nada a implementar.

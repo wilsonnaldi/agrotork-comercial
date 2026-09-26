@@ -43,7 +43,7 @@ export function resolveProvider(
   const config = readProviderConfig(env);
   if (!config.configured) return { provider: null, reason: config.reason };
 
-  // `readProviderConfig` já garantiu que a chave existe e não é espaço.
+  // `readProviderConfig` já garantiu que a chave existe e é só ASCII visível.
   return {
     provider: new AnthropicProvider((env[PROVIDER_ENV.apiKey] ?? "").trim(), config.model),
     reason: null,

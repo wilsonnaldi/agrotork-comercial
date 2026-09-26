@@ -16,6 +16,7 @@ import { resolveProvider, type ProviderResolution } from "./llm";
 import { ProviderError } from "./llm/provider";
 import {
   comparisonCodesForLog,
+  providerErrorReason,
   type GenerationEvent,
   type GenerationOutcome,
   type GenerationReason,
@@ -159,11 +160,12 @@ export async function answerWith(
   const pedeComparacao = isComparisonQuestion(input.query);
   const inicio = Date.now();
 
-  const rows: KnowledgeHitRow[] = await deps.search(input);
-  const evidencias: KnowledgeEvidence[] = rows.map((r) => toEvidence(r, opts.isAdmin));
-
-  // Contagens do Evidence Gate, preenchidas assim que ele roda. Antes dele
-  // não há desfecho possível, então nenhum evento sai com elas por preencher.
+  // `rows` começa vazio para o evento de falha da BUSCA (abaixo) já sair
+  // com as contagens em zero; o `desfecho` lê o valor da hora em que é
+  // chamado.
+  let rows: KnowledgeHitRow[] = [];
+  // Contagens do Evidence Gate, preenchidas assim que ele roda. Antes dele,
+  // o único desfecho possível é a busca lançar — e aí as contagens são zero.
   let aceitasN = 0;
   let descartadasN = 0;
   const desfecho = (d: Desfecho) =>
@@ -184,6 +186,35 @@ export async function answerWith(
       ...(d.codesCount !== undefined ? { codesCount: d.codesCount } : {}),
       ...(d.incompleteCodes ?? {}),
     });
+
+  /**
+   * Uma porta (`deps.*`) que LANÇA não é desfecho da cadeia, mas também não
+   * pode sumir do log: sem isto, uma busca ou política quebrada não deixava
+   * linha `[brain.synthesis]` nenhuma e a contagem por outcome mentia (N3,
+   * revisão adversarial de 26/09). Registra `internal_error` com a porta como
+   * motivo — nunca a mensagem do erro, que pode trazer SQL, pergunta ou
+   * credencial — e RELANÇA: quem trata a falha continua sendo o `catch` da
+   * action, e o que a tela recebe não muda.
+   */
+  const pela = <T>(reason: "search" | "policy" | "provider_config", porta: () => T): T => {
+    let resultado: T;
+    try {
+      resultado = porta();
+    } catch (erro) {
+      desfecho({ outcome: "internal_error", reason });
+      throw erro;
+    }
+    if (resultado instanceof Promise) {
+      return resultado.catch((erro: unknown) => {
+        desfecho({ outcome: "internal_error", reason });
+        throw erro;
+      }) as T;
+    }
+    return resultado;
+  };
+
+  rows = await pela("search", () => deps.search(input));
+  const evidencias: KnowledgeEvidence[] = rows.map((r) => toEvidence(r, opts.isAdmin));
 
   const base = (extra: Partial<BrainNaturalAnswer>): BrainNaturalAnswer => ({
     query: input.query,
@@ -209,10 +240,11 @@ export async function answerWith(
   const citacoesMapeadas = mapCitationsToScreen(citacoes, aceitas, evidencias);
   if (citacoesMapeadas === null) {
     // Invariante quebrada: uma aceita que não está entre as evidências da
-    // tela. Na cadeia de hoje é inalcançável (as aceitas saem de
-    // `evidencias`), e é justamente por isso que não se tenta remendar: sem
-    // citação confiável não há citação nenhuma, e nada segue para o gate
-    // externo nem para o provedor. O aviso é genérico — sem id, sem pilha.
+    // tela, ou um `chunkId` repetido entre elas (a busca devolveu o mesmo
+    // trecho duas vezes — e a citação poderia abrir o card do descartado).
+    // Não se tenta remendar: sem citação confiável não há citação nenhuma,
+    // e nada segue para o gate externo nem para o provedor. O aviso é
+    // genérico — sem id, sem pilha.
     desfecho({ outcome: "internal_error", reason: "citation_mapping" });
     return base({
       answer: extractiveAnswer(aceitas),
@@ -233,7 +265,7 @@ export async function answerWith(
       documentTitle: e.document.title,
     };
   });
-  const politicas = await deps.externalProcessing(refs.map((r) => r.documentId));
+  const politicas = await pela("policy", () => deps.externalProcessing(refs.map((r) => r.documentId)));
   const externo = assessExternalProcessing(
     refs,
     new Map([...politicas].map(([id, p]) => [id, parsePolicy(p)])),
@@ -296,7 +328,7 @@ export async function answerWith(
   }
 
   // ── provedor ──────────────────────────────────────────────
-  const resolucao = deps.resolveProvider();
+  const resolucao = pela("provider_config", () => deps.resolveProvider());
   if (resolucao.provider === null) {
     // O motivo (qual parte da configuração falta) vai ao log, para quem opera
     // o deploy; o aviso segue genérico — quem pergunta não precisa saber qual
@@ -331,8 +363,10 @@ export async function answerWith(
     texto = saida.text;
     meta = saida.meta;
   } catch (erro) {
-    const tipo = erro instanceof ProviderError ? erro.kind : "unknown";
-    // Só a CATEGORIA: a mensagem do erro pode repetir o prompt ou a chave.
+    // Só a CATEGORIA, e só se for uma das conhecidas (`providerErrorReason`):
+    // a mensagem do erro pode repetir o prompt ou a chave, e o `kind` é só
+    // um campo — em tempo de execução pode trazer qualquer texto.
+    const tipo = erro instanceof ProviderError ? providerErrorReason(erro) : "unknown";
     desfecho({
       outcome: "provider_error", reason: tipo, evidencesSent: aceitas.length,
       provider: provider.name, model: provider.model,

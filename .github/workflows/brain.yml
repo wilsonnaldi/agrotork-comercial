@@ -29,6 +29,10 @@ on:
   push:
     branches: [main, brain/fase-1, brain/fase-2]
   workflow_dispatch:
+  # Inofensivo sem merge queue; com ela, sem este gatilho o brain-db-gate
+  # nunca reportaria na fila. O scope trata o evento como desconhecido
+  # (cai no `*)` do case -> db=true, roda tudo).
+  merge_group:
 
 permissions:
   contents: read
@@ -79,7 +83,11 @@ jobs:
           # (um nome com espaco, quebra de linha ou `$(...)` e so dado) e so
           # o booleano sai daqui. Arquivo, nao pipe: com pipefail, grep -q
           # fechando cedo + SIGPIPE no git diff daria falso "nao mudou".
-          git diff --name-only -z "$mb" HEAD > "$RUNNER_TEMP/changed"
+          # --no-renames: arquivo MOVIDO para fora de supabase/ ou brain/
+          # sairia so com o nome novo (fora do filtro) e o ensaio seria
+          # pulado; sem deteccao de rename, o nome antigo aparece como
+          # removido e casa o filtro.
+          git diff --no-renames --name-only -z "$mb" HEAD > "$RUNNER_TEMP/changed"
           if grep -zqE '^(supabase/|brain/|\.github/workflows/brain\.yml$)' "$RUNNER_TEMP/changed"; then
             echo "db=true" >> "$GITHUB_OUTPUT"; echo "scope: mudanca relevante -> roda"
           else

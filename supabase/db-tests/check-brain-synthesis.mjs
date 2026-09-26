@@ -17,7 +17,10 @@
  *
  * SYN16–SYN18 (comparação incompleta chamava o provedor), SYN24c (citação
  * abrindo o card errado) e LOG6 (trecho de evidência no log) nasceram como
- * reprodução de lacunas; fechadas, viraram a regra.
+ * reprodução de lacunas; fechadas, viraram a regra. O mesmo vale para
+ * SYN33 (chunkId repetido na busca → internal_error), SYN34f–g (modelo com
+ * cara de chave, chave fora do ASCII visível), SYN35 (porta que lança sem
+ * evento) e OBS14 (`kind` adulterado no log), da revisão adversarial de 26/09.
  */
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -194,6 +197,9 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
   }
 
   const TODAS = [];   // todas as rodadas, para as conferências de log no fim
+  // Rodadas em que uma porta LANÇOU (SYN35): não há resposta para conferir,
+  // então ficam fora de TODAS, e entram só nas conferências de LOG/taxonomia.
+  const LANCARAM = [];
 
   /**
    * Uma consulta pela máquina de estados, com busca, política e provedor
@@ -203,37 +209,50 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
    * `prov` null = sem provedor; `motivo` é o `ProviderConfigReason` que o
    * `resolveProvider` falso devolve nesse caso (padrão: variável ausente).
    */
-  async function rodar({ pergunta, linhas = [MAG], politicas = { [DOC_MAG]: "allowed" }, prov = null, motivo = "provider_missing", isAdmin = false, rotulo }) {
+  /**
+   * `falha`: { search | policy | resolve: Error } — a porta correspondente
+   * LANÇA esse erro (SYN35). A rodada vai para LANCARAM, com `erro`.
+   */
+  async function rodar({ pergunta, linhas = [MAG], politicas = { [DOC_MAG]: "allowed" }, prov = null, motivo = "provider_missing", isAdmin = false, rotulo, falha = {} }) {
     const conta = { search: 0, externo: [], resolve: 0 };
     const deps = {
-      search: async () => { conta.search += 1; return linhas; },
+      search: async () => {
+        conta.search += 1;
+        if (falha.search) throw falha.search;
+        return linhas;
+      },
       externalProcessing: async (ids) => {
         conta.externo.push(ids);
+        if (falha.policy) throw falha.policy;
         return new Map(Object.entries(politicas).filter(([id]) => ids.includes(id)));
       },
       resolveProvider: () => {
         conta.resolve += 1;
+        if (falha.resolve) throw falha.resolve;
         return prov ? { provider: prov, reason: null } : { provider: null, reason: motivo };
       },
     };
     const capturado = [];
     const original = console.info;
     console.info = (...args) => capturado.push(args);
-    let r;
+    let r = null;
+    let erro = null;
     try {
       r = await S.answerWith(deps, { query: pergunta, limit: 10, includeSuperseded: false, filters: {} }, { isAdmin });
+    } catch (e) {
+      erro = e;
     } finally {
       console.info = original;
     }
     const brutos = capturado.filter((a) => a[0] === "[brain.synthesis]").map((a) => a.slice(1).join(" "));
     const outros = capturado.filter((a) => a[0] !== "[brain.synthesis]");
     const rodada = {
-      rotulo, pergunta, r, conta, prov, brutos, outros,
+      rotulo, pergunta, r, erro, conta, prov, brutos, outros,
       log: brutos.length === 1 ? JSON.parse(brutos[0]) : null,
       chamadas: prov ? prov.chamadas.length : 0,
       entrada: prov?.chamadas[0] ?? null,
     };
-    TODAS.push(rodada);
+    (erro ? LANCARAM : TODAS).push(rodada);
     return rodada;
   }
 
@@ -756,38 +775,55 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     [Q_SEIS, true],                             // seis códigos: too_many, mas É comparação
     [Q_999, true],                              // um lado sem evidência: ready/incomplete
     ["Qual a diferença entre as pontas?", false],    // intenção sem código
+    ["MJ981CAP vs MJ985CAP a 40 psi", true],         // "vs" é intenção explícita
+    ["A MJ981CAP substitui a MJ985CAP?", false],     // dois códigos SEM intenção
+    ["Qual a diferença de vazão entre MJ981CAP e MJ985CAP?", true],
+    ["Qual tem maior vazão, MJ981CAP ou MJ985CAP?", true], // intenção de ordem
   ];
-  const discordam = PERGUNTAS_32D.filter(([q, esperado]) => {
+  // O oráculo é a coluna escrita à mão acima — não `isComparisonQuestion`
+  // (N6, revisão adversarial de 26/09: OBS11 usa a função como o próprio
+  // oráculo, e isso só prova consistência). Aqui cada pergunta passa também
+  // pela cadeia inteira, e o `comparison` do EVENTO tem de bater com a mão.
+  const discordam = [];
+  for (const [i, [q, esperado]] of PERGUNTAS_32D.entries()) {
     const plano = C.planComparison(q, [E.toEvidence(MAG, false)]);
-    return C.isComparisonQuestion(q) !== esperado || (plano.status !== "not_applicable") !== esperado;
-  });
-  confere("SYN32d isComparisonQuestion concorda com planComparison(...).status !== 'not_applicable' em 6 perguntas (2 códigos, 1, sem intenção, 6→too_many, incompleta, sem código)",
-    discordam.length === 0, discordam.map(([q]) => q).join(" | ") || "6/6");
+    const t = await rodar({ rotulo: `SYN32d #${i}`, pergunta: q, prov: null });
+    if (C.isComparisonQuestion(q) !== esperado || (plano.status !== "not_applicable") !== esperado ||
+      t.log?.comparison !== esperado) discordam.push(q);
+  }
+  confere(`SYN32d ${PERGUNTAS_32D.length} perguntas com o selo esperado escrito à mão: isComparisonQuestion, planComparison(...).status !== 'not_applicable' e o \`comparison\` do evento concordam com a mão`,
+    discordam.length === 0, discordam.join(" | ") || `${PERGUNTAS_32D.length}/${PERGUNTAS_32D.length}`);
 
   // ════════════════════════════════════════════════════════════
-  process.stdout.write("▶ Citação fail-closed (SYN33)\n");
+  process.stdout.write("▶ Citação fail-closed, ponta a ponta (SYN33)\n");
   //
-  // A violação da invariante (aceita fora de `evidencias`) NÃO é alcançável
-  // ponta a ponta sem gancho de teste no código de produção: as aceitas saem
-  // de `evidencias` por construção, e nenhuma porta injetável (`search`,
-  // `externalProcessing`, `resolveProvider`) as separa. Não se acrescenta
-  // gancho só para o teste. A garantia do comportamento é
-  // `mapCitationsToScreen` testada direto (check-brain-answer.mjs, CIT1–CIT4);
-  // aqui se prova (a) que nenhum caminho real cai nela e (b) que a checagem
-  // está no lugar certo — logo depois do Evidence Gate, antes da política e
-  // do provedor.
-  const FONTE_SYN = readFileSync(join(RAIZ, "src/modules/brain/synthesis.ts"), "utf8");
-  const posMapa = FONTE_SYN.indexOf("mapCitationsToScreen(citacoes, aceitas, evidencias)");
-  const posGate = FONTE_SYN.indexOf("assessEvidence(input.query, evidencias)");
-  const posExterno = FONTE_SYN.indexOf("deps.externalProcessing(");
-  const posProvedor = FONTE_SYN.indexOf("deps.resolveProvider(");
-  const blocoNulo = FONTE_SYN.slice(posMapa, posExterno);
-  confere("SYN33 mapeamento de citação checado logo após o Evidence Gate e antes do gate externo e do provedor; null → internal_error, citations [], aviso genérico",
-    posGate > 0 && posMapa > posGate && posMapa < posExterno && posMapa < posProvedor &&
-    /=== null/.test(blocoNulo) && blocoNulo.includes("internal_error") && blocoNulo.includes("citations: []") &&
-    blocoNulo.includes("Não foi possível montar as citações desta resposta com segurança."));
-  confere("SYN33b e nenhum caminho real da cadeia cai no internal_error (a invariante vale em todas as consultas deste harness)",
-    TODAS.every((t) => t.log?.outcome !== "internal_error"), `${TODAS.length} consultas`);
+  // N1 (revisão adversarial de 26/09): a busca devolvendo o MESMO trecho
+  // duas vezes — uma cópia grande demais, descartada pelo teto, antes da
+  // aceita. "O primeiro índice vence" abria o card do descartado; agora
+  // `mapCitationsToScreen` devolve `null` com `chunkId` repetido, e isso
+  // torna `internal_error` alcançável pela porta de verdade (`search`), sem
+  // gancho de teste em produção. Antes deste achado o ramo só era provado
+  // pelo texto do fonte.
+  const AVISO_CITACAO = "Não foi possível montar as citações desta resposta com segurança. Os trechos encontrados estão abaixo, na íntegra.";
+  const GRANDE_72 = linha({ ...GRANDE, chunk_id: 72 });
+  const espiao33 = provedor(OK_PONTUAL);
+  const s33 = await rodar({ rotulo: "SYN33", pergunta: Q, linhas: [GRANDE_72, MAG], prov: espiao33 });
+  confere("SYN33 busca com chunkId repetido (cópia descartada antes da aceita) → UM evento internal_error:citation_mapping, citations [], extractiva, aviso genérico",
+    s33.brutos.length === 1 && desf(s33) === "internal_error:citation_mapping" &&
+    Array.isArray(s33.r.citations) && s33.r.citations.length === 0 &&
+    s33.r.status === "answered" && s33.r.mode === "extractive" && s33.r.warning === AVISO_CITACAO &&
+    s33.r.answer === extractivaDe(MAG) && s33.r.evidence.length === 2,
+    `${desf(s33)} mode=${s33.r.mode} citations=${JSON.stringify(s33.r.citations?.map((c) => c.evidenceIndex))}`);
+  confere("SYN33b e nada segue adiante: política 0×, resolveProvider 0×, provedor 0×; contagens do gate no evento (2 recuperadas, 1 aceita, 1 descartada, 0 enviadas)",
+    s33.conta.externo.length === 0 && s33.conta.resolve === 0 && espiao33.chamadas.length === 0 && s33.chamadas === 0 &&
+    s33.log.evidencesRetrieved === 2 && s33.log.evidencesAccepted === 1 && s33.log.evidencesDropped === 1 &&
+    s33.log.evidencesSent === 0 && s33.log.provider === null && s33.log.model === null,
+    `externo=${s33.conta.externo.length} resolve=${s33.conta.resolve} calls=${s33.chamadas}`);
+  const s33c = await rodar({ rotulo: "SYN33c", pergunta: Q, linhas: [MAG, linha()], prov: provedor(OK_PONTUAL) });
+  confere("SYN33c duas linhas IDÊNTICAS aceitas (mesmo chunkId) → o mesmo internal_error:citation_mapping, provedor 0×",
+    desf(s33c) === "internal_error:citation_mapping" && s33c.r.citations.length === 0 && s33c.chamadas === 0 &&
+    s33c.conta.externo.length === 0 && s33c.r.warning === AVISO_CITACAO,
+    desf(s33c));
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Motivo da falta de provedor (SYN34, Pacote C)\n");
@@ -805,6 +841,11 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     ["SYN34c", "provider_unsupported", { BRAIN_LLM_PROVIDER: CHAVE_SYN34, BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_SYN34 }],
     ["SYN34d", "model_missing", { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "   ", BRAIN_LLM_API_KEY: CHAVE_SYN34 }],
     ["SYN34e", "key_missing", { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: " " }],
+    // S1/S2 (revisão adversarial de 26/09): a chave colada no MODELO (que vai
+    // ao log em todo evento) e a chave com quebra de linha (que virava erro
+    // de rede em toda consulta).
+    ["SYN34f", "model_invalid", { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: CHAVE_SYN34, BRAIN_LLM_API_KEY: CHAVE_SYN34 }],
+    ["SYN34g", "key_invalid", { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: `${CHAVE_SYN34}\nX` }],
   ];
   for (const [id, esperado, env] of AMBIENTES_34) {
     const cfg = CFG.readProviderConfig(env);
@@ -821,18 +862,49 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
       !tudo.includes(CHAVE_SYN34) && !tudo.includes("sk-ant") && !/BRAIN_LLM|claude-x/.test(tudo),
       desf(t));
   }
-  confere("SYN34f a tela não distingue os motivos: os cinco avisos são idênticos (quem pergunta não sabe qual variável falta)",
-    new Set(TODAS.filter((t) => /^SYN34[a-e]$/.test(t.rotulo)).map((t) => t.r.warning)).size === 1);
+  const avisos34 = TODAS.filter((t) => /^SYN34[a-g]$/.test(t.rotulo)).map((t) => t.r.warning);
+  confere("SYN34h a tela não distingue os motivos: os sete avisos são idênticos (quem pergunta não sabe qual variável falta)",
+    avisos34.length === 7 && new Set(avisos34).size === 1);
+
+  // ════════════════════════════════════════════════════════════
+  process.stdout.write("▶ Porta que lança ainda deixa UM evento (SYN35)\n");
+  //
+  // N3 (revisão adversarial de 26/09): busca, política ou `resolveProvider`
+  // lançando não deixava linha `[brain.synthesis]` nenhuma. Agora sai
+  // `internal_error` com a PORTA como motivo, e o erro é relançado — o catch
+  // da action continua tratando, a tela não muda. A mensagem do erro traz
+  // canários (SQL, chave, a pergunta) que não podem chegar ao evento.
+  const CANARIO_35 = "sk-ant-api03-CANARY-SYN35";
+  const erro35 = (porta) =>
+    new Error(`${porta}: relation "brain.knowledge_chunks" denied; Authorization: Bearer ${CANARIO_35}; query="${Q}"`);
+  const PORTAS_35 = [
+    ["SYN35a", "search", { search: erro35("search") }, 0],
+    ["SYN35b", "policy", { policy: erro35("policy") }, 1],
+    ["SYN35c", "provider_config", { resolve: erro35("resolve") }, 1],
+  ];
+  for (const [id, motivo35, falha, recuperadas] of PORTAS_35) {
+    const espiao35 = provedor(OK_PONTUAL);
+    const t = await rodar({ rotulo: id, pergunta: Q, prov: espiao35, falha });
+    const lancado = Object.values(falha)[0];
+    const bruto = t.brutos.join("\n");
+    confere(`${id} ${motivo35} lança → UM evento internal_error:${motivo35}, o MESMO erro relançado, provedor 0×, nada da mensagem nem da pergunta no evento`,
+      t.r === null && t.erro === lancado && t.brutos.length === 1 && desf(t) === `internal_error:${motivo35}` &&
+      espiao35.chamadas.length === 0 && t.log.provider === null && t.log.model === null && t.log.durationMs === null &&
+      t.log.evidencesRetrieved === recuperadas && t.log.evidencesSent === 0 && t.log.queryLength === Q.length &&
+      !/CANARY|Bearer|relation|knowledge_chunks|MJ981CAP|40 psi/.test(bruto) && t.outros.length === 0,
+      `${desf(t)} erro=${t.erro === lancado} ${bruto}`);
+  }
+
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Log [brain.synthesis]\n");
 
-  const semLinhaUnica = TODAS.filter((t) =>
+  const semLinhaUnica = [...TODAS, ...LANCARAM].filter((t) =>
     t.brutos.length !== 1 || typeof t.log?.outcome !== "string" || t.log.event !== "brain.synthesis");
-  confere("LOG1 todo caminho grava exatamente UMA linha [brain.synthesis] com `outcome`",
-    semLinhaUnica.length === 0, `${TODAS.length} consultas${semLinhaUnica.length ? `; falhou: ${semLinhaUnica.map((t) => t.rotulo).join(",")}` : ""}`);
+  confere("LOG1 todo caminho grava exatamente UMA linha [brain.synthesis] com `outcome` — inclusive quando uma porta lança",
+    semLinhaUnica.length === 0 && LANCARAM.length >= 3, `${TODAS.length + LANCARAM.length} consultas${semLinhaUnica.length ? `; falhou: ${semLinhaUnica.map((t) => t.rotulo).join(",")}` : ""}`);
   confere("LOG2 e nenhuma outra linha de console.info",
-    TODAS.every((t) => t.outros.length === 0));
+    [...TODAS, ...LANCARAM].every((t) => t.outros.length === 0));
 
   const metaCoerente = (t) => {
     const g = t.log;
@@ -901,31 +973,33 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
       [...trechoAviso.matchAll(/"([^"]*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2]).join(" ")));
 
   // A taxonomia vem de `observability.ts` (a mesma lista que o tipo usa),
-  // não de uma cópia. `internal_error` é a exceção declarada: é inalcançável
-  // ponta a ponta sem gancho de teste em produção (ver SYN33); a garantia dele
-  // é CIT1–CIT4 em check-brain-answer.mjs.
-  const INALCANCAVEIS = new Set(["internal_error"]);
-  const observados = [...new Set(TODAS.map((t) => t.log.outcome))].sort();
-  const esperados = O.GENERATION_OUTCOMES.filter((o) => !INALCANCAVEIS.has(o)).sort();
-  confere("LOG8 taxonomia de outcome: todos os outcomes alcançáveis da lista fechada foram exercitados, nenhum fora dela",
+  // não de uma cópia. Desde a revisão adversarial de 26/09 não há outcome
+  // declarado inalcançável: `internal_error` sai de verdade pela busca
+  // (SYN33, chunkId repetido) e pelas portas que lançam (SYN35).
+  const COM_LOG = [...TODAS, ...LANCARAM];
+  const observados = [...new Set(COM_LOG.map((t) => t.log?.outcome))].sort();
+  const esperados = [...O.GENERATION_OUTCOMES].sort();
+  confere("LOG8 taxonomia de outcome: TODOS os 10 outcomes da lista fechada foram exercitados (internal_error incluso), nenhum fora dela",
     JSON.stringify(observados) === JSON.stringify(esperados) && O.GENERATION_OUTCOMES.length === 10,
     observados.join(" · "));
-  const razoes = [...new Set(TODAS.filter((t) => t.log.reason).map((t) => t.log.reason))].sort();
+  const razoes = [...new Set(COM_LOG.filter((t) => t.log?.reason).map((t) => t.log.reason))].sort();
   // Exercitadas aqui: os dois motivos alcançáveis do Evidence Gate
-  // (`none_fit_context` não é alcançável com os limites de hoje, SYN23), as
-  // categorias de erro que os falsos lançam, e as seis travas do validador.
+  // (`none_fit_context` não é alcançável com os limites de hoje, SYN23), os
+  // sete motivos de configuração, as categorias de erro que os falsos
+  // lançam, as seis travas do validador e os quatro de `internal_error`.
   const RAZOES_MINIMAS = [
     "none_retrieved", "none_passed_gate",
-    "provider_missing", "provider_disabled", "provider_unsupported", "model_missing", "key_missing",
+    "provider_missing", "provider_disabled", "provider_unsupported", "model_missing", "model_invalid", "key_missing", "key_invalid",
     "auth", "network", "timeout", "unknown",
     "grounding", "format", "completeness", "association", "comparison", "stance",
+    "citation_mapping", "search", "policy", "provider_config",
   ];
   confere("LOG8b taxonomia de reason: todas as razões alcançáveis exercitadas, e toda razão observada está na lista fechada",
     RAZOES_MINIMAS.every((r) => razoes.includes(r)) && razoes.every((r) => O.GENERATION_REASONS.includes(r)),
     razoes.join(" · "));
 
   // ════════════════════════════════════════════════════════════
-  process.stdout.write("▶ Privacidade do log (OBS1–OBS13)\n");
+  process.stdout.write("▶ Privacidade do log (OBS1–OBS14)\n");
   //
   // O evento `[brain.synthesis]` sai do RLS: vai para o log de função da
   // Netlify. Estes testes provam, com fixtures ADVERSARIAIS, que nele só
@@ -974,6 +1048,9 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     ["model_refusal", { pergunta: Q_ADV, prov: provCanario(A.FRASE_DE_RECUSA) }],
     ["answer_rejected", { pergunta: Q_ADV, prov: provCanario(`A MJ981CAP entrega 9,99 L/min a 40 psi [1]. Chave ${CHAVE_CANARIO} ${CORPO_CANARIO}.`) }],
     ["answer_rejected", { pergunta: Q_ADV, prov: provCanario(`Ver ${URL_NA_EVIDENCIA} e ${UUID_NA_EVIDENCIA} [1]`) }],
+    // O mesmo trecho duas vezes, a cópia grande (com a linha adversarial)
+    // antes: citation_mapping (SYN33), agora com canários.
+    ["internal_error", { pergunta: Q_ADV, linhas: [linha({ ...GRANDE, chunk_id: 72, content: `${GRANDE_CONTEUDO}${LINHA_ADV}` }), MAG_ADV], prov: provCanario(OK_PONTUAL) }],
   ];
   const obs = [];
   for (const [esperado, cfg] of OBS_CAMINHOS) {
@@ -981,8 +1058,8 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
   }
   const fora1 = obs.filter((t, i) => t.brutos.length !== 1 || t.log?.outcome !== OBS_CAMINHOS[i][0]);
   const cobertos = new Set(obs.map((t) => t.log?.outcome));
-  confere("OBS1 cada caminho adversarial emite exatamente UM evento, com o outcome esperado, cobrindo os 9 outcomes alcançáveis (internal_error: inalcançável, SYN33)",
-    fora1.length === 0 && O.GENERATION_OUTCOMES.filter((o) => o !== "internal_error").every((o) => cobertos.has(o)),
+  confere("OBS1 cada caminho adversarial emite exatamente UM evento, com o outcome esperado, cobrindo os 10 outcomes (internal_error incluso)",
+    fora1.length === 0 && O.GENERATION_OUTCOMES.every((o) => cobertos.has(o)),
     fora1.map((t) => `${t.rotulo}→${t.log?.outcome} (${t.brutos.length} linhas)`).join(" | ") || `${obs.length} consultas, ${cobertos.size} outcomes`);
 
   // OBS13 (Pacote C): códigos digitados na comparação. O filtro de forma
@@ -1017,6 +1094,24 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     o13a.r.warning.includes(SEGREDO_CURTO) && o13b.r.warning.includes("ZX9Q7"),
     o13a.r.warning);
 
+  // OBS14 (N4, revisão adversarial de 26/09): o `kind` do ProviderError é só
+  // um campo — `readonly` não existe em tempo de execução. Texto livre nele
+  // ia direto para `reason`. Agora só as seis categorias passam; o resto é
+  // `unknown`, inclusive um reason VÁLIDO de outro outcome ("grounding").
+  const e14a = new ProviderError("falhou", "auth");
+  e14a.kind = `Bearer ${CHAVE_CANARIO}`;
+  const e14b = new ProviderError("falhou", "auth");
+  e14b.kind = "grounding";
+  const o14a = await rodar({ rotulo: "OBS14a", pergunta: Q_ADV, linhas: [MAG_ADV], politicas: politicasAdv, prov: provCanario(e14a) });
+  const o14b = await rodar({ rotulo: "OBS14b", pergunta: Q_ADV, linhas: [MAG_ADV], politicas: politicasAdv, prov: provCanario(e14b) });
+  obs.push(o14a, o14b);
+  confere("OBS14 ProviderError com `kind` sobrescrito ('Bearer sk-ant-…', 'grounding') → provider_error:unknown, o canário fora do evento",
+    desf(o14a) === "provider_error:unknown" && desf(o14b) === "provider_error:unknown" &&
+    !/CANARY|Bearer|sk-ant/.test(o14a.brutos.join("\n")) &&
+    O.providerErrorReason({ kind: "rate_limit" }) === "rate_limit" && O.providerErrorReason({ kind: 7 }) === "unknown" &&
+    O.providerErrorReason(null) === "unknown",
+    `${desf(o14a)} ${desf(o14b)}`);
+
   // OBS12 roda antes das conferências globais para que os 50 eventos também
   // passem por elas.
   const erros50 = [];
@@ -1033,20 +1128,20 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     erros50.length === 50 && erros50.every((t) => t.brutos.length === 1) && formas.size === 1,
     `${formas.size} forma(s): ${[...formas][0]}`);
 
-  const eventos = TODAS.map((t) => t.log);
-  const naoFechados = TODAS.filter((t) => !O.GENERATION_OUTCOMES.includes(t.log?.outcome));
-  confere("OBS2 todo outcome, em todas as consultas do harness, está na lista fechada de observability.ts",
-    naoFechados.length === 0 && eventos.length === TODAS.length,
-    naoFechados.map((t) => `${t.rotulo}:${t.log?.outcome}`).join(" ") || `${TODAS.length} eventos`);
+  const eventos = COM_LOG.map((t) => t.log);
+  const naoFechados = COM_LOG.filter((t) => !O.GENERATION_OUTCOMES.includes(t.log?.outcome));
+  confere("OBS2 todo outcome, em todas as consultas do harness (inclusive as que lançaram), está na lista fechada de observability.ts",
+    naoFechados.length === 0 && eventos.length === COM_LOG.length,
+    naoFechados.map((t) => `${t.rotulo}:${t.log?.outcome}`).join(" ") || `${COM_LOG.length} eventos`);
 
   // `no_provider` ganhou motivo em 26/09 (Pacote C): qual parte da
   // configuração falta, da lista fechada de `llm/config.ts`.
   const COM_RAZAO = new Set(["no_evidence", "no_provider", "provider_error", "answer_rejected", "internal_error"]);
-  const razaoErrada = TODAS.filter((t) =>
+  const razaoErrada = [...TODAS, ...LANCARAM].filter((t) =>
     ("reason" in t.log) !== COM_RAZAO.has(t.log.outcome) ||
     ("reason" in t.log && !O.GENERATION_REASONS.includes(t.log.reason)));
   confere("OBS3 reason ∈ lista fechada sempre que presente, e presente exatamente em no_evidence, no_provider, provider_error, answer_rejected e internal_error",
-    razaoErrada.length === 0, razaoErrada.map((t) => `${t.rotulo}:${desf(t)}`).join(" ") || `${TODAS.length} eventos`);
+    razaoErrada.length === 0, razaoErrada.map((t) => `${t.rotulo}:${desf(t)}`).join(" ") || `${TODAS.length + LANCARAM.length} eventos`);
 
   // A pergunta: sem chave `query`, e nenhum pedaço dela no evento. A única
   // exceção declarada são os códigos de produto em `codes` (comparação), e
@@ -1081,7 +1176,7 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     vazaCorpo.map((t) => t.rotulo).join(",") || "canários ausentes");
 
   const SEGREDO_CHAVE = /sk-ant-|CANARY|Bearer/;
-  const vazaChave = TODAS.filter((t) => SEGREDO_CHAVE.test(t.brutos[0]));
+  const vazaChave = [...TODAS, ...LANCARAM].filter((t) => SEGREDO_CHAVE.test(t.brutos[0]));
   confere("OBS7 nenhuma chave (do provedor, do erro 'Authorization: Bearer …', da evidência ou colada na pergunta) em evento nenhum",
     vazaChave.length === 0, vazaChave.map((t) => t.rotulo).join(",") || `${TODAS.length} eventos`);
 
