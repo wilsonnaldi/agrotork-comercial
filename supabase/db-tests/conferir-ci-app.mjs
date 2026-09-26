@@ -145,6 +145,13 @@ for (const cmd of ["npm run lint", "npm run typecheck", "npm run build"]) {
 
 // --- 3. brain.yml: scope decide, gate sempre reporta ---------------------
 regra(/^  scope:$/m.test(db), "brain.yml tem job scope", "brain.yml sem job `scope:`");
+// `push` só em main (re-revisão, 26/09): push em outra branch daria um
+// segundo `brain-db-gate` no mesmo SHA de um PR aberto a partir dela, com
+// diff contra `before` em vez do merge-base — podia ficar verde com a rodada
+// do PR vermelha. A linha é fixada literalmente.
+const pushDb = bloco(db, /^  push:$/);
+regra(pushDb === "  push:\n    branches: [main]", "brain.yml: `push` só em `branches: [main]`",
+  "brain.yml: `push:` diferente de exatamente `branches: [main]` — outra branch daria brain-db-gate duplicado");
 const pesado = bloco(db, /^  deploy-reversao:$/);
 regra(pesado !== null && /^    needs: scope$/m.test(pesado) &&
   /^    if: needs\.scope\.outputs\.db == 'true'$/m.test(pesado),
@@ -238,7 +245,9 @@ for (const [nomeW, t, ls] of [[WORKFLOW, app, lsApp], [WORKFLOW_DB, db, lsDb]]) 
   // `ref:` fixo testaria código que não é o do PR. Nenhum `with:` destes
   // workflows precisa de `ref:`, então qualquer linha `ref:` na estrutura
   // reprova.
-  regra(!/^\s*(?:-\s+)?ref\s*:/m.test(t), `${nomeW}: nenhum \`ref:\` (checkout sempre no ref do evento)`,
+  // Vale também para a forma de fluxo (`with: {…, ref: …}`) e para a chave
+  // entre aspas (re-revisão, 26/09).
+  regra(!/(?:^|[\s{,])["']?ref["']?\s*:/m.test(t), `${nomeW}: nenhum \`ref:\` (checkout sempre no ref do evento)`,
     `${nomeW}: tem \`ref:\` — o checkout deixaria de testar o código do evento`);
   // `${{ }}` dentro do shell vira código antes de rodar: contexto só por env.
   regra(!shell(ls).includes("${{"), `${nomeW}: nenhum \`\${{\` dentro de \`run:\` (contexto só por env)`,

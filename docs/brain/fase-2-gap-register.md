@@ -163,7 +163,7 @@ fechamento técnico que as acompanha:
 matriz `production-readiness-checklist.md`.)*
 
 É a rodada mais lógica porque destrava o maior valor já construído e
-auditado: a cadeia inteira está provada com 777 asserções determinísticas
+auditado: a cadeia inteira está provada com 778 asserções determinísticas
 (`check:brain-all` em 26/09, depois da revisão independente)
 e com provedor real no localhost; JR, DJI e Compusystem crescem o acervo,
 mas dependem de terceiros, e nenhum torna mais útil o que os dois

@@ -27,10 +27,11 @@ baixo para cima):
 3. `test(brain): endurece privacidade dos logs`
 4. `ci(brain): prepara required checks sem status fantasma`
 5. `chore(brain): endurece higiene dos testes`
-6. `feat(brain): adiciona preflight seguro do provedor`
+6. `feat(brain): adiciona preflight seguro do provider`
 7. `docs(brain): adiciona runbook de produção e matriz de readiness`
 8. `fix(brain): fecha achados da revisão adversarial`
 9. `fix(brain): fecha achados da revisão independente`
+10. `fix(brain): fixa push em main e ref no guard; corrige contagens`
 
 Esta branch nasce em cima do PR #7. Ordem obrigatória: **PR #7 entra
 primeiro**; só então abrir o PR desta branch contra `main` (o diff dele passa
