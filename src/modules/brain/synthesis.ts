@@ -14,7 +14,7 @@ import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } fro
 import { TIMEOUT_PROVIDER_MS } from "./limits";
 import { resolveProvider } from "./llm";
 import { ProviderError, type BrainLlmProvider } from "./llm/provider";
-import type { GenerationEvent, GenerationOutcome, GenerationReason } from "./observability";
+import { codesForLog, type GenerationEvent, type GenerationOutcome, type GenerationReason } from "./observability";
 import { buildUserMessage, renderCalculation, SYSTEM_PROMPT } from "./prompt";
 import * as repository from "./repository";
 import type { KnowledgeQuery } from "./schema";
@@ -165,7 +165,7 @@ export async function answerWith(
       model: d.model ?? null,
       durationMs: d.durationMs ?? null,
       totalMs: Date.now() - inicio,
-      ...(d.codes ? { codes: d.codes } : {}),
+      ...(d.codes ? { codes: codesForLog(d.codes) } : {}),
     });
 
   const base = (extra: Partial<BrainNaturalAnswer>): BrainNaturalAnswer => ({

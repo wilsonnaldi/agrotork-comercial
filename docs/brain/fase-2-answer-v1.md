@@ -320,7 +320,16 @@ tipo `GenerationEvent` de `src/modules/brain/observability.ts` (puro):
 - `durationMs` só quando o provedor devolveu; `provider`/`model` só quando
   ele foi chamado.
 
-Testes: `check-brain-synthesis.mjs` LOG1–LOG8b (forma e taxonomia).
+- `codes` passa por `codesForLog`: só a forma de código de produto (até 16
+  caracteres, letra/dígito/hífen). Achado de OBS4: o parser da pergunta lê
+  uma chave colada ("sk-ant-api03-…") como código, e numa comparação ela ia
+  parar no log. O aviso da tela continua podendo repeti-la; o log, não.
+
+Testes: `check-brain-synthesis.mjs` LOG1–LOG8b (forma e taxonomia) e
+OBS1–OBS12 (privacidade, com fixtures adversariais: chave na pergunta, na
+evidência, no erro `Authorization: Bearer …` e no corpo do provedor; URL,
+UUID, caminho de Storage e sha256 na evidência; 50 erros diferentes do
+provedor dando um só evento).
 
 ## 6. Answer Validator
 

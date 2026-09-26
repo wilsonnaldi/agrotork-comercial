@@ -73,6 +73,24 @@ export const GENERATION_REASONS_COMPLETE: [Exclude<GenerationReason, (typeof GEN
  * Nenhum campo de texto livre: o detalhe da rejeição fica no aviso da tela,
  * não aqui.
  */
+/**
+ * Os códigos que o evento pode levar. Achado dos testes de privacidade
+ * (OBS4, 26/09): o parser de código da pergunta aceita qualquer token com
+ * letra e dígito — uma chave colada na pergunta ("sk-ant-api03-…") virava
+ * "código" e, numa comparação incompleta, ia parar em `codes`. O aviso da
+ * tela pode repeti-la (é a pergunta da própria pessoa); o log, que fica fora
+ * do RLS, não. Código de produto é curto e sem espaço, barra ou ponto — o
+ * corpus de hoje não passa de 12 caracteres —, então o log só aceita essa
+ * forma. Chave, UUID, caminho e URL ficam de fora pelo tamanho ou pelo
+ * caractere. É um filtro de forma, não de conteúdo: um número de 16 dígitos
+ * digitado na pergunta ainda passaria.
+ */
+const CODIGO_LOGAVEL = /^[A-Za-z0-9][A-Za-z0-9-]{0,15}$/;
+
+export function codesForLog(codes: readonly string[]): string[] {
+  return codes.filter((c) => CODIGO_LOGAVEL.test(c));
+}
+
 export type GenerationEvent = {
   event: "brain.synthesis";
   outcome: GenerationOutcome;

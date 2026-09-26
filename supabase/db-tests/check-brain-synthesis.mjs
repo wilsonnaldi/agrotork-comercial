@@ -870,4 +870,160 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
   confere("LOG8b taxonomia de reason: todas as razões alcançáveis exercitadas, e toda razão observada está na lista fechada",
     RAZOES_MINIMAS.every((r) => razoes.includes(r)) && razoes.every((r) => O.GENERATION_REASONS.includes(r)),
     razoes.join(" · "));
+
+  // ════════════════════════════════════════════════════════════
+  process.stdout.write("▶ Privacidade do log (OBS1–OBS12)\n");
+  //
+  // O evento `[brain.synthesis]` sai do RLS: vai para o log de função da
+  // Netlify. Estes testes provam, com fixtures ADVERSARIAIS, que nele só
+  // entra o que a taxonomia fechada permite — nada da pergunta (salvo os
+  // códigos de produto numa comparação), nada de evidência, de corpo do
+  // provedor, de chave, de id, de caminho ou de hash. Cada consulta passa
+  // pelo mesmo `rodar`, que captura o `console.info`.
+
+  // ── fixtures adversariais ───────────────────────────────────
+  const CLIENTE = "Fazenda Canário do Sertão";
+  const PRECO = "R$ 48.731,19";
+  const CHAVE_NA_PERGUNTA = "sk-ant-api03-PERGUNTACANARY9f8e7d";
+  const CAUDA = ` para a ${CLIENTE}, preço ${PRECO}, chave ${CHAVE_NA_PERGUNTA}`;
+  const Q_ADV = `Qual a vazão da MJ981CAP a 40 psi${CAUDA}?`;
+  const Q_ADV_COMP = `Compare a vazão da MJ981CAP e MJ999CAP a 40 psi${CAUDA}`;
+  const Q_ADV_SEIS = `Compare MJ980CAP, MJ981CAP, MJ982CAP, MJ983CAP, MJ984CAP e MJ985CAP a 40 psi${CAUDA}`;
+
+  const CHAVE_CANARIO = "sk-ant-api03-CANARY-OBS7-d41d8cd98f00b204e9800998ecf8427e";
+  const UUID_NA_EVIDENCIA = "7e57ab1e-0b5e-4c0d-9e11-5ca1ab1e0b57";
+  const SHA_NA_EVIDENCIA = "badc0ffee0ddf00dbadc0ffee0ddf00dbadc0ffee0ddf00dbadc0ffee0ddf00d";
+  const CAMINHO_NA_EVIDENCIA = `agrotork_interno/tabela-precos/2026-09/${SHA_NA_EVIDENCIA.slice(0, 16)}.pdf`;
+  const URL_NA_EVIDENCIA = "https://interno.agrotork.local/precos?token=abc123";
+  const CHAVE_NA_EVIDENCIA = "sk-ant-api03-EVIDENCIACANARY-00ff00ff00ff";
+  const LINHA_ADV = `Contato comercial MJ981CAP: ${URL_NA_EVIDENCIA} chave ${CHAVE_NA_EVIDENCIA} doc ${UUID_NA_EVIDENCIA} arquivo ${CAMINHO_NA_EVIDENCIA} sha ${SHA_NA_EVIDENCIA}`;
+  const MAG_ADV = linha({
+    content: `${P20}\n${LINHA_ADV}`,
+    codes: [...MAG.codes, UUID_NA_EVIDENCIA],              // "código" com cara de UUID
+    storage_path: CAMINHO_NA_EVIDENCIA, file_sha256: SHA_NA_EVIDENCIA,
+  });
+  const ARAG_ADV = linha({ ...ARAG, content: `${ARAG_CONTEUDO}\n${LINHA_ADV}` });
+  const CORPO_CANARIO = "corpocanario";
+  const erroComSegredo = (i = 0) =>
+    new ProviderError(`401 Authorization: Bearer ${CHAVE_CANARIO} body={"echo":"${LINHA_ADV}","n":${i}}`, "auth");
+  const provCanario = (roteiro) => Object.assign(provedor(roteiro), { apiKey: CHAVE_CANARIO });
+
+  const politicasAdv = { [DOC_MAG]: "allowed", [DOC_ARAG]: "allowed" };
+  const OBS_CAMINHOS = [
+    ["answered", { pergunta: Q_ADV, prov: provCanario(`A MJ981CAP entrega 0,77 L/min a 40 psi [1]. Observação ${CORPO_CANARIO}.`) }],
+    ["no_evidence", { pergunta: Q_ADV, linhas: [], prov: provCanario(OK_PONTUAL) }],
+    ["no_evidence", { pergunta: Q_ADV, linhas: [linha({ ...GRANDE, content: `${GRANDE_CONTEUDO}${LINHA_ADV}` })], prov: provCanario(OK_PONTUAL) }],
+    ["external_processing_forbidden", { pergunta: Q_ADV, linhas: [MAG_ADV, ARAG_ADV], politicas: { [DOC_MAG]: "allowed", [DOC_ARAG]: "forbidden" }, prov: provCanario(OK_PONTUAL) }],
+    ["comparison_too_many", { pergunta: Q_ADV_SEIS, prov: provCanario(OK_PONTUAL) }],
+    ["comparison_incomplete", { pergunta: Q_ADV_COMP, prov: provCanario(OK_PONTUAL) }],
+    ["no_provider", { pergunta: Q_ADV, prov: null }],
+    ["provider_error", { pergunta: Q_ADV, prov: provCanario(erroComSegredo()) }],
+    ["model_refusal", { pergunta: Q_ADV, prov: provCanario(A.FRASE_DE_RECUSA) }],
+    ["answer_rejected", { pergunta: Q_ADV, prov: provCanario(`A MJ981CAP entrega 9,99 L/min a 40 psi [1]. Chave ${CHAVE_CANARIO} ${CORPO_CANARIO}.`) }],
+    ["answer_rejected", { pergunta: Q_ADV, prov: provCanario(`Ver ${URL_NA_EVIDENCIA} e ${UUID_NA_EVIDENCIA} [1]`) }],
+  ];
+  const obs = [];
+  for (const [esperado, cfg] of OBS_CAMINHOS) {
+    obs.push(await rodar({ rotulo: `OBS ${esperado}`, linhas: [MAG_ADV], politicas: politicasAdv, ...cfg, esperado }));
+  }
+  const fora1 = obs.filter((t, i) => t.brutos.length !== 1 || t.log?.outcome !== OBS_CAMINHOS[i][0]);
+  const cobertos = new Set(obs.map((t) => t.log?.outcome));
+  confere("OBS1 cada caminho adversarial emite exatamente UM evento, com o outcome esperado, cobrindo os 9 outcomes alcançáveis (internal_error: inalcançável, SYN33)",
+    fora1.length === 0 && O.GENERATION_OUTCOMES.filter((o) => o !== "internal_error").every((o) => cobertos.has(o)),
+    fora1.map((t) => `${t.rotulo}→${t.log?.outcome} (${t.brutos.length} linhas)`).join(" | ") || `${obs.length} consultas, ${cobertos.size} outcomes`);
+
+  // OBS12 roda antes das conferências globais para que os 50 eventos também
+  // passem por elas.
+  const erros50 = [];
+  for (let i = 0; i < 50; i++) {
+    const msg = i % 2 === 0
+      ? `timeout depois de ${i * 37} ms em req_${i.toString(36)}xyz; Authorization: Bearer ${CHAVE_CANARIO}${i}`
+      : `upstream ${500 + i}: {"error":"${LINHAS_P20[(i % 20) + 2]}","trace":"${UUID_NA_EVIDENCIA.slice(0, 30)}${i.toString(16).padStart(6, "0")}"}`;
+    erros50.push(await rodar({ rotulo: `OBS12 #${i}`, pergunta: Q_ADV, linhas: [MAG_ADV], politicas: politicasAdv, prov: provCanario(new ProviderError(msg, "timeout")) }));
+  }
+
+  const semNumeros = (ev) => JSON.stringify(Object.fromEntries(Object.entries(ev).filter(([, v]) => typeof v !== "number")));
+  const formas = new Set(erros50.map((t) => semNumeros(t.log)));
+  confere("OBS12 cardinalidade: 50 erros do provedor com mensagens diferentes → o mesmo evento, a menos dos campos numéricos (1 forma)",
+    erros50.length === 50 && erros50.every((t) => t.brutos.length === 1) && formas.size === 1,
+    `${formas.size} forma(s): ${[...formas][0]}`);
+
+  const eventos = TODAS.map((t) => t.log);
+  const naoFechados = TODAS.filter((t) => !O.GENERATION_OUTCOMES.includes(t.log?.outcome));
+  confere("OBS2 todo outcome, em todas as consultas do harness, está na lista fechada de observability.ts",
+    naoFechados.length === 0 && eventos.length === TODAS.length,
+    naoFechados.map((t) => `${t.rotulo}:${t.log?.outcome}`).join(" ") || `${TODAS.length} eventos`);
+
+  const COM_RAZAO = new Set(["no_evidence", "provider_error", "answer_rejected", "internal_error"]);
+  const razaoErrada = TODAS.filter((t) =>
+    ("reason" in t.log) !== COM_RAZAO.has(t.log.outcome) ||
+    ("reason" in t.log && !O.GENERATION_REASONS.includes(t.log.reason)));
+  confere("OBS3 reason ∈ lista fechada sempre que presente, e presente exatamente em no_evidence, provider_error, answer_rejected e internal_error",
+    razaoErrada.length === 0, razaoErrada.map((t) => `${t.rotulo}:${desf(t)}`).join(" ") || `${TODAS.length} eventos`);
+
+  // A pergunta: sem chave `query`, e nenhum pedaço dela no evento. A única
+  // exceção declarada são os códigos de produto em `codes` (comparação), e
+  // mesmo ali a chave colada na pergunta não entra (`codesForLog`).
+  const janelas = (texto, n) => {
+    const out = new Set();
+    for (let i = 0; i + n <= texto.length; i++) out.add(texto.slice(i, i + n));
+    return [...out];
+  };
+  const vazaPergunta = obs.concat(erros50).filter((t) => {
+    const semCodes = JSON.stringify({ ...t.log, codes: undefined });
+    const codigosOk = (t.log.codes ?? []).every((c) => C.parseComparison(t.pergunta).codes.includes(c) && c.length <= 16);
+    return "query" in t.log || !codigosOk ||
+      janelas(t.pergunta, 10).some((w) => semCodes.includes(w)) ||
+      [CLIENTE, PRECO, "48.731", "Canário", CHAVE_NA_PERGUNTA, "PERGUNTACANARY"].some((x) => t.brutos[0].includes(x));
+  });
+  confere("OBS4 o evento não tem `query` nem pedaço da pergunta (cliente, preço, chave colada): só os códigos de produto em `codes`",
+    vazaPergunta.length === 0 && TODAS.every((t) => !("query" in t.log)),
+    vazaPergunta.map((t) => `${t.rotulo}: ${t.brutos[0]}`).join(" | ") || `${obs.length + erros50.length} eventos adversariais`);
+
+  const linhasEv = [...new Set(TODAS.flatMap((t) => t.r.evidence.flatMap((e) => e.content.split("\n"))))]
+    .filter((l) => l.trim().length >= 25);
+  const janelasEv = new Set(linhasEv.flatMap((l) => janelas(l, 25)));
+  const vazaEvidencia = TODAS.filter((t) => [...janelasEv].some((w) => t.brutos[0].includes(w)));
+  confere("OBS5 nenhuma janela de 25 caracteres de nenhuma linha de evidência aparece em evento nenhum",
+    vazaEvidencia.length === 0 && linhasEv.some((l) => l.includes(URL_NA_EVIDENCIA)),
+    vazaEvidencia.map((t) => t.rotulo).join(",") || `${janelasEv.size} janelas × ${TODAS.length} eventos`);
+
+  const vazaCorpo = TODAS.filter((t) => [CORPO_CANARIO, "9,99 L/min", "Observação", "upstream 5", "req_", '"trace"', "Authorization", "Bearer"].some((x) => t.brutos[0].includes(x)));
+  confere("OBS6 nada do corpo do provedor (texto devolvido, com canário) nem da mensagem do erro dele entra no evento",
+    vazaCorpo.length === 0 && obs[0].log.outcome === "answered" && obs[0].r.answer.includes(CORPO_CANARIO),
+    vazaCorpo.map((t) => t.rotulo).join(",") || "canários ausentes");
+
+  const SEGREDO_CHAVE = /sk-ant-|CANARY|Bearer/;
+  const vazaChave = TODAS.filter((t) => SEGREDO_CHAVE.test(t.brutos[0]));
+  confere("OBS7 nenhuma chave (do provedor, do erro 'Authorization: Bearer …', da evidência ou colada na pergunta) em evento nenhum",
+    vazaChave.length === 0, vazaChave.map((t) => t.rotulo).join(",") || `${TODAS.length} eventos`);
+
+  const SHA256_RE = /\b[0-9a-f]{64}\b/i;
+  const CAMINHO_RE = /\b[\w-]+\/[\w.-]+\/[\w.-]+\/[0-9a-f]{8,}\.\w{2,5}\b/i;
+  const vazaId = TODAS.filter((t) =>
+    UUID.test(t.brutos[0]) || SHA256_RE.test(t.brutos[0]) || CAMINHO_RE.test(t.brutos[0]) || /https?:\/\//.test(t.brutos[0]) ||
+    [...SEGREDOS, UUID_NA_EVIDENCIA, SHA_NA_EVIDENCIA, CAMINHO_NA_EVIDENCIA, URL_NA_EVIDENCIA].some((x) => t.brutos[0].includes(x)));
+  confere("OBS8 nenhum UUID, sha256, caminho de Storage ou URL em evento nenhum (a evidência e os códigos dela carregam os quatro)",
+    vazaId.length === 0, vazaId.map((t) => t.rotulo).join(",") || `${TODAS.length} eventos`);
+
+  // `durationMs` é medido pelo provedor e só existe quando `generate`
+  // RESOLVEU: erro (inclusive timeout) não tem duração de resposta.
+  const DEVOLVEU = new Set(["answered", "answer_rejected", "model_refusal"]);
+  const duracaoErrada = TODAS.filter((t) => (t.log.durationMs !== null) !== DEVOLVEU.has(t.log.outcome));
+  confere("OBS9 durationMs não-nulo se e só se o provedor devolveu (answered, answer_rejected, model_refusal); nulo em provider_error",
+    duracaoErrada.length === 0, duracaoErrada.map((t) => `${t.rotulo}:${t.log.outcome}/${t.log.durationMs}`).join(" ") || `${TODAS.length} eventos`);
+
+  const PARTICIPOU = new Set([...DEVOLVEU, "provider_error"]);
+  const provedorErrado = TODAS.filter((t) =>
+    (t.log.provider !== null) !== PARTICIPOU.has(t.log.outcome) ||
+    (t.log.model !== null) !== PARTICIPOU.has(t.log.outcome) ||
+    PARTICIPOU.has(t.log.outcome) !== (t.chamadas === 1));
+  confere("OBS10 provider/model não-nulos se e só se o provedor participou (foi chamado): os três acima + provider_error",
+    provedorErrado.length === 0, provedorErrado.map((t) => `${t.rotulo}:${t.log.outcome}`).join(" ") || `${TODAS.length} eventos`);
+
+  const selosErrados = TODAS.filter((t) => t.log.comparison !== C.isComparisonQuestion(t.pergunta) ||
+    (t.r.status === "answered" && (t.r.comparison === true) !== t.log.comparison));
+  confere("OBS11 comparison do evento = isComparisonQuestion(pergunta) em todo outcome (e igual ao selo da resposta quando há resposta)",
+    selosErrados.length === 0 && TODAS.some((t) => t.log.comparison) && TODAS.some((t) => !t.log.comparison),
+    selosErrados.map((t) => t.rotulo).join(",") || `${TODAS.length} eventos`);
 }
