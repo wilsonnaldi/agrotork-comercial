@@ -1,15 +1,30 @@
-# AGROTORK BRAIN — Registro de lacunas (25/09/2026)
+# AGROTORK BRAIN — Registro de lacunas (25/09/2026, atualizado em 26/09/2026)
 
 > Revalidado no repositório nesta rodada, não copiado dos docs anteriores.
 > Onde não deu para confirmar, está escrito "não confirmado no repo" em vez
 > de afirmado. Ver `docs/brain/fase-2-answer-v1.md` (estado atual),
 > `docs/brain/fase-2-consolidado.md` (16/09, retrato mais amplo da Fase 2) e
-> `CLAUDE.md` para o histórico completo de cada item.
+> `CLAUDE.md` para o histórico completo de cada item. Estado de produção item
+> a item: `production-readiness-checklist.md`; passo a passo:
+> `production-readiness.md`.
 
-## FECHADO NESTA RODADA (26/09/2026 — hardenings residuais do Answer v1)
+## FECHADO NESTA RODADA (26/09/2026 — production readiness)
 
-Os dois itens que a revisão de 25/09 deixou em HARDENING. Commit: esta
-rodada (`fix(brain): fecha hardenings residuais do Answer v1`). Testes que
+Branch `hardening/brain-production-readiness`, sobre `98a80b0` (PR #7).
+
+| item | estado | o que mudou | evidência |
+| --- | --- | --- | --- |
+| **Action pinning por SHA** | fechado | `checkout` v5.1.0, `setup-node` v4.4.0 e `setup-python` v5.6.0 fixadas por SHA de commit, versão em comentário; checkout com `persist-credentials: false` | commit `ecac757`; `ci.md` §9 |
+| **`paths` × check obrigatório (status fantasma)** | fechado — decidido | `brain-app.yml` perdeu os `paths` (roda em todo PR, ~1 min); em `brain.yml` o filtro saiu do gatilho para o job `scope` (git diff contra o merge-base, na dúvida `db=true`), e `brain-db-gate` (`if: always()`) é o check obrigatório do banco. Não foi preciso job-espelho | commit `ecac757`; `ci.md` §2–4 (CI1–CI7); `check:brain-ci` trava as regras |
+| **Worker Python fora do CI de PR** | fechado | antes, `brain.yml` só disparava em PR que tocasse `supabase/**` ou o próprio workflow: PR só em `brain/worker/**` não rodava pytest nem o ensaio de ingestão. O `scope` inclui `brain/` na regra de `db=true` (CI4) | commit `ecac757`; `ci.md` §4 |
+| **Outcome estruturado da síntese** | fechado | `GenerationEvent` tipado (`observability.ts`), taxonomia fechada de `outcome`/`reason` com trava de compilação; sai `query` (fica `queryLength`), nenhum texto livre; códigos só em comparação, filtrados pelo catálogo das evidências aceitas | commits `fc489a4`, `d86332f`, `56de30e`; `check-brain-synthesis.mjs` LOG1–LOG8b, OBS1–OBS13; `fase-2-answer-v1.md` §5.1 |
+| **Credencial do provedor — contrato** | parcial → **contrato pronto**; env de produção **NEEDS_WILSON** | `readProviderConfig` (puro) com motivos fechados; `resolveProvider` → `{ provider, reason }`; `no_provider` loga o motivo; `npm run brain:preflight` (exit 0/1/2, sem valores) | commit `56de30e`; CFG1–CFG15, PF1–PF6, SYN34a–f; `env-contract.md`. A linha em BLOCKER segue aberta para a parte de produção |
+| **Diretórios temporários de teste fora do `.gitignore`** | fechado | os cinco padrões que faltavam entraram no `.gitignore`; cada suíte apaga o temporário em `process.on("exit")` logo após o `mkdtempSync` | commit `e0d5d3c`; `ci.md` §7 |
+
+## FECHADO NESTA BRANCH (26/09/2026 — hardenings residuais do Answer v1)
+
+Os dois itens que a revisão de 25/09 deixou em HARDENING. Commit `e608e9d`
+(`fix(brain): fecha hardenings residuais do Answer v1`). Testes que
 pinam cada um: `check-brain-synthesis.mjs` (SYN19b, SYN32a–d, SYN33) e
 `check-brain-answer.mjs` (CIT1–CIT4).
 
@@ -39,7 +54,8 @@ Impedem algo específico de acontecer agora.
 
 | item | estado | risco | evidência | próximo passo | produção? | Wilson? | fornecedor? |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| **Credencial do provedor LLM em produção** (`BRAIN_LLM_PROVIDER`/`_API_KEY`/`_MODEL`) | parcial — **existe localmente** (`.env.local` do Wilson desde 20/09; smokes reais H 10/10, A/B/C/D/F no `localhost` em 25/09); **em produção/Netlify: não confirmado no repo** (por decisão, o Preview não recebe a chave) | baixo — sem ela o sistema já é fail-closed (resposta extractiva, nunca inventa); o custo é não entregar resposta redigida em produção | `fase-2-answer-v1.md` §5 e "Estado atual"; `resolveProvider()` devolve `{ provider: null, reason }` sem as três variáveis; contrato, `npm run brain:preflight` e rollback em `env-contract.md` (26/09; timeout das funções da Netlify a confirmar, §6 de lá); `docs/brain/ci.md` §4 (Preview sem chave) | Wilson decide provedor aprovado e orçamento e põe a chave como env **server-only** na Netlify (nunca `NEXT_PUBLIC_`); CI e Preview continuam sem ela | sim (env de produção) | **sim** | sim — Anthropic (ou outro formalmente aprovado) |
+| **Credencial do provedor LLM em produção** (`BRAIN_LLM_PROVIDER`/`_API_KEY`/`_MODEL`) | parcial — **contrato pronto** em 26/09 (`readProviderConfig`, `brain:preflight`, commit `56de30e`); **existe localmente** (`.env.local` do Wilson desde 20/09; smokes reais H 10/10, A/B/C/D/F no `localhost` em 25/09); **env de produção/Netlify: NEEDS_WILSON** — não confirmado no repo (por decisão, o Preview não recebe a chave) | baixo — sem ela o sistema já é fail-closed (resposta extractiva, nunca inventa); o custo é não entregar resposta redigida em produção | `fase-2-answer-v1.md` §5 e "Estado atual"; `resolveProvider()` devolve `{ provider: null, reason }` sem as três variáveis; contrato, `npm run brain:preflight` e rollback em `env-contract.md` (26/09; timeout das funções da Netlify a confirmar, §6 de lá); `docs/brain/ci.md` §6 (Preview sem chave) | Wilson decide provedor aprovado e orçamento e põe a chave como env **server-only** na Netlify (nunca `NEXT_PUBLIC_`); CI e Preview continuam sem ela — passo a passo em `production-readiness.md` §2 | sim (env de produção) | **sim** | sim — Anthropic (ou outro formalmente aprovado) |
+| **Timeout da função Netlify não verificado** (novo, 26/09) | NEEDS_WILSON | médio no dia de ligar o provedor — o adapter corta em 30 s (`TIMEOUT_PROVIDER_MS`); se a função da Netlify morrer antes de busca + 30 s, o usuário vê erro genérico em vez do fallback extractivo | `limits.ts`; `netlify.toml` não declara timeout; `env-contract.md` §6 | Wilson confere no painel o timeout das funções de produção (≥ ~40 s) antes de cadastrar a chave | sim | **sim** | não (depende do plano Netlify) |
 | **Bucket `brain-documents`** não criado | aberto | baixo hoje (busca e citação funcionam sem ele — texto, tabelas em JSONB e proveniência não dependem do Storage); cresce se a reingestão do Magnojet ficar amarrada a ele | migration `20260912030000` aplica as 4 policies mas não cria o bucket (`raise notice` condicional); `consolidado.md` §4; roteiro `supabase/operacao/07-criar-bucket-brain-documents.sql` pronto e não rodado | Wilson decide Free × Pro (Free limita upload a 50 MB; Magnojet V41 tem 177 MB) → ajustar `v_limite` no roteiro 07 → criar bucket → reingerir | sim | **sim** (decisão de plano/custo) | sim — Supabase (plano pago) |
 | **DJI Subdealer** travado por governança | aberto (tecnicamente pronto: golden 9/9 + 16/16 + final 10/10) | baixo tecnicamente; alto se ingerido sem confirmação — rótulo de versão não vem do documento, só do nome do arquivo | `fase-2-dji-governanca.md` — nenhum dos 3 PDFs declara a própria versão no texto | obter da ALLCOMP: rótulos corretos (V14.11/V15.1/V16.2), data de vigência de cada uma, e se a V16.2 é a vigente hoje | sim, quando liberado | **sim** (obter a resposta) | sim — ALLCOMP |
 | **JR Soluções** bloqueado pelo PDF | aberto | baixo (fora de produção, não afeta nada hoje) | `fase-2-jr-solucoes.md` §12 — 9 linhas perdidas porque a única ocorrência do cabeçalho real está fundida com linhas de produto sobrepostas; herança de cabeçalho foi implementada, medida e descartada (não dispara neste arquivo) | pedir PDF sem sobreposição, ou gerar de novo a partir da planilha de origem — é a única correção que recupera as linhas, o motor não pode adivinhar o conteúdo | não ainda | **sim** (obter o arquivo) | não — é arquivo interno via Wilson |
@@ -57,6 +73,10 @@ Limites conhecidos e registrados da própria lógica de validação — não blo
 | **Custo aceito: valor correto sob cabeçalho em prosa também reprova (ADV11)** | fechado, custo registrado | baixo — fail-closed: "Para MJ981CAP a 40 psi [1]:" não é cabeçalho (prosa não cria bloco), então mesmo um valor correto ali embaixo, sem código nem cabeçalho de bloco, reprova pela regra `UNIDADES_DE_VALOR` | commit `9201f9a` — "ADV11-FIX-CUSTO (a prosa com os valores CERTOS também reprova)" | nenhum planejado; alargar a gramática do cabeçalho é a alternativa, registrada e não escolhida | não | não | não |
 | **Citação sem link para a página do documento** | aberto, depende do bucket | baixo/médio (usabilidade — hoje `[n]` mostra fonte/documento/versão/página como texto) | `grep -n "href\|storage" src/app/(app)/brain/brain-console.tsx` — zero ocorrências, confirmado nesta rodada | depois do bucket `brain-documents` existir, adicionar o link | sim, eventualmente | indireto (depende do item acima) | indireto (Supabase, plano) |
 | **Golden dataset v1 não cobre os casos adversariais/postura de 25/09** | não confirmado no repo se precisa atualização | baixo — o golden mede recuperação e cobertura de corpus (14 perguntas), não é a suíte que testa injeção/postura; essa cobertura já está em `check-brain-answer`/`check-brain-comparison`/`check-brain-synthesis` | `golden-dataset-v1.json` — 14 perguntas, sem menção a INJ/ADV/stance | nenhum — os dois conjuntos de teste têm propósitos diferentes; revisar só se o golden passar a servir de suíte de regressão adversarial também | não | não | não |
+| **`internal_error` inalcançável ponta a ponta** (novo, 26/09) | declarado, aceito | baixo — o outcome existe (`citation_mapping`), mas na cadeia real as aceitas sempre saem de `evidencias`, então o ramo não dispara sem gancho de teste em produção, que não foi criado | `check-brain-synthesis.mjs` SYN33b e LOG8 (`INALCANCAVEIS`); garantia pelo helper puro, `check-brain-answer.mjs` CIT1–CIT4 | nenhum; em produção a contagem deve ser 0 — qualquer ocorrência é defeito (`production-readiness.md` §5) | não | não | não |
+| **`none_fit_context` inalcançável com os limites de hoje** (novo, 26/09) | declarado, aceito | baixo — toda evidência aceita tem ≤ `MAX_CHARS_POR_EVIDENCIA` (20.000) e o orçamento é `MAX_CHARS_CONTEXTO` (62.000); a primeira (20.000 + 200) sempre cabe, então o motivo não sai | `limits.ts`; `answer.ts` (`assessEvidence`); `check-brain-synthesis.mjs` SYN23 e comentário do LOG8b | nenhum; se os limites mudarem, o motivo volta a ser alcançável e precisa de teste | não | não | não |
+| **Limites do `codesForLog`** (novo, 26/09) | aceito, segunda trava | baixo — é filtro de FORMA (até 16 caracteres, letra/dígito/hífen): sozinho deixaria passar CNPJ de 14 dígitos ou segredo curto (OBS13). Por isso a primeira trava é `comparisonCodesForLog` (só o que está no catálogo `codes` das evidências aceitas). Resíduo: um token com forma de código que a ingestão tenha posto no catálogo de uma evidência iria ao log; código real com mais de 16 caracteres ou com ponto/barra fica só na contagem | `observability.ts`; `check-brain-synthesis.mjs` OBS4, OBS13 | nenhum; revisar se entrar corpus com código de produto fora dessa forma | não | não | não |
+| **`brain/worker/requirements.txt` sem hashes** (novo, 26/09) | aberto | baixo — as dependências do worker são instaladas no `deploy-reversao` por faixa de versão (`>=`), sem `--require-hashes`; uma versão nova publicada dentro da faixa entra sem revisão | `brain/worker/requirements.txt`; `brain.yml` (`pip install --quiet -r …`) | lock com hashes numa rodada de hardening de supply chain | não | não | não |
 
 ## DATA/CORPUS
 
@@ -71,9 +91,8 @@ Limites conhecidos e registrados da própria lógica de validação — não blo
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | **pgvector / Lote C** | não instalado, sem migration preparada | baixo — **aceito como não-blocker**: o RRF de três braços (FTS + trigram + código) responde 5/5 perguntas respondíveis do golden; nenhuma falha hoje é de recall | `consolidado.md` §5 — `pg_extension` conferido sem `vector`; schema sem coluna vetorial nem rótulo "embed*" (suíte `ensaiar-memoria` M6 trava isso) | medir quando aparecer pergunta em linguagem natural que FTS+trigram erre com corpo já ingerido — não se supõe, se mede | sim, quando decidido | sim (confidencialidade + custo) | sim, eventualmente — provedor de embedding |
 | **Worker `--pages`** | **fechado** — implementado (contradiz `consolidado.md` de 16/09, que é anterior à implementação) | — | `CLAUDE.md` "Estado atual"; `brain/worker/brain_worker/__main__.py` — `add_argument("--pages", …)` em `ingest` e `plan`, confirmado no código nesta rodada | nenhum — está em produção desde 17/09 | — | — | — |
-| **Action pinning por SHA** no lugar de tag de major | aberto, melhoria futura | baixo | `.github/workflows/brain-app.yml` usa `actions/checkout@v5` e `actions/setup-node@v4`; `brain.yml` usa `@v5`/`@v5` — confirmado nesta rodada, nenhum workflow fixa por SHA | fixar quando houver rodada de hardening de CI/supply chain | não | não | não |
-| **Branch protection com required status checks** | não confirmado no repo (é configuração do GitHub, não visível nos arquivos) | baixo hoje — nenhum check obrigatório configurado ainda, então o risco descrito abaixo ainda não se materializou | `ci.md` §8 — dívida conhecida | ao ligar a proteção: decidir entre tirar os `paths` do `brain-app.yml` (roda sempre, ~1 min) ou um job-espelho que reporta sucesso quando nada relevante mudou — um PR só de `docs/` nunca dispara `app-gates` e travaria em "Waiting for status" se ele virar obrigatório com os `paths` como estão | não | sim (acesso de admin ao repo GitHub) | não |
-| **Diretórios temporários de teste fora do `.gitignore`** | aberto, de propósito ("ficou assim nesta rodada") | baixo — cada suíte cria com `mkdtempSync` e remove com `rmSync` ao final; `.provider-check-*` já está no `.gitignore`, os outros cinco (`.brain-check-*`, `.answer-check-*`, `.ui-check-*`, `.comparison-check-*`, `.synthesis-check-*`) não | `.gitignore` lido nesta rodada — confirma exatamente a lista que `ci.md` §8 já descreve, sem divergência | adicionar ao `.gitignore` numa rodada de limpeza, sem urgência (uma suíte que aborte no meio pode deixar o diretório para trás) | não | não | não |
+| **Branch protection com required status checks** | NEEDS_WILSON — a decisão técnica fechou em 26/09 (ver FECHADO NESTA RODADA); falta ligar | baixo — sem ela, nada impede merge com CI vermelho; se já existe alguma regra, não é visível pelo repositório | `ci.md` §3; `production-readiness.md` §1.3 | depois do merge desta branch e de uma rodada dos workflows em `main`: exigir PR e os checks `app-gates` e `brain-db-gate` — **não** `deploy-reversao` (pulado por `if:` reporta sucesso) nem `scope` | não | sim (acesso de admin ao repo GitHub) | não |
+| **Deprecação do node20 em `setup-node@v4` e `setup-python@v5`** (novo, 26/09) | DEFERRED — bump de major | baixo hoje — funcionam; o GitHub está aposentando o node20 nos runners | `ci.md` §10 | quando o aviso virar erro, subir para o major seguinte, trocando SHA e comentário juntos (`ci.md` §9) | não | não | não |
 
 ## NÃO-BLOCKER / ACCEPTED LIMITATION
 
@@ -94,14 +113,17 @@ fechamento técnico que as acompanha:
    server-only na Netlify (CI e Preview continuam sem ela). Localmente a
    cadeia já roda com provedor real e passa nos smokes; o que falta é a
    decisão, não código.
-2. **Branch protection** com `app-gates` (e o `deploy-reversao` do
-   `brain.yml`) como checks obrigatórios — antes, decidir o que fazer com os
-   `paths` do `brain-app.yml` (rodar sempre, ou job-espelho), senão PR só
-   de `docs/` trava em "Waiting for status".
+2. **Branch protection** com `app-gates` e `brain-db-gate` como checks
+   obrigatórios (não `deploy-reversao`: job pulado reporta sucesso). Os
+   `paths` já saíram do gatilho em 26/09 (`ci.md` §3); falta ligar, depois
+   do merge.
 3. **Observabilidade mínima dos outcomes** `[brain.synthesis]` em produção
-   (contagem por outcome, sem conteúdo) — a taxonomia é fechada e testada
-   (LOG8); é o que dirá, com dado real, se stance, órfão e incompleta estão
-   custando respostas e se a cadeia se comporta como no harness.
+   (contagem por outcome, sem conteúdo) — o evento está tipado e sem a
+   pergunta desde 26/09 (LOG1–LOG8b, OBS1–OBS13); falta contar com dado real
+   (`production-readiness.md` §5.4) e decidir destino/retenção.
+
+*(26/09: os três itens estão no runbook `production-readiness.md` e na
+matriz `production-readiness-checklist.md`.)*
 
 É a rodada mais lógica porque destrava o maior valor já construído e
 auditado: a cadeia inteira está provada com 658 asserções determinísticas

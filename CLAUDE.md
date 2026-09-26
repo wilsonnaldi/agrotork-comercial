@@ -338,6 +338,18 @@ O trabalho citado como "Fase 9/10/11" e "suíte 26" **não existe em nenhuma
 branch** — ver `ROADMAP.md`, "Trabalho não verificado". Não planejar em cima
 dele.
 
+**26/09/2026 — Answer v1 pronto para produção, nada ligado.** O fechamento do
+Answer v1 está no PR #7 (`hardening/brain-answer-v1-closure`, `98a80b0`),
+aberto, fora de `main`. Por cima dele, `hardening/brain-production-readiness`:
+outcomes da síntese tipados (`observability.ts`) e sem a pergunta crua no log;
+contrato do provedor (`llm/config.ts`, `readProviderConfig`) e `npm run
+brain:preflight` (manual, fora do CI); CI sem status fantasma, com checks
+obrigatórios `app-gates` e `brain-db-gate` (não `deploy-reversao`); actions
+fixadas por SHA. Provedor em produção, branch protection e merges são do
+Wilson — runbook em `docs/brain/production-readiness.md`, estado item a item
+em `production-readiness-checklist.md`. **No Windows, parar o `npm run dev`
+antes de `npm ci`** (EPERM/EIO no `lightningcss`, `docs/brain/ci.md` §7).
+
 ## Armadilhas já pagas
 
 - `upper('JR SOLUÇÕES') <> upper('JR SOLUCOES')`, mas `slugify()` dos dois

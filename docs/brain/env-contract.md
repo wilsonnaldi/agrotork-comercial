@@ -116,5 +116,6 @@ vez dos trechos.
 3. Conferir o timeout das funções (§6).
 4. Deploy; uma consulta de smoke; no log, o outcome deve sair de
    `no_provider` para `answered` (ou `answer_rejected`/`provider_error` com
-   motivo).
+   motivo). Roteiro completo (P1–P6, evento esperado de cada uma):
+   [`production-readiness.md`](production-readiness.md) §3.
 5. Rollback: §5.
