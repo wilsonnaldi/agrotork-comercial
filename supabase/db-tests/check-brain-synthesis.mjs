@@ -37,6 +37,7 @@ const ARQUIVOS = {
   "comparison.ts": "src/modules/brain/comparison.ts",
   "provider.ts": "src/modules/brain/llm/provider.ts",
   "observability.ts": "src/modules/brain/observability.ts",
+  "config.ts": "src/modules/brain/llm/config.ts",
   "synthesis.ts": "src/modules/brain/synthesis.ts",
 };
 
@@ -85,8 +86,9 @@ try {
   const EX = await imp("exhaustiveness.ts");
   const { ProviderError } = await imp("provider.ts");
   const O = await imp("observability.ts");
+  const CFG = await imp("config.ts");
 
-  await suite({ S, A, C, P, L, E, EX, O, ProviderError });
+  await suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError });
 } catch (erro) {
   falhas += 1;
   process.stdout.write(`  ✗ erro inesperado: ${erro?.stack ?? erro}\n`);
@@ -96,7 +98,7 @@ try {
 process.stdout.write(falhas === 0 ? "✔ máquina de estados da síntese\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);
 
-async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
+async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
   const ok = (t) => process.stdout.write(`  ✓ ${t}\n`);
   const nao = (t) => { falhas += 1; process.stdout.write(`  ✗ ${t}\n`); };
   const confere = (t, c, d = "") => (c ? ok(`${t}${d ? ` — ${d}` : ""}`) : nao(`${t}${d ? ` — ${d}` : ""}`));
@@ -197,7 +199,11 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
    * Uma consulta pela máquina de estados, com busca, política e provedor
    * falsos. `politicas`: { documentId: policy } — ausente = sem linha.
    */
-  async function rodar({ pergunta, linhas = [MAG], politicas = { [DOC_MAG]: "allowed" }, prov = null, isAdmin = false, rotulo }) {
+  /**
+   * `prov` null = sem provedor; `motivo` é o `ProviderConfigReason` que o
+   * `resolveProvider` falso devolve nesse caso (padrão: variável ausente).
+   */
+  async function rodar({ pergunta, linhas = [MAG], politicas = { [DOC_MAG]: "allowed" }, prov = null, motivo = "provider_missing", isAdmin = false, rotulo }) {
     const conta = { search: 0, externo: [], resolve: 0 };
     const deps = {
       search: async () => { conta.search += 1; return linhas; },
@@ -205,7 +211,10 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
         conta.externo.push(ids);
         return new Map(Object.entries(politicas).filter(([id]) => ids.includes(id)));
       },
-      resolveProvider: () => { conta.resolve += 1; return prov; },
+      resolveProvider: () => {
+        conta.resolve += 1;
+        return prov ? { provider: prov, reason: null } : { provider: null, reason: motivo };
+      },
     };
     const capturado = [];
     const original = console.info;
@@ -374,12 +383,12 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
   const s15 = await rodar({ rotulo: "SYN15", pergunta: Q_SEIS, prov: provedor(OK_PONTUAL) });
   confere("SYN15 seis códigos com provedor disponível → provider 0, extractive, comparison true",
     s15.chamadas === 0 && s15.r.mode === "extractive" && s15.r.comparison === true &&
-    s15.log?.outcome === "comparison_too_many" && s15.log.codes?.length === 6 && s15.r.warning === AVISO_SEIS,
+    s15.log?.outcome === "comparison_too_many" && s15.log.codesCount === 6 && !("codes" in s15.log) && s15.r.warning === AVISO_SEIS,
     s15.log?.outcome);
   const s15b = await rodar({ rotulo: "SYN15b", pergunta: Q_SEIS, prov: null });
   confere("SYN15b seis códigos SEM provedor → o teto vence a falta de provedor (comparison true, aviso do teto)",
     s15b.r.mode === "extractive" && s15b.r.comparison === true && s15b.r.warning === AVISO_SEIS &&
-    s15b.log?.outcome === "comparison_too_many" && s15b.log.codes?.length === 6 && s15b.conta.resolve === 0,
+    s15b.log?.outcome === "comparison_too_many" && s15b.log.codesCount === 6 && !("codes" in s15b.log) && s15b.conta.resolve === 0,
     `outcome=${s15b.log?.outcome} resolve=${s15b.conta.resolve}`);
 
   const Q_999 = "Compare a vazão da MJ981CAP e MJ999CAP a 40 psi.";
@@ -388,14 +397,21 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
     plano999.status === "ready" && plano999.incomplete === true && plano999.derived.length === 0 &&
     plano999.blocks.find((b) => b.code === "MJ999CAP")?.missing === true);
   const AVISO_999 = "Não dá para concluir a comparação: não encontrei documentação para MJ999CAP nesta consulta. Os trechos encontrados para os demais códigos estão abaixo, na íntegra.";
-  /** O fim determinístico da comparação incompleta, igual com ou sem provedor. */
+  /**
+   * O fim determinístico da comparação incompleta, igual com ou sem provedor.
+   * `faltam` são códigos SEM documentação: vão ao aviso por nome, e ao log só
+   * como contagem (`codes` vazio) — desde 26/09 o log só nomeia o que o
+   * catálogo das aceitas conhece.
+   */
   const encerrada = (t, aviso = AVISO_999, faltam = "MJ999CAP") =>
     t.chamadas === 0 && t.conta.resolve === 0 &&
     t.r.status === "answered" && t.r.mode === "extractive" && t.r.comparison === true &&
     t.r.warning === aviso && t.r.answer === extractivaDe(MAG) &&
     t.r.citations?.length === 1 && t.r.citations[0].label === "Magnojet — Catálogo Magnojet V41 · p. 20" &&
     t.r.evidence.length === 1 && t.r.evidence[0].content.includes(LINHAS_P20[9]) &&
-    t.log?.outcome === "comparison_incomplete" && t.log.codes?.join(",") === faltam;
+    t.log?.outcome === "comparison_incomplete" && Array.isArray(t.log.codes) && t.log.codes.length === 0 &&
+    t.log.codesMissingUndocumented === faltam.split(",").length && t.log.codesMissingDocumented === 0 &&
+    faltam.split(",").every((c) => t.r.warning.includes(c));
   const SEM_CITACAO = "Não encontrei documentação suficiente para MJ999CAP.";
   const s16a = await rodar({ rotulo: "SYN16a", pergunta: Q_999, prov: provedor(SEM_CITACAO) });
   confere("SYN16a incompleta com provedor configurado → provider NÃO é chamado (0×)",
@@ -517,7 +533,8 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
 
   confere("SYN31e o aviso nunca nomeia um token ausente da própria pergunta (MJ999CAP não aparece em a, '45 psi' não aparece em b), e o outcome de a) lista os dois códigos, na ordem da pergunta",
     !s31a.r.warning.includes("MJ999CAP") && !s31b.r.warning.includes("45 psi") &&
-    s31a.log?.outcome === "comparison_incomplete" && s31a.log.codes?.join(",") === "MJ981CAP,MJ985CAP");
+    s31a.log?.outcome === "comparison_incomplete" && s31a.log.codes?.join(",") === "MJ981CAP,MJ985CAP" &&
+    s31a.log.codesMissingDocumented === 2 && s31a.log.codesMissingUndocumented === 0);
 
   const planoDocB = C.planComparison(Q_999_40, [E.toEvidence(MAG, false)]);
   const planoDocA = C.planComparison(Q_45, [E.toEvidence(MAG, false)]);
@@ -773,6 +790,41 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
     TODAS.every((t) => t.log?.outcome !== "internal_error"), `${TODAS.length} consultas`);
 
   // ════════════════════════════════════════════════════════════
+  process.stdout.write("▶ Motivo da falta de provedor (SYN34, Pacote C)\n");
+  //
+  // Cada ambiente passa pelo parser de verdade (`llm/config.ts`), e o motivo
+  // que ele devolve é o que o `resolveProvider` falso entrega à cadeia — o
+  // mesmo desenho do `resolveProvider` real. O motivo chega ao LOG; a tela
+  // recebe sempre o mesmo aviso genérico, sem nome de variável.
+
+  const CHAVE_SYN34 = "sk-ant-FAKE-SYN34-0000";
+  const AMBIENTES_34 = [
+    ["SYN34a", "provider_missing", { BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_SYN34 }],
+    // O rollback documentado: `none` com chave e modelo ainda cadastrados.
+    ["SYN34b", "provider_disabled", { BRAIN_LLM_PROVIDER: "none", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_SYN34 }],
+    ["SYN34c", "provider_unsupported", { BRAIN_LLM_PROVIDER: CHAVE_SYN34, BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_SYN34 }],
+    ["SYN34d", "model_missing", { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "   ", BRAIN_LLM_API_KEY: CHAVE_SYN34 }],
+    ["SYN34e", "key_missing", { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: " " }],
+  ];
+  for (const [id, esperado, env] of AMBIENTES_34) {
+    const cfg = CFG.readProviderConfig(env);
+    // Um provedor pronto para ser chamado — e que não pode ser, porque o
+    // ambiente não fecha a configuração.
+    const espiao34 = provedor(OK_PONTUAL);
+    const t = await rodar({ rotulo: id, pergunta: Q, prov: cfg.configured ? espiao34 : null, motivo: cfg.configured ? null : cfg.reason });
+    const tudo = `${t.brutos.join("\n")}\n${t.r.warning}\n${t.r.answer}`;
+    confere(`${id} ${esperado} → log no_provider com reason ${esperado}, provedor 0×, aviso genérico e nada do ambiente no log nem na tela`,
+      cfg.configured === false && cfg.reason === esperado &&
+      desf(t) === `no_provider:${esperado}` && espiao34.chamadas.length === 0 && t.chamadas === 0 &&
+      t.log.provider === null && t.log.model === null && t.log.evidencesSent === 0 &&
+      t.r.mode === "extractive" && t.r.warning === AVISO_SEM_PROVEDOR && t.r.answer === extractivaDe(MAG) &&
+      !tudo.includes(CHAVE_SYN34) && !tudo.includes("sk-ant") && !/BRAIN_LLM|claude-x/.test(tudo),
+      desf(t));
+  }
+  confere("SYN34f a tela não distingue os motivos: os cinco avisos são idênticos (quem pergunta não sabe qual variável falta)",
+    new Set(TODAS.filter((t) => /^SYN34[a-e]$/.test(t.rotulo)).map((t) => t.r.warning)).size === 1);
+
+  // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Log [brain.synthesis]\n");
 
   const semLinhaUnica = TODAS.filter((t) =>
@@ -864,6 +916,7 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
   // categorias de erro que os falsos lançam, e as seis travas do validador.
   const RAZOES_MINIMAS = [
     "none_retrieved", "none_passed_gate",
+    "provider_missing", "provider_disabled", "provider_unsupported", "model_missing", "key_missing",
     "auth", "network", "timeout", "unknown",
     "grounding", "format", "completeness", "association", "comparison", "stance",
   ];
@@ -872,7 +925,7 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
     razoes.join(" · "));
 
   // ════════════════════════════════════════════════════════════
-  process.stdout.write("▶ Privacidade do log (OBS1–OBS12)\n");
+  process.stdout.write("▶ Privacidade do log (OBS1–OBS13)\n");
   //
   // O evento `[brain.synthesis]` sai do RLS: vai para o log de função da
   // Netlify. Estes testes provam, com fixtures ADVERSARIAIS, que nele só
@@ -932,6 +985,38 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
     fora1.length === 0 && O.GENERATION_OUTCOMES.filter((o) => o !== "internal_error").every((o) => cobertos.has(o)),
     fora1.map((t) => `${t.rotulo}→${t.log?.outcome} (${t.brutos.length} linhas)`).join(" | ") || `${obs.length} consultas, ${cobertos.size} outcomes`);
 
+  // OBS13 (Pacote C): códigos digitados na comparação. O filtro de forma
+  // deixava passar um CNPJ de 14 dígitos e um segredo curto; agora só vai
+  // POR NOME o faltante que está no catálogo (`codes`) de uma aceita, e o
+  // resto vira contagem. Entram em `obs` para as conferências globais
+  // (OBS4–OBS8) valerem também para eles.
+  const CNPJ = "12345678000190";
+  const SEGREDO_CURTO = "sk-ant-x9Q2";
+  const Q_ADV_CNPJ = `Compare a vazão da MJ981CAP, ${CNPJ} e ${SEGREDO_CURTO} a 40 psi`;
+  const MAG_CNPJ = linha({ content: `${P20}\nCliente CNPJ ${CNPJ} referência ZX9Q7`, codes: [...MAG.codes] });
+  const Q_ADV_CNPJ2 = `Compare a vazão da MJ981CAP, ZX9Q7, ${CNPJ} e ${SEGREDO_CURTO} a 40 psi`;
+  const o13a = await rodar({ rotulo: "OBS13a", pergunta: Q_ADV_CNPJ, prov: provCanario(OK_PONTUAL) });
+  const o13b = await rodar({ rotulo: "OBS13b", pergunta: Q_ADV_CNPJ2, linhas: [MAG_CNPJ], prov: provCanario(OK_PONTUAL) });
+  obs.push(o13a, o13b);
+  const contagemEsperada = (pergunta, rows) => {
+    const faltantes = C.planComparison(pergunta, rows.map((x) => E.toEvidence(x, false))).blocks.filter((b) => b.missing);
+    return { doc: faltantes.filter((b) => b.documented).length, semDoc: faltantes.filter((b) => !b.documented).length };
+  };
+  const c13a = contagemEsperada(Q_ADV_CNPJ, [MAG]);
+  const c13b = contagemEsperada(Q_ADV_CNPJ2, [MAG_CNPJ]);
+  const semSegredo = (t) => ![CNPJ, SEGREDO_CURTO, "sk-ant", "ZX9Q7", "12345678"].some((x) => t.brutos[0].includes(x));
+  confere("OBS13 comparação com CNPJ de 14 dígitos e 'sk-ant-…' curto → nenhum dos dois no evento; codes vazio, contagens batem com o plano",
+    o13a.log?.outcome === "comparison_incomplete" && o13b.log?.outcome === "comparison_incomplete" &&
+    semSegredo(o13a) && semSegredo(o13b) &&
+    o13a.log.codes.length === 0 && o13a.log.codesMissingDocumented === c13a.doc && o13a.log.codesMissingUndocumented === c13a.semDoc &&
+    c13a.semDoc >= 1 &&
+    o13b.log.codes.length === 0 && o13b.log.codesMissingDocumented === c13b.doc && o13b.log.codesMissingUndocumented === c13b.semDoc &&
+    c13b.doc >= 1,
+    `a: ${o13a.brutos[0]} | b: doc=${c13b.doc} semDoc=${c13b.semDoc}`);
+  confere("OBS13b o aviso da tela segue nomeando o que faltou (é a pergunta da própria pessoa); só o log perde o nome",
+    o13a.r.warning.includes(SEGREDO_CURTO) && o13b.r.warning.includes("ZX9Q7"),
+    o13a.r.warning);
+
   // OBS12 roda antes das conferências globais para que os 50 eventos também
   // passem por elas.
   const erros50 = [];
@@ -954,11 +1039,13 @@ async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
     naoFechados.length === 0 && eventos.length === TODAS.length,
     naoFechados.map((t) => `${t.rotulo}:${t.log?.outcome}`).join(" ") || `${TODAS.length} eventos`);
 
-  const COM_RAZAO = new Set(["no_evidence", "provider_error", "answer_rejected", "internal_error"]);
+  // `no_provider` ganhou motivo em 26/09 (Pacote C): qual parte da
+  // configuração falta, da lista fechada de `llm/config.ts`.
+  const COM_RAZAO = new Set(["no_evidence", "no_provider", "provider_error", "answer_rejected", "internal_error"]);
   const razaoErrada = TODAS.filter((t) =>
     ("reason" in t.log) !== COM_RAZAO.has(t.log.outcome) ||
     ("reason" in t.log && !O.GENERATION_REASONS.includes(t.log.reason)));
-  confere("OBS3 reason ∈ lista fechada sempre que presente, e presente exatamente em no_evidence, provider_error, answer_rejected e internal_error",
+  confere("OBS3 reason ∈ lista fechada sempre que presente, e presente exatamente em no_evidence, no_provider, provider_error, answer_rejected e internal_error",
     razaoErrada.length === 0, razaoErrada.map((t) => `${t.rotulo}:${desf(t)}`).join(" ") || `${TODAS.length} eventos`);
 
   // A pergunta: sem chave `query`, e nenhum pedaço dela no evento. A única

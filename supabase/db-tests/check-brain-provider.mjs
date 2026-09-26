@@ -13,13 +13,20 @@
  *   2. deixar a chave ou o conteúdo dos documentos escapar — no corpo do
  *      request, numa mensagem de erro, num log.
  *
+ * Desde o Pacote C (26/09) confere também o CONTRATO de configuração
+ * (`llm/config.ts`, CFG*), o `resolveProvider` com ambiente inventado e o
+ * preflight manual (`brain:preflight`, PF*), rodado como processo filho num
+ * diretório temporário — nenhum `.env.local` de verdade é lido.
+ *
  * Nada aqui vai à rede: `globalThis.fetch` é substituído por um espião que
  * guarda o que seria enviado e devolve uma resposta de mentira. A "chave" é
  * uma string inventada neste arquivo. Nenhuma credencial de verdade é lida,
  * pedida ou escrita.
  */
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
 import { inspect } from "node:util";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -30,6 +37,8 @@ const RAIZ = join(AQUI, "..", "..");
 const ARQUIVOS = {
   "provider.ts": "src/modules/brain/llm/provider.ts",
   "anthropic.ts": "src/modules/brain/llm/anthropic.ts",
+  "config.ts": "src/modules/brain/llm/config.ts",
+  "index.ts": "src/modules/brain/llm/index.ts",
 };
 
 const destino = mkdtempSync(join(RAIZ, ".provider-check-"));
@@ -43,7 +52,9 @@ for (const [nome, caminho] of Object.entries(ARQUIVOS)) {
     // no build de verdade, que roda na regressão.
     .replace(/^import "server-only";\n\n?/m, "")
     .replace(/from "\.\.\/evidence"/g, 'from "./evidence.ts"')
-    .replace(/from "\.\/provider"/g, 'from "./provider.ts"');
+    .replace(/from "\.\/provider"/g, 'from "./provider.ts"')
+    .replace(/from "\.\/anthropic"/g, 'from "./anthropic.ts"')
+    .replace(/from "\.\/config"/g, 'from "./config.ts"');
   writeFileSync(join(destino, nome), fonte);
 }
 // `provider.ts` importa o tipo das evidências só para tipar; um stub basta.
@@ -52,6 +63,8 @@ writeFileSync(join(destino, "evidence.ts"), "export type KnowledgeEvidence = unk
 const imp = (n) => import(pathToFileURL(join(destino, n)).href);
 const { AnthropicProvider } = await imp("anthropic.ts");
 const { ProviderError } = await imp("provider.ts");
+const CFG = await imp("config.ts");
+const { resolveProvider } = await imp("index.ts");
 
 let falhas = 0;
 const ok = (t) => process.stdout.write(`  ✓ ${t}\n`);
@@ -267,11 +280,139 @@ confere("E14 util.inspect(provider) (o que console.log imprime) não contém a c
   inspect(soltoNoLog).replace(/\s+/g, " "));
 
 // ───────────────────────────────────────────────────────────────────────────
+process.stdout.write("\nCONFIGURAÇÃO — o parser puro (llm/config.ts), sem process.env\n");
+
+// Valores inventados, com cara de chave só para o teste procurar por eles.
+const CHAVE_CFG = "sk-ant-FAKE-CFG9";
+const cfg = (env) => CFG.readProviderConfig(env);
+const motivo = (env) => {
+  const r = cfg(env);
+  return r.configured ? "configured" : r.reason;
+};
+const COMPLETO = { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_CFG };
+
+confere("CFG1 provedor ausente → provider_missing",
+  motivo({ BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_CFG }) === "provider_missing" &&
+  motivo({}) === "provider_missing");
+confere("CFG2 provedor \"\" ou \"   \" → provider_missing",
+  motivo({ ...COMPLETO, BRAIN_LLM_PROVIDER: "" }) === "provider_missing" &&
+  motivo({ ...COMPLETO, BRAIN_LLM_PROVIDER: "   " }) === "provider_missing");
+const r3 = cfg({ ...COMPLETO, BRAIN_LLM_PROVIDER: "openai" });
+confere("CFG3 \"openai\" → provider_unsupported, e o valor recusado não volta no resultado",
+  r3.configured === false && r3.reason === "provider_unsupported" && !JSON.stringify(r3).includes("openai"),
+  JSON.stringify(r3));
+const r3b = cfg({ ...COMPLETO, BRAIN_LLM_PROVIDER: CHAVE_CFG });
+confere("CFG3b a chave colada na variável do provedor → provider_unsupported, sem ecoar a chave",
+  r3b.configured === false && r3b.reason === "provider_unsupported" && !JSON.stringify(r3b).includes("sk-ant"));
+confere("CFG3c none / OFF / Disabled → provider_disabled (o rollback), mesmo com chave e modelo cadastrados",
+  ["none", "OFF", " Disabled "].every((v) => motivo({ ...COMPLETO, BRAIN_LLM_PROVIDER: v }) === "provider_disabled"));
+confere("CFG4 modelo ausente → model_missing",
+  motivo({ BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_API_KEY: CHAVE_CFG }) === "model_missing");
+confere("CFG5 modelo \"   \" → model_missing",
+  motivo({ ...COMPLETO, BRAIN_LLM_MODEL: "   " }) === "model_missing");
+confere("CFG5b ordem provedor → modelo → chave: sem modelo e sem chave, o motivo é o modelo",
+  motivo({ BRAIN_LLM_PROVIDER: "anthropic" }) === "model_missing" &&
+  motivo({ BRAIN_LLM_PROVIDER: "openai" }) === "provider_unsupported");
+confere("CFG6 chave ausente → key_missing",
+  motivo({ BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x" }) === "key_missing");
+confere("CFG7 chave \"\" → key_missing", motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "" }) === "key_missing");
+confere("CFG8 chave \"   \" → key_missing", motivo({ ...COMPLETO, BRAIN_LLM_API_KEY: "   " }) === "key_missing");
+const r9 = cfg({ BRAIN_LLM_PROVIDER: " Anthropic ", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: "sk-ant-FAKE-CFG9" });
+confere("CFG9 configuração completa (com espaços e maiúscula) → configured, anthropic, claude-x, e o resultado não tem a chave",
+  r9.configured === true && r9.provider === "anthropic" && r9.model === "claude-x" &&
+  Object.keys(r9).sort().join() === "configured,model,provider" && !JSON.stringify(r9).includes("sk-ant"),
+  JSON.stringify(r9));
+
+// CFG10: todo caso de falha, e toda mensagem, sem nada com cara de chave.
+const CHAVE_10 = "sk-ant-FAKE-CFG10";
+const falhos = [
+  {}, { BRAIN_LLM_PROVIDER: CHAVE_10, BRAIN_LLM_MODEL: CHAVE_10, BRAIN_LLM_API_KEY: CHAVE_10 },
+  { BRAIN_LLM_PROVIDER: "none", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_10 },
+  { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_API_KEY: CHAVE_10 },
+  { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: "  " },
+].map(cfg);
+const mensagens = CFG.PROVIDER_CONFIG_REASONS.map((r) => CFG.providerConfigMessage(r));
+confere("CFG10 nenhum resultado de falha nem mensagem traz valor com cara de chave (sk-ant-FAKE)",
+  falhos.every((r) => r.configured === false && !JSON.stringify(r).includes("sk-ant-FAKE")) &&
+  new Set(falhos.map((r) => r.reason)).size === 5 &&
+  mensagens.length === 5 && mensagens.every((m) => typeof m === "string" && m.length > 0 && !m.includes("sk-ant")),
+  falhos.map((r) => r.reason).join(" · "));
+const FONTE_CFG = readFileSync(join(RAIZ, "src/modules/brain/llm/config.ts"), "utf8");
+confere("CFG11 config.ts é puro: sem server-only e sem process.env (quem chama passa o ambiente)",
+  !FONTE_CFG.includes('import "server-only"') && !/process\.env/.test(FONTE_CFG.replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "")));
+
+// ── resolveProvider de ponta a ponta, com ambiente inventado ─────────────
+const CHAVE_RES = "sk-ant-FAKE-RESOLVE-0000";
+const res = resolveProvider({ BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: ` ${CHAVE_RES} ` });
+confere("CFG12 resolveProvider(env completo) → AnthropicProvider, reason null, modelo do ambiente",
+  res.reason === null && res.provider instanceof AnthropicProvider && res.provider.model === "claude-x");
+confere("CFG13 nem o provedor resolvido nem o resultado deixam a chave à mostra (JSON, inspect)",
+  !JSON.stringify(res).includes(CHAVE_RES) &&
+  !inspect(res, { showHidden: true, depth: 5 }).includes(CHAVE_RES) &&
+  !Object.values(res.provider).some((v) => String(v).includes(CHAVE_RES)));
+const espiaoRes = espiar(respostaBoa());
+await res.provider.generate(ENTRADA);
+confere("CFG14 a chave (aparada) chega só ao cabeçalho x-api-key",
+  espiaoRes.chamadas[0].init.headers["x-api-key"] === CHAVE_RES && !espiaoRes.chamadas[0].init.body.includes(CHAVE_RES));
+const semKey = resolveProvider({ BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "claude-x" });
+const desligado = resolveProvider({ BRAIN_LLM_PROVIDER: "off", BRAIN_LLM_MODEL: "claude-x", BRAIN_LLM_API_KEY: CHAVE_RES });
+confere("CFG15 resolveProvider(env incompleto ou desligado) → { provider: null, reason }, sem a chave",
+  semKey.provider === null && semKey.reason === "key_missing" &&
+  desligado.provider === null && desligado.reason === "provider_disabled" && !JSON.stringify(desligado).includes(CHAVE_RES));
+
+// ───────────────────────────────────────────────────────────────────────────
+process.stdout.write("\nPREFLIGHT — o script manual (brain:preflight), como processo filho\n");
+
+// cwd num diretório temporário FORA do repositório: nenhum `.env.local` de
+// verdade é lido. O ambiente do filho é só o que o teste passa.
+const vazio = mkdtempSync(join(tmpdir(), "brain-preflight-"));
+const SCRIPT = join(RAIZ, "supabase/db-tests/preflight-brain-provider.mjs");
+const preflight = (env, args = []) => {
+  const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", SCRIPT, ...args],
+    { cwd: vazio, env, encoding: "utf8" });
+  return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "" };
+};
+try {
+  const CHAVE_PF = "sk-ant-FAKE-PREFLIGHT";
+  const ENV_PF = { BRAIN_LLM_PROVIDER: "anthropic", BRAIN_LLM_MODEL: "modelo-pf-canario", BRAIN_LLM_API_KEY: CHAVE_PF };
+  const pf1 = preflight(ENV_PF);
+  confere("PF1 configuração completa → exit 0, PRONTO, a chave aparece só como 'presente' (nem valor, nem tamanho)",
+    pf1.code === 0 && /BRAIN_LLM_API_KEY\s+presente/.test(pf1.out) && pf1.out.includes("PRONTO PARA PRODUÇÃO (configuração)") &&
+    !pf1.out.includes(CHAVE_PF) && !pf1.out.includes("sk-ant") && !pf1.out.includes(String(CHAVE_PF.length)) &&
+    !pf1.out.includes("modelo-pf-canario") && !(pf1.out + pf1.err).includes(CHAVE_PF),
+    `exit ${pf1.code}`);
+  const pf2 = preflight({ ...ENV_PF, NEXT_PUBLIC_BRAIN_LLM_API_KEY: CHAVE_PF });
+  confere("PF2 NEXT_PUBLIC_BRAIN_LLM_API_KEY definida → exit 2, nomeia a variável, sem o valor",
+    pf2.code === 2 && pf2.out.includes("NEXT_PUBLIC_BRAIN_LLM_API_KEY") && !(pf2.out + pf2.err).includes(CHAVE_PF),
+    `exit ${pf2.code}`);
+  const pf3 = preflight({});
+  confere("PF3 nenhuma variável → exit 1, NÃO CONFIGURADO: provider_missing",
+    pf3.code === 1 && pf3.out.includes("NÃO CONFIGURADO: provider_missing") && /BRAIN_LLM_API_KEY\s+ausente/.test(pf3.out),
+    `exit ${pf3.code}`);
+  const pf4 = preflight({ BRAIN_LLM_PROVIDER: "openai-canario", BRAIN_LLM_MODEL: "m", BRAIN_LLM_API_KEY: CHAVE_PF });
+  confere("PF4 provedor não suportado → exit 1, provider_unsupported, sem ecoar o valor",
+    pf4.code === 1 && pf4.out.includes("provider_unsupported") && !pf4.out.includes("openai-canario") && !pf4.out.includes(CHAVE_PF),
+    `exit ${pf4.code}`);
+  const pf5a = preflight({ ...ENV_PF, NEXT_PUBLIC_BRAIN_LLM_API_KEY: CHAVE_PF }, ["--contract"]);
+  const pf5b = preflight({}, ["--contract"]);
+  confere("PF5 --contract → exit 0 com qualquer ambiente, e nenhum VALOR do ambiente na saída",
+    pf5a.code === 0 && pf5b.code === 0 && pf5a.out === pf5b.out &&
+    pf5a.out.includes("BRAIN_LLM_API_KEY") && pf5a.out.includes("<secret>") &&
+    !pf5a.out.includes(CHAVE_PF) && !pf5a.out.includes("modelo-pf-canario") && !pf5a.out.includes("sk-ant"),
+    `exit ${pf5a.code}/${pf5b.code}`);
+  const FONTE_PF = readFileSync(SCRIPT, "utf8");
+  confere("PF6 o script não importa rede, banco nem provedor (só fs, path, url e o parser)",
+    !/node:(http|https|net|tls|dgram|child_process)|fetch\(|@supabase|anthropic\.ts|llm\/index/.test(FONTE_PF));
+} finally {
+  rmSync(vazio, { recursive: true, force: true });
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 globalThis.fetch = fetchOriginal;
 rmSync(destino, { recursive: true, force: true });
 
 process.stdout.write(
   falhas === 0
-    ? "\nADAPTER ANTHROPIC — tudo certo (sem rede, sem chave real).\n\n"
+    ? "\nADAPTER ANTHROPIC, CONFIGURAÇÃO E PREFLIGHT — tudo certo (sem rede, sem chave real).\n\n"
     : `\nADAPTER ANTHROPIC — ${falhas} falha(s).\n\n`);
 process.exit(falhas === 0 ? 0 : 1);

@@ -23,6 +23,7 @@
     "check:brain-comparison": "node --experimental-strip-types supabase/db-tests/check-brain-comparison.mjs",
     "check:brain-synthesis": "node --experimental-strip-types supabase/db-tests/check-brain-synthesis.mjs",
     "check:brain-ci": "node supabase/db-tests/conferir-ci-app.mjs",
+    "brain:preflight": "node --experimental-strip-types --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON supabase/db-tests/preflight-brain-provider.mjs",
     "check:brain-all": "npm run check:brain-ci && npm run check:brain && npm run check:brain-answer && npm run check:brain-provider && npm run check:brain-ui && npm run check:brain-comparison && npm run check:brain-synthesis"
   },
   "dependencies": {

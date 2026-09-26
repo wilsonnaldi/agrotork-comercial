@@ -12,9 +12,15 @@ import { isComparisonQuestion, MAX_CODIGOS_COMPARADOS, planComparison } from "./
 import { assessExternalProcessing, parsePolicy, type EvidenceRef } from "./external-processing";
 import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } from "./evidence";
 import { TIMEOUT_PROVIDER_MS } from "./limits";
-import { resolveProvider } from "./llm";
-import { ProviderError, type BrainLlmProvider } from "./llm/provider";
-import { codesForLog, type GenerationEvent, type GenerationOutcome, type GenerationReason } from "./observability";
+import { resolveProvider, type ProviderResolution } from "./llm";
+import { ProviderError } from "./llm/provider";
+import {
+  comparisonCodesForLog,
+  type GenerationEvent,
+  type GenerationOutcome,
+  type GenerationReason,
+  type IncompleteCodesLog,
+} from "./observability";
 import { buildUserMessage, renderCalculation, SYSTEM_PROMPT } from "./prompt";
 import * as repository from "./repository";
 import type { KnowledgeQuery } from "./schema";
@@ -53,7 +59,10 @@ function registrar(evento: GenerationEvent) {
 type Desfecho = {
   outcome: GenerationOutcome;
   reason?: GenerationReason;
-  codes?: string[];
+  /** Só em `comparison_too_many`. */
+  codesCount?: number;
+  /** Só em `comparison_incomplete` — já filtrado por `comparisonCodesForLog`. */
+  incompleteCodes?: IncompleteCodesLog;
   evidencesSent?: number;
   provider?: string | null;
   model?: string | null;
@@ -114,13 +123,20 @@ function avisoComparacaoIncompleta(
 export type SynthesisDeps = {
   search: (input: KnowledgeQuery) => Promise<KnowledgeHitRow[]>;
   externalProcessing: (documentIds: string[]) => Promise<Map<string, string>>;
-  resolveProvider: () => BrainLlmProvider | null;
+  /**
+   * O provedor, ou o motivo de não haver um (`config.ts`). O motivo vai ao
+   * log; a tela recebe só o aviso genérico.
+   */
+  resolveProvider: () => ProviderResolution;
 };
 
 const DEPS: SynthesisDeps = {
   search: repository.search,
   externalProcessing: repository.externalProcessing,
-  resolveProvider,
+  // Sem argumento, de propósito: o ambiente é o `process.env` do servidor,
+  // relido a cada consulta — o rollback (`BRAIN_LLM_PROVIDER=none`) vale no
+  // deploy seguinte sem mudar código.
+  resolveProvider: () => resolveProvider(),
 };
 
 export function answer(
@@ -165,7 +181,8 @@ export async function answerWith(
       model: d.model ?? null,
       durationMs: d.durationMs ?? null,
       totalMs: Date.now() - inicio,
-      ...(d.codes ? { codes: codesForLog(d.codes) } : {}),
+      ...(d.codesCount !== undefined ? { codesCount: d.codesCount } : {}),
+      ...(d.incompleteCodes ?? {}),
     });
 
   const base = (extra: Partial<BrainNaturalAnswer>): BrainNaturalAnswer => ({
@@ -244,8 +261,9 @@ export async function answerWith(
   // algo que o sistema já sabe que não pode concluir.
   const plano = planComparison(input.query, aceitas);
   if (plano.status === "too_many") {
-    // Os códigos vêm da pergunta e já estão no aviso da tela.
-    desfecho({ outcome: "comparison_too_many", codes: plano.codes });
+    // Os códigos vêm da pergunta e já estão no aviso da tela — mas o log fica
+    // fora do RLS e não é lido por quem perguntou: lá vai só quantos eram.
+    desfecho({ outcome: "comparison_too_many", codesCount: plano.codes.length });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
@@ -263,7 +281,12 @@ export async function answerWith(
     const pontoPedido = plano.spec.pinned.length > 0
       ? plano.spec.pinned.map((p) => `${p.numero} ${p.unidade}`).join(" e ")
       : null;
-    desfecho({ outcome: "comparison_incomplete", codes: faltantes.map((b) => b.code) });
+    // No aviso, todos os faltantes (a pergunta é da própria pessoa); no log,
+    // só os que o catálogo das aceitas conhece, e a contagem do resto.
+    desfecho({
+      outcome: "comparison_incomplete",
+      incompleteCodes: comparisonCodesForLog(faltantes, aceitas.flatMap((e) => e.codes)),
+    });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
@@ -273,9 +296,12 @@ export async function answerWith(
   }
 
   // ── provedor ──────────────────────────────────────────────
-  const provider = deps.resolveProvider();
-  if (!provider) {
-    desfecho({ outcome: "no_provider" });
+  const resolucao = deps.resolveProvider();
+  if (resolucao.provider === null) {
+    // O motivo (qual parte da configuração falta) vai ao log, para quem opera
+    // o deploy; o aviso segue genérico — quem pergunta não precisa saber qual
+    // variável está errada, e não deve.
+    desfecho({ outcome: "no_provider", reason: resolucao.reason });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
@@ -283,6 +309,7 @@ export async function answerWith(
       warning: "A síntese automática não está configurada neste ambiente. Os trechos encontrados estão abaixo.",
     });
   }
+  const provider = resolucao.provider;
 
   // Cada linha leva a referência que o modelo deve escrever ao lado do
   // número: o derivado só é aceito no parágrafo que cita as evidências de

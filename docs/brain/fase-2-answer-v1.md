@@ -284,9 +284,13 @@ nenhum — trocar de fornecedor é escrever outro adapter.
 
 **CREDENTIAL GATE.** `BRAIN_LLM_PROVIDER` / `BRAIN_LLM_API_KEY` /
 `BRAIN_LLM_MODEL`, todas de servidor (sem `NEXT_PUBLIC_`, que mandaria a
-chave para o navegador). Sem elas, `resolveProvider()` devolve `null`, o
-console responde de forma extractiva e diz por quê. **Desligado, e desligado
-ele não mente.** Nenhuma credencial foi inventada e nenhuma é pedida no chat.
+chave para o navegador). Sem elas, `resolveProvider()` devolve
+`{ provider: null, reason }`, o console responde de forma extractiva e diz
+por quê. **Desligado, e desligado ele não mente.** Nenhuma credencial foi
+inventada e nenhuma é pedida no chat.
+
+Contrato das variáveis, preflight (`npm run brain:preflight`) e rollback:
+[`env-contract.md`](env-contract.md) (26/09, Pacote C).
 
 ### 5.1 Log `[brain.synthesis]` (tipado em 26/09/2026)
 
@@ -304,7 +308,10 @@ tipo `GenerationEvent` de `src/modules/brain/observability.ts` (puro):
   `comparison_incomplete`, `no_provider`, `provider_error`, `model_refusal`,
   `answer_rejected`, `internal_error`.
 - `reason` só em `no_evidence` (`none_retrieved`/`none_passed_gate`/
-  `none_fit_context`), `provider_error` (a categoria do `ProviderError`),
+  `none_fit_context`), `no_provider` (desde 26/09: `provider_missing`,
+  `provider_disabled`, `provider_unsupported`, `model_missing`,
+  `key_missing` — qual parte da configuração falta, nunca o valor; a tela
+  segue com o aviso genérico), `provider_error` (a categoria do `ProviderError`),
   `answer_rejected` (a trava: `grounding`, `format`, `completeness`,
   `association`, `comparison`, `stance`) e `internal_error`
   (`citation_mapping`).
@@ -312,24 +319,32 @@ tipo `GenerationEvent` de `src/modules/brain/observability.ts` (puro):
   `public.brain_search`, sob RLS, leitura só de admin); o log da Netlify
   fica fora do RLS e serve para agregação, não para depurar pergunta. Sem
   hash também — pergunta curta se adivinha. Fica `queryLength`.
-- `codes` só em `comparison_too_many`/`comparison_incomplete`, e só códigos
-  da PERGUNTA (os mesmos que o aviso já mostra). Nenhum texto livre: o
-  detalhe da rejeição fica no aviso da tela, a mensagem do erro do provedor
-  não sobe, e conteúdo de evidência, prompt, chave, UUID, caminho e hash
-  nunca entram.
+- Códigos (26/09, Pacote C): em `comparison_too_many` só `codesCount`; em
+  `comparison_incomplete`, `codes` leva só os faltantes que o CATÁLOGO das
+  evidências aceitas conhece (os `codes` extraídos pela ingestão, onde preço,
+  telefone e CNPJ não entram), mais `codesMissingDocumented` e
+  `codesMissingUndocumented`. Nenhum texto livre: o detalhe da rejeição fica
+  no aviso da tela, a mensagem do erro do provedor não sobe, e conteúdo de
+  evidência, prompt, chave, UUID, caminho e hash nunca entram.
 - `durationMs` só quando o provedor devolveu; `provider`/`model` só quando
   ele foi chamado.
 
-- `codes` passa por `codesForLog`: só a forma de código de produto (até 16
-  caracteres, letra/dígito/hífen). Achado de OBS4: o parser da pergunta lê
-  uma chave colada ("sk-ant-api03-…") como código, e numa comparação ela ia
-  parar no log. O aviso da tela continua podendo repeti-la; o log, não.
+- `codes` passa por `comparisonCodesForLog` e, como segunda trava, por
+  `codesForLog` (forma de código de produto: até 16 caracteres,
+  letra/dígito/hífen). Achado de OBS4: o parser da pergunta lê uma chave
+  colada ("sk-ant-api03-…") como código. O filtro de forma sozinho ainda
+  deixava passar um CNPJ de 14 dígitos ou um segredo curto (OBS13); por isso
+  o que só existe na pergunta — ou só no TEXTO de uma evidência, que num
+  orçamento traz o CNPJ do cliente — vira contagem. O aviso da tela continua
+  nomeando todos os faltantes (é a pergunta da própria pessoa); o log, não.
 
 Testes: `check-brain-synthesis.mjs` LOG1–LOG8b (forma e taxonomia) e
-OBS1–OBS12 (privacidade, com fixtures adversariais: chave na pergunta, na
+OBS1–OBS13 (privacidade, com fixtures adversariais: chave na pergunta, na
 evidência, no erro `Authorization: Bearer …` e no corpo do provedor; URL,
 UUID, caminho de Storage e sha256 na evidência; 50 erros diferentes do
-provedor dando um só evento).
+provedor dando um só evento; CNPJ e segredo curto numa comparação) e
+SYN34a–f (cada motivo de configuração chega ao log como `reason`, com o
+mesmo aviso genérico na tela).
 
 ## 6. Answer Validator
 

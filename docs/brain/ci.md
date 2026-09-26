@@ -143,6 +143,11 @@ nenhum `|| true`.
 Nem as suítes nem o build precisam de variável de ambiente: `npm run build`
 passa com env vazio (`CI=true`, `NEXT_TELEMETRY_DISABLED=1`).
 
+`npm run brain:preflight` (conferência da configuração do provedor) é
+**manual e local, não é step de CI** — o nome não começa com `check:brain`
+de propósito, para a guarda não exigi-lo no workflow. Ver
+[`env-contract.md`](env-contract.md).
+
 ## 7. Rodar local
 
 ```

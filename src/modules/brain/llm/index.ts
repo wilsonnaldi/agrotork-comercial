@@ -1,41 +1,51 @@
 import "server-only";
 
 import { AnthropicProvider } from "./anthropic";
+import { PROVIDER_ENV, readProviderConfig, type ProviderConfigReason } from "./config";
 import type { BrainLlmProvider } from "./provider";
 
 export type { BrainLlmProvider, GenerateInput, GenerateOutput } from "./provider";
 export { ProviderError } from "./provider";
+export type { ProviderConfigReason } from "./config";
+
+/**
+ * O provedor pronto, ou o MOTIVO de não haver provedor. O motivo é da lista
+ * fechada de `config.ts` e vai para o log (`reason` do outcome `no_provider`)
+ * — nunca para a tela, que continua com o aviso genérico.
+ */
+export type ProviderResolution =
+  | { provider: BrainLlmProvider; reason: null }
+  | { provider: null; reason: ProviderConfigReason };
 
 /**
  * De onde sai o provedor. Três variáveis, todas do SERVIDOR (sem
- * `NEXT_PUBLIC_`, que é o que faria a chave vazar para o navegador):
+ * `NEXT_PUBLIC_`, que é o que faria a chave vazar para o navegador) — o
+ * contrato inteiro está em `docs/brain/env-contract.md`:
  *
- *   BRAIN_LLM_PROVIDER   anthropic | none     (padrão: none)
+ *   BRAIN_LLM_PROVIDER   anthropic | none/off/disabled   (ausente = desligado)
  *   BRAIN_LLM_API_KEY    a chave
  *   BRAIN_LLM_MODEL      o identificador do modelo
  *
- * Sem chave, `resolveProvider()` devolve `null` e a síntese não acontece —
- * o console cai na resposta extractiva, com as evidências inteiras. Isso é o
+ * A regra é a de `readProviderConfig`, a mesma que o preflight usa. Sem
+ * configuração completa, não há provedor e a síntese não acontece — o console
+ * cai na resposta extractiva, com as evidências inteiras. Isso é o
  * CREDENTIAL GATE: o caminho está pronto e desligado, e desligado ele não
- * mente. Nenhuma credencial é inventada aqui, e nenhuma é escrita em log.
+ * mente.
+ *
+ * `env` é parâmetro só para o teste passar um ambiente inventado; em produção
+ * é `process.env`. A chave é lida UMA vez, depois de a configuração ser
+ * aprovada, e vai direto ao construtor (campo `#` nativo) — não fica em
+ * variável de módulo, não entra no resultado, não vai a log.
  */
-export function resolveProvider(): BrainLlmProvider | null {
-  const escolhido = (process.env.BRAIN_LLM_PROVIDER ?? "none").trim().toLowerCase();
-  if (escolhido === "none" || escolhido === "") return null;
+export function resolveProvider(
+  env: Record<string, string | undefined> = process.env,
+): ProviderResolution {
+  const config = readProviderConfig(env);
+  if (!config.configured) return { provider: null, reason: config.reason };
 
-  if (escolhido === "anthropic") {
-    const chave = process.env.BRAIN_LLM_API_KEY?.trim();
-    const modelo = process.env.BRAIN_LLM_MODEL?.trim();
-    if (!chave || !modelo) return null;   // configuração pela metade é o mesmo que nada
-    return new AnthropicProvider(chave, modelo);
-  }
-
-  // Provedor desconhecido não vira tentativa às cegas.
-  return null;
-}
-
-/** Para a tela e para o relatório saberem por que não houve síntese. */
-export function providerStatus(): { configured: boolean; provider: string } {
-  const escolhido = (process.env.BRAIN_LLM_PROVIDER ?? "none").trim().toLowerCase();
-  return { configured: resolveProvider() !== null, provider: escolhido };
+  // `readProviderConfig` já garantiu que a chave existe e não é espaço.
+  return {
+    provider: new AnthropicProvider((env[PROVIDER_ENV.apiKey] ?? "").trim(), config.model),
+    reason: null,
+  };
 }
