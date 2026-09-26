@@ -36,6 +36,7 @@ const ARQUIVOS = {
   "exhaustiveness.ts": "src/modules/brain/exhaustiveness.ts",
   "comparison.ts": "src/modules/brain/comparison.ts",
   "provider.ts": "src/modules/brain/llm/provider.ts",
+  "observability.ts": "src/modules/brain/observability.ts",
   "synthesis.ts": "src/modules/brain/synthesis.ts",
 };
 
@@ -59,6 +60,7 @@ try {
       .replace(/from "\.\/answer"/g, 'from "./answer.ts"')
       .replace(/from "\.\/prompt"/g, 'from "./prompt.ts"')
       .replace(/from "\.\/external-processing"/g, 'from "./external-processing.ts"')
+      .replace(/from "\.\/observability"/g, 'from "./observability.ts"')
       // As portas reais (Supabase e SDK) viram stubs que EXPLODEM: se
       // `answerWith` usar qualquer coisa fora de `deps`, o teste cai aqui.
       .replace(/from "\.\/llm"/g, 'from "./llm-stub.ts"')
@@ -82,8 +84,9 @@ try {
   const E = await imp("evidence.ts");
   const EX = await imp("exhaustiveness.ts");
   const { ProviderError } = await imp("provider.ts");
+  const O = await imp("observability.ts");
 
-  await suite({ S, A, C, P, L, E, EX, ProviderError });
+  await suite({ S, A, C, P, L, E, EX, O, ProviderError });
 } catch (erro) {
   falhas += 1;
   process.stdout.write(`  ✗ erro inesperado: ${erro?.stack ?? erro}\n`);
@@ -93,7 +96,7 @@ try {
 process.stdout.write(falhas === 0 ? "✔ máquina de estados da síntese\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);
 
-async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
+async function suite({ S, A, C, P, L, E, EX, O, ProviderError }) {
   const ok = (t) => process.stdout.write(`  ✓ ${t}\n`);
   const nao = (t) => { falhas += 1; process.stdout.write(`  ✗ ${t}\n`); };
   const confere = (t, c, d = "") => (c ? ok(`${t}${d ? ` — ${d}` : ""}`) : nao(`${t}${d ? ` — ${d}` : ""}`));
@@ -225,6 +228,9 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
     return rodada;
   }
 
+  /** O desfecho do evento em uma string curta: `outcome` ou `outcome:reason`. */
+  const desf = (t) => (t.log ? (t.log.reason ? `${t.log.outcome}:${t.log.reason}` : t.log.outcome) : null);
+
   const Q = "Qual a vazão da MJ981CAP a 40 psi?";
   const OK_PONTUAL = "A MJ981CAP entrega 0,77 L/min a 40 psi. [1]";
   const AVISO_GENERICO = "A resposta gerada não passou na conferência e foi descartada. Os trechos encontrados estão abaixo.";
@@ -303,24 +309,24 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s7 = await rodar({ rotulo: "SYN7", pergunta: Q, prov: provedor(new ProviderError(corpoDeErro("auth"), "auth")) });
   confere("SYN7  ProviderError auth → extractive, aviso genérico, provider chamado 1×",
     s7.r.mode === "extractive" && s7.chamadas === 1 && s7.r.warning === AVISO_PROVEDOR &&
-    s7.log?.outcome === "provider_error: auth", s7.log?.outcome);
+    desf(s7) === "provider_error:auth", desf(s7));
   const vazouErro = (x) => [CHAVE_FALSA, "invalid x-api-key", LINHAS_P20[9]].some((s) => x.includes(s));
   confere("SYN7b nem o aviso, nem a resposta, nem o log carregam o corpo do erro ou a chave",
     !vazouErro(s7.r.warning) && !vazouErro(s7.r.answer) && !vazouErro(s7.brutos.join("\n")) &&
     !vazouErro(JSON.stringify({ ...s7.r, evidence: undefined })));
 
   const s8 = await rodar({ rotulo: "SYN8", pergunta: Q, prov: provedor(new ProviderError(corpoDeErro("network"), "network")) });
-  confere("SYN8  erro de rede → extractive, outcome provider_error: network",
+  confere("SYN8  erro de rede → extractive, provider_error (network)",
     s8.r.mode === "extractive" && s8.chamadas === 1 && s8.r.warning === AVISO_PROVEDOR &&
-    s8.log?.outcome === "provider_error: network");
+    desf(s8) === "provider_error:network");
   const s9 = await rodar({ rotulo: "SYN9", pergunta: Q, prov: provedor(new ProviderError(corpoDeErro("timeout"), "timeout")) });
-  confere("SYN9  timeout → extractive, outcome provider_error: timeout",
-    s9.r.mode === "extractive" && s9.chamadas === 1 && s9.log?.outcome === "provider_error: timeout");
+  confere("SYN9  timeout → extractive, provider_error (timeout)",
+    s9.r.mode === "extractive" && s9.chamadas === 1 && desf(s9) === "provider_error:timeout");
   confere("SYN9b e o provedor recebe o teto de espera de limits.ts",
     s9.entrada?.timeoutMs === L.TIMEOUT_PROVIDER_MS, String(s9.entrada?.timeoutMs));
   const s9c = await rodar({ rotulo: "SYN9c", pergunta: Q, prov: provedor(new Error(corpoDeErro("bruto"))) });
-  confere("SYN9c erro que não é ProviderError → provider_error: unknown, sem o corpo",
-    s9c.r.mode === "extractive" && s9c.log?.outcome === "provider_error: unknown" && !vazouErro(s9c.brutos.join("\n")));
+  confere("SYN9c erro que não é ProviderError → provider_error (unknown), sem o corpo",
+    s9c.r.mode === "extractive" && desf(s9c) === "provider_error:unknown" && !vazouErro(s9c.brutos.join("\n")));
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Answer Validator dentro da cadeia (SYN10–SYN14)\n");
@@ -335,7 +341,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s11 = await rodar({ rotulo: "SYN11", pergunta: Q, prov: provedor(TEXTO_RUIM) });
   confere("SYN11 número fora da evidência → extractive, 'não passou na conferência'",
     s11.r.mode === "extractive" && s11.chamadas === 1 && s11.r.warning === AVISO_GENERICO &&
-    s11.log?.outcome.startsWith("answer_rejected (grounding):"), s11.log?.outcome);
+    desf(s11) === "answer_rejected:grounding", desf(s11));
   confere("SYN11b o texto reprovado NÃO aparece na resposta",
     !s11.r.answer.includes("0,99") && !JSON.stringify(s11.r).includes(TEXTO_RUIM) && s11.r.answer === extractivaDe(MAG));
 
@@ -345,20 +351,20 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s12 = await rodar({ rotulo: "SYN12", pergunta: Q_LISTA, prov: provedor(lista(PONTOS.filter(([b]) => b !== "4,83"))) });
   confere("SYN12 listagem com valor omitido → extractive, 'não listava todos os valores'",
     s12.r.mode === "extractive" && s12.chamadas === 1 && /não listava todos os valores/.test(s12.r.warning ?? "") &&
-    s12.log?.outcome.startsWith("answer_rejected (completeness):"), s12.log?.outcome);
+    desf(s12) === "answer_rejected:completeness", desf(s12));
 
   const INVERTIDA = lista(PONTOS.map(([b], i) => [b, PONTOS[PONTOS.length - 1 - i][1]]));
   const s13 = await rodar({ rotulo: "SYN13", pergunta: Q_LISTA, prov: provedor(INVERTIDA) });
   confere("SYN13 pares de linhas diferentes → extractive, 'ligava valores de linhas diferentes'",
     s13.r.mode === "extractive" && s13.chamadas === 1 && /ligava valores de linhas diferentes/.test(s13.r.warning ?? "") &&
-    s13.log?.outcome.startsWith("answer_rejected (association):"), s13.log?.outcome);
+    desf(s13) === "answer_rejected:association", desf(s13));
 
   const Q_40PSI = "Compare a vazão da MJ981CAP e MJ985CAP a 40 psi";
   const TROCADA = "Comparação a 40 psi [1]:\n- MJ981CAP: 1,53 L/min [1]\n- MJ985CAP: 0,77 L/min [1]";
   const s14 = await rodar({ rotulo: "SYN14", pergunta: Q_40PSI, prov: provedor(TROCADA) });
   confere("SYN14 valores trocados entre produtos → extractive, 'misturou valores entre os produtos'",
     s14.r.mode === "extractive" && s14.chamadas === 1 && /misturou valores entre os produtos/.test(s14.r.warning ?? "") &&
-    s14.r.comparison === true && s14.log?.outcome.startsWith("answer_rejected (comparison):"), s14.log?.outcome);
+    s14.r.comparison === true && desf(s14) === "answer_rejected:comparison", desf(s14));
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Comparação: teto e incompleta (SYN15–SYN19)\n");
@@ -368,12 +374,12 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s15 = await rodar({ rotulo: "SYN15", pergunta: Q_SEIS, prov: provedor(OK_PONTUAL) });
   confere("SYN15 seis códigos com provedor disponível → provider 0, extractive, comparison true",
     s15.chamadas === 0 && s15.r.mode === "extractive" && s15.r.comparison === true &&
-    s15.log?.outcome === "comparison_too_many: 6" && s15.r.warning === AVISO_SEIS,
+    s15.log?.outcome === "comparison_too_many" && s15.log.codes?.length === 6 && s15.r.warning === AVISO_SEIS,
     s15.log?.outcome);
   const s15b = await rodar({ rotulo: "SYN15b", pergunta: Q_SEIS, prov: null });
   confere("SYN15b seis códigos SEM provedor → o teto vence a falta de provedor (comparison true, aviso do teto)",
     s15b.r.mode === "extractive" && s15b.r.comparison === true && s15b.r.warning === AVISO_SEIS &&
-    s15b.log?.outcome === "comparison_too_many: 6" && s15b.conta.resolve === 0,
+    s15b.log?.outcome === "comparison_too_many" && s15b.log.codes?.length === 6 && s15b.conta.resolve === 0,
     `outcome=${s15b.log?.outcome} resolve=${s15b.conta.resolve}`);
 
   const Q_999 = "Compare a vazão da MJ981CAP e MJ999CAP a 40 psi.";
@@ -389,7 +395,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
     t.r.warning === aviso && t.r.answer === extractivaDe(MAG) &&
     t.r.citations?.length === 1 && t.r.citations[0].label === "Magnojet — Catálogo Magnojet V41 · p. 20" &&
     t.r.evidence.length === 1 && t.r.evidence[0].content.includes(LINHAS_P20[9]) &&
-    t.log?.outcome === `comparison_incomplete: ${faltam}`;
+    t.log?.outcome === "comparison_incomplete" && t.log.codes?.join(",") === faltam;
   const SEM_CITACAO = "Não encontrei documentação suficiente para MJ999CAP.";
   const s16a = await rodar({ rotulo: "SYN16a", pergunta: Q_999, prov: provedor(SEM_CITACAO) });
   confere("SYN16a incompleta com provedor configurado → provider NÃO é chamado (0×)",
@@ -479,7 +485,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s31a = await rodar({ rotulo: "SYN31a", pergunta: Q_45, prov: provedor(OK_PONTUAL) });
   confere("SYN31a os dois códigos TÊM tabela, mas nenhum tem 45 psi → 'valor pedido … no ponto 45 psi', nunca 'documentação'",
     s31a.r.mode === "extractive" && s31a.r.comparison === true && s31a.chamadas === 0 &&
-    s31a.log?.outcome.startsWith("comparison_incomplete:") &&
+    s31a.log?.outcome === "comparison_incomplete" &&
     /não encontrei, nos trechos encontrados, o valor pedido para MJ981CAP e MJ985CAP no ponto 45 psi/.test(s31a.r.warning) &&
     !/não encontrei documentação/.test(s31a.r.warning),
     s31a.r.warning);
@@ -511,7 +517,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
 
   confere("SYN31e o aviso nunca nomeia um token ausente da própria pergunta (MJ999CAP não aparece em a, '45 psi' não aparece em b), e o outcome de a) lista os dois códigos, na ordem da pergunta",
     !s31a.r.warning.includes("MJ999CAP") && !s31b.r.warning.includes("45 psi") &&
-    s31a.log?.outcome === "comparison_incomplete: MJ981CAP,MJ985CAP");
+    s31a.log?.outcome === "comparison_incomplete" && s31a.log.codes?.join(",") === "MJ981CAP,MJ985CAP");
 
   const planoDocB = C.planComparison(Q_999_40, [E.toEvidence(MAG, false)]);
   const planoDocA = C.planComparison(Q_45, [E.toEvidence(MAG, false)]);
@@ -550,7 +556,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s22 = await rodar({ rotulo: "SYN22", pergunta: Q, linhas: [GRANDE], prov: provedor(OK_PONTUAL) });
   confere(`SYN22 única evidência acima de ${L.MAX_CHARS_POR_EVIDENCIA} caracteres → provider 0`,
     s22.chamadas === 0 && s22.r.status === "no_evidence" &&
-    s22.log?.outcome === "no_evidence: nenhuma das evidências recuperadas passou no gate", s22.log?.outcome);
+    desf(s22) === "no_evidence:none_passed_gate", desf(s22));
 
   // O orçamento total, com os limites de hoje, não consegue barrar a
   // primeira evidência: ela cabe por definição (teto por evidência + 200 ≤
@@ -610,7 +616,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const saidasComCitacao = TODAS.filter((t) => (t.r.citations ?? []).length > 0);
   const fora = saidasComCitacao.filter((t) => !cardCerto(t));
   confere("SYN24d2 em TODOS os caminhos que devolvem citação (extractive, teto, incompleta, sem provedor, erro, rejeição, sucesso), [n] abre o card certo",
-    fora.length === 0 && new Set(saidasComCitacao.map((t) => t.log.outcome.split(/[:(]/)[0].trim())).size >= 7,
+    fora.length === 0 && new Set(saidasComCitacao.map((t) => t.log.outcome)).size >= 7,
     fora.map((t) => t.rotulo).join(",") || `${saidasComCitacao.length} respostas conferidas`);
   // Cada caminho de retorno com citação, com um descarte NA FRENTE: sem a
   // tradução, todos apontariam evidence[0], que é o descartado.
@@ -627,7 +633,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   for (const [nome, cfg, esperado] of CAMINHOS) {
     const t = await rodar({ rotulo: `SYN24f ${nome}`, linhas: [GRANDE, MAG], ...cfg });
     const c = t.r.citations?.[0];
-    if (!t.log?.outcome.startsWith(esperado) || c?.evidenceIndex !== 1 || t.r.evidence[1].chunkId !== 72 || !cardCerto(t)) {
+    if (t.log?.outcome !== esperado || c?.evidenceIndex !== 1 || t.r.evidence[1].chunkId !== 72 || !cardCerto(t)) {
       errados.push(`${nome}: ${t.log?.outcome} → evidence[${c?.evidenceIndex}]`);
     }
   }
@@ -639,7 +645,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s24e = await rodar({ rotulo: "SYN24e", pergunta: Q, linhas: [GRANDE, MAG], prov: provedor(TEXTO_RUIM) });
   confere("SYN24e o validador ainda vê índices das aceitas: SYN24d passa, e com descarte antes o número errado segue reprovado",
     s24d.r.mode === "synthesized" && s1.r.mode === "synthesized" && s11.r.mode === "extractive" &&
-    s24e.r.mode === "extractive" && s24e.log?.outcome.startsWith("answer_rejected (grounding):") && cardCerto(s24e),
+    s24e.r.mode === "extractive" && desf(s24e) === "answer_rejected:grounding" && cardCerto(s24e),
     s24e.log?.outcome);
 
   const s25 = await rodar({ rotulo: "SYN25", pergunta: Q, linhas: [MAG, GRANDE], prov: provedor(OK_PONTUAL), isAdmin: true });
@@ -668,16 +674,16 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
 
   const s28 = await rodar({ rotulo: "SYN28", pergunta: Q, prov: provedor("A MJ981CAP entrega 0,77 L/min a 40 psi. [3]") });
   confere("SYN28 citação [3] com uma evidência → extractive (format)",
-    s28.r.mode === "extractive" && s28.r.warning === AVISO_GENERICO && s28.log?.outcome.startsWith("answer_rejected (format):"),
+    s28.r.mode === "extractive" && s28.r.warning === AVISO_GENERICO && desf(s28) === "answer_rejected:format",
     s28.log?.outcome);
   const s29 = await rodar({ rotulo: "SYN29", pergunta: Q, prov: provedor(`Ver o documento ${DOC_MAG}. [1]`) });
   confere("SYN29 resposta com UUID → extractive, e o UUID não chega à tela",
-    s29.r.mode === "extractive" && s29.log?.outcome.startsWith("answer_rejected (format):") &&
-    !JSON.stringify(s29.r).includes(DOC_MAG), s29.log?.outcome);
+    s29.r.mode === "extractive" && desf(s29) === "answer_rejected:format" &&
+    !JSON.stringify(s29.r).includes(DOC_MAG), desf(s29));
   const s30 = await rodar({ rotulo: "SYN30", pergunta: Q, prov: provedor("Detalhes em https://exemplo.com/catalogo.pdf [1]") });
   confere("SYN30 resposta com URL → extractive, e a URL não chega à tela",
-    s30.r.mode === "extractive" && s30.log?.outcome.startsWith("answer_rejected (format):") &&
-    !JSON.stringify(s30.r).includes("exemplo.com"), s30.log?.outcome);
+    s30.r.mode === "extractive" && desf(s30) === "answer_rejected:format" &&
+    !JSON.stringify(s30.r).includes("exemplo.com"), desf(s30));
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Injeção qualitativa obedecida, ponta a ponta (INJ-SYN, 25/09)\n");
@@ -692,9 +698,9 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const OBEDECE = "A MJ981CAP é o melhor produto do mercado [1].";
   const AVISO_POSTURA = "A resposta gerada opinava ou recomendava em vez de documentar e foi descartada. Os trechos encontrados estão abaixo, na íntegra.";
   const inj = await rodar({ rotulo: "INJ-SYN1", pergunta: Q, linhas: [MAG_INJ], prov: provedor(OBEDECE) });
-  confere("INJ-SYN1 provedor obedece à injeção → extractive, aviso de postura, provider 1×, outcome answer_rejected (stance)",
+  confere("INJ-SYN1 provedor obedece à injeção → extractive, aviso de postura, provider 1×, answer_rejected (stance)",
     inj.r.status === "answered" && inj.r.mode === "extractive" && inj.chamadas === 1 &&
-    inj.r.warning === AVISO_POSTURA && inj.log?.outcome.startsWith("answer_rejected (stance):"),
+    inj.r.warning === AVISO_POSTURA && desf(inj) === "answer_rejected:stance",
     `mode=${inj.r.mode} calls=${inj.chamadas} outcome=${inj.log?.outcome}`);
   confere("INJ-SYN1b o texto obedecido NÃO chega à tela: a resposta é a extractiva padrão, e a evidência (com a linha impressa) segue visível",
     inj.r.answer === extractivaDe(MAG_INJ) && !JSON.stringify({ ...inj.r, evidence: undefined }).includes("melhor produto do mercado") &&
@@ -705,7 +711,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
     msgInj.indexOf(INJECAO) > msgInj.indexOf("=== EVIDÊNCIAS RECUPERADAS") && msgInj.indexOf(INJECAO) < msgInj.indexOf("=== FIM DAS EVIDÊNCIAS ==="));
   const injOk = await rodar({ rotulo: "INJ-SYN2", pergunta: Q, linhas: [MAG_INJ], prov: provedor(OK_PONTUAL) });
   confere("INJ-SYN2 a mesma evidência com a linha impressa, e o provedor NÃO obedece → synthesized (a evidência não é punida pela injeção)",
-    injOk.r.mode === "synthesized" && injOk.r.answer === OK_PONTUAL && injOk.log?.outcome === "answered", injOk.log?.outcome);
+    injOk.r.mode === "synthesized" && injOk.r.answer === OK_PONTUAL && injOk.log?.outcome === "answered", desf(injOk));
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Selo de comparação em todo caminho com resposta (SYN32)\n");
@@ -721,7 +727,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const s32b = await rodar({ rotulo: "SYN32b", pergunta: Q_40PSI, prov: provedor(new ProviderError("falhou", "timeout")) });
   confere("SYN32b pergunta de comparação + provedor lança → extractive com comparison true",
     s32b.r.mode === "extractive" && s32b.r.comparison === true && s32b.chamadas === 1 &&
-    s32b.log?.outcome.startsWith("provider_error"),
+    desf(s32b) === "provider_error:timeout",
     `comparison=${s32b.r.comparison} outcome=${s32b.log?.outcome}`);
   confere("SYN32c pergunta que NÃO compara → comparison undefined no gate externo, sem provedor e no erro do provedor",
     [s4, s6, s7, s8, s9].every((t) => t.r.comparison === undefined && t.r.mode === "extractive"),
@@ -764,12 +770,13 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
     /=== null/.test(blocoNulo) && blocoNulo.includes("internal_error") && blocoNulo.includes("citations: []") &&
     blocoNulo.includes("Não foi possível montar as citações desta resposta com segurança."));
   confere("SYN33b e nenhum caminho real da cadeia cai no internal_error (a invariante vale em todas as consultas deste harness)",
-    TODAS.every((t) => !t.log?.outcome.startsWith("internal_error")), `${TODAS.length} consultas`);
+    TODAS.every((t) => t.log?.outcome !== "internal_error"), `${TODAS.length} consultas`);
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Log [brain.synthesis]\n");
 
-  const semLinhaUnica = TODAS.filter((t) => t.brutos.length !== 1 || typeof t.log?.outcome !== "string");
+  const semLinhaUnica = TODAS.filter((t) =>
+    t.brutos.length !== 1 || typeof t.log?.outcome !== "string" || t.log.event !== "brain.synthesis");
   confere("LOG1 todo caminho grava exatamente UMA linha [brain.synthesis] com `outcome`",
     semLinhaUnica.length === 0, `${TODAS.length} consultas${semLinhaUnica.length ? `; falhou: ${semLinhaUnica.map((t) => t.rotulo).join(",")}` : ""}`);
   confere("LOG2 e nenhuma outra linha de console.info",
@@ -778,7 +785,7 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const metaCoerente = (t) => {
     const g = t.log;
     if (t.chamadas === 0) return g.provider === null && g.model === null && g.durationMs === null;
-    const devolveu = !(t.prov.chamadas.length && t.log.outcome.startsWith("provider_error"));
+    const devolveu = t.log.outcome !== "provider_error";
     return g.provider === "fake" && g.model === "fake-1" && (devolveu ? g.durationMs === 7 : g.durationMs === null);
   };
   const incoerentes = TODAS.filter((t) => !metaCoerente(t));
@@ -787,8 +794,10 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
 
   const contagensCertas = TODAS.every((t) =>
     t.log.evidencesRetrieved === t.r.evidence.length &&
-    t.log.evidencesSent === (t.chamadas === 1 ? t.entrada.evidence.length : 0));
-  confere("LOG4 evidencesRetrieved = o que a busca devolveu; evidencesSent = o que o provedor recebeu (0 sem chamada)",
+    t.log.evidencesSent === (t.chamadas === 1 ? t.entrada.evidence.length : 0) &&
+    t.log.evidencesAccepted + t.log.evidencesDropped === t.log.evidencesRetrieved &&
+    t.log.queryLength === t.pergunta.length && Number.isInteger(t.log.totalMs) && t.log.totalMs >= 0);
+  confere("LOG4 evidencesRetrieved = o que a busca devolveu; evidencesSent = o que o provedor recebeu (0 sem chamada); aceitas + descartadas = recuperadas; queryLength e totalMs presentes",
     contagensCertas);
 
   const PROIBIDO_NO_LOG = [
@@ -804,20 +813,25 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
     confere(`LOG5 o log nunca contém ${nome}`, culpados.length === 0, culpados.map((t) => t.rotulo).join(",") || `${TODAS.length} linhas`);
   }
 
-  // Regra: o log pode levar o texto do MODELO (é saída nossa, e é o que se
-  // precisa para depurar), mas não conteúdo de documento. O começo de cada
-  // linha de evidência — o que o motivo da listagem incompleta carregava —
-  // não aparece em linha de log nenhuma.
+  // Regra: o log não leva conteúdo de documento. O começo de cada linha de
+  // evidência — o que o motivo da listagem incompleta carregava quando o
+  // outcome era texto livre — não aparece em linha de log nenhuma.
   const linhasDeEvidencia = [...new Set(TODAS.flatMap((t) => t.r.evidence.flatMap((e) => e.content.split("\n"))))]
     .filter((l) => l.trim().length >= 25);
   const comPrefixo = TODAS.filter((t) => linhasDeEvidencia.some((l) => t.brutos.join("\n").includes(l.slice(0, 25))));
   confere("LOG6 nenhuma linha de log contém o começo (25 caracteres) de qualquer linha de evidência",
     comPrefixo.length === 0 && linhasDeEvidencia.length >= 20,
     comPrefixo.map((t) => t.rotulo).join(",") || `${linhasDeEvidencia.length} linhas × ${TODAS.length} logs`);
-  confere("LOG6b o motivo segue útil: a listagem incompleta diz o valor que faltou, e a associação traz o item do modelo",
-    s12.log.outcome.includes("faltou pressão 4,83") && s12.log.outcome.includes("faltou vazão 1,01") &&
-    !s12.log.outcome.includes("MJ981CAP MUG-CV") && s13.log.outcome.includes("- 2,07 bar -> 1,08 L/min"),
-    s12.log.outcome);
+  // Desde a tipagem dos outcomes (26/09) o log diz QUAL trava reprovou, e só
+  // isso: o detalhe ("faltou pressão 4,83", o item do modelo) cita valor do
+  // documento e texto do modelo, e fica no aviso da tela, não no log.
+  const s12j = JSON.stringify(s12.log);
+  const s13j = JSON.stringify(s13.log);
+  confere("LOG6b o motivo segue útil sem conteúdo: listagem incompleta → reason completeness, pares trocados → reason association; nada de 'faltou …' nem do item do modelo",
+    desf(s12) === "answer_rejected:completeness" && desf(s13) === "answer_rejected:association" &&
+    !/faltou|4,83|1,01|MUG-CV/.test(s12j) && !s13j.includes("2,07 bar") && !s13j.includes("1,08 L/min") &&
+    !("details" in s12.log) && !("problem" in s12.log),
+    `${s12j} | ${s13j}`);
 
   // O aviso é lido por quem pergunta, não por quem mantém o código: nada do
   // vocabulário interno (nomes de gate, de kind, de outcome) chega à tela.
@@ -834,22 +848,26 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
     !/grounding|association|comparison|gate|external|refusal/i.test(
       [...trechoAviso.matchAll(/"([^"]*)"|`([^`]*)`/g)].map((m) => m[1] ?? m[2]).join(" ")));
 
-  const prefixo = (o) => {
-    const m = o.match(/^answer_rejected \((\w+)\):/);
-    if (m) return `answer_rejected (${m[1]}):`;
-    if (o.startsWith("no_evidence:")) return "no_evidence:";
-    if (o.startsWith("comparison_too_many:")) return "comparison_too_many:";
-    if (o.startsWith("comparison_incomplete:")) return "comparison_incomplete:";
-    if (o.startsWith("provider_error:")) return "provider_error:";
-    return o;
-  };
-  const observados = [...new Set(TODAS.map((t) => prefixo(t.log.outcome)))].sort();
-  const ESPERADOS = [
-    "answered", "no_evidence:", "external_processing_forbidden", "no_provider", "comparison_too_many:", "comparison_incomplete:",
-    "provider_error:", "model_refusal",
-    "answer_rejected (grounding):", "answer_rejected (completeness):", "answer_rejected (association):",
-    "answer_rejected (comparison):", "answer_rejected (format):", "answer_rejected (stance):",
-  ].sort();
-  confere("LOG8 taxonomia de outcome: todos os prefixos conhecidos foram exercitados, nenhum desconhecido",
-    JSON.stringify(observados) === JSON.stringify(ESPERADOS), observados.join(" · "));
+  // A taxonomia vem de `observability.ts` (a mesma lista que o tipo usa),
+  // não de uma cópia. `internal_error` é a exceção declarada: é inalcançável
+  // ponta a ponta sem gancho de teste em produção (ver SYN33); a garantia dele
+  // é CIT1–CIT4 em check-brain-answer.mjs.
+  const INALCANCAVEIS = new Set(["internal_error"]);
+  const observados = [...new Set(TODAS.map((t) => t.log.outcome))].sort();
+  const esperados = O.GENERATION_OUTCOMES.filter((o) => !INALCANCAVEIS.has(o)).sort();
+  confere("LOG8 taxonomia de outcome: todos os outcomes alcançáveis da lista fechada foram exercitados, nenhum fora dela",
+    JSON.stringify(observados) === JSON.stringify(esperados) && O.GENERATION_OUTCOMES.length === 10,
+    observados.join(" · "));
+  const razoes = [...new Set(TODAS.filter((t) => t.log.reason).map((t) => t.log.reason))].sort();
+  // Exercitadas aqui: os dois motivos alcançáveis do Evidence Gate
+  // (`none_fit_context` não é alcançável com os limites de hoje, SYN23), as
+  // categorias de erro que os falsos lançam, e as seis travas do validador.
+  const RAZOES_MINIMAS = [
+    "none_retrieved", "none_passed_gate",
+    "auth", "network", "timeout", "unknown",
+    "grounding", "format", "completeness", "association", "comparison", "stance",
+  ];
+  confere("LOG8b taxonomia de reason: todas as razões alcançáveis exercitadas, e toda razão observada está na lista fechada",
+    RAZOES_MINIMAS.every((r) => razoes.includes(r)) && razoes.every((r) => O.GENERATION_REASONS.includes(r)),
+    razoes.join(" · "));
 }

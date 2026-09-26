@@ -40,7 +40,8 @@ Implementado em 17/09/2026, sobre o Query Console v0.
 >   descartada antes de uma aceita (`buildCitations` numera sobre as
 >   ACEITAS; a tradução para o índice de tela é só na saída); e o log de
 >   rejeição por completeness/association não carrega mais o início da
->   linha da evidência — só o valor que faltou.
+>   linha da evidência. Desde 26/09 nem o valor que faltou: o evento é
+>   tipado e leva só `reason` (§5.1).
 > - **Revisão independente de 25/09 (B1/S1/S2/S3), fechada nesta rodada:**
 >   (B1) um único valor sem dono numa comparação também reprova — o corte
 >   de número único rodava antes da regra do item órfão e deixava passar
@@ -286,6 +287,40 @@ nenhum — trocar de fornecedor é escrever outro adapter.
 chave para o navegador). Sem elas, `resolveProvider()` devolve `null`, o
 console responde de forma extractiva e diz por quê. **Desligado, e desligado
 ele não mente.** Nenhuma credencial foi inventada e nenhuma é pedida no chat.
+
+### 5.1 Log `[brain.synthesis]` (tipado em 26/09/2026)
+
+Uma linha por consulta, `console.info("[brain.synthesis]", JSON)`, com o
+tipo `GenerationEvent` de `src/modules/brain/observability.ts` (puro):
+
+```
+{ event: "brain.synthesis", outcome, reason?, comparison, queryLength,
+  evidencesRetrieved, evidencesAccepted, evidencesDropped, evidencesSent,
+  provider, model, durationMs, totalMs, codes? }
+```
+
+- `outcome` é uma lista FECHADA: `answered`, `no_evidence`,
+  `external_processing_forbidden`, `comparison_too_many`,
+  `comparison_incomplete`, `no_provider`, `provider_error`, `model_refusal`,
+  `answer_rejected`, `internal_error`.
+- `reason` só em `no_evidence` (`none_retrieved`/`none_passed_gate`/
+  `none_fit_context`), `provider_error` (a categoria do `ProviderError`),
+  `answer_rejected` (a trava: `grounding`, `format`, `completeness`,
+  `association`, `comparison`, `stance`) e `internal_error`
+  (`citation_mapping`).
+- **Sem a pergunta.** Ela já fica em `brain.knowledge_queries` (gravada por
+  `public.brain_search`, sob RLS, leitura só de admin); o log da Netlify
+  fica fora do RLS e serve para agregação, não para depurar pergunta. Sem
+  hash também — pergunta curta se adivinha. Fica `queryLength`.
+- `codes` só em `comparison_too_many`/`comparison_incomplete`, e só códigos
+  da PERGUNTA (os mesmos que o aviso já mostra). Nenhum texto livre: o
+  detalhe da rejeição fica no aviso da tela, a mensagem do erro do provedor
+  não sobe, e conteúdo de evidência, prompt, chave, UUID, caminho e hash
+  nunca entram.
+- `durationMs` só quando o provedor devolveu; `provider`/`model` só quando
+  ele foi chamado.
+
+Testes: `check-brain-synthesis.mjs` LOG1–LOG8b (forma e taxonomia).
 
 ## 6. Answer Validator
 

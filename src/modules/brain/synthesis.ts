@@ -14,6 +14,7 @@ import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } fro
 import { TIMEOUT_PROVIDER_MS } from "./limits";
 import { resolveProvider } from "./llm";
 import { ProviderError, type BrainLlmProvider } from "./llm/provider";
+import type { GenerationEvent, GenerationOutcome, GenerationReason } from "./observability";
 import { buildUserMessage, renderCalculation, SYSTEM_PROMPT } from "./prompt";
 import * as repository from "./repository";
 import type { KnowledgeQuery } from "./schema";
@@ -36,24 +37,28 @@ import type { KnowledgeQuery } from "./schema";
  *    extractiva, nunca um parágrafo sem lastro.
  */
 
-/** Diagnóstico da geração. Vai para o log do servidor, nunca para o cliente. */
-type GenerationLog = {
-  query: string;
-  evidencesRetrieved: number;
-  evidencesSent: number;
-  provider: string | null;
-  model: string | null;
-  durationMs: number | null;
-  outcome: string;
-};
-
-function registrar(log: GenerationLog) {
-  // Log de servidor é suficiente na v1: a busca já tem trilha em
-  // `brain.knowledge_queries`, e uma tabela nova para a geração exigiria
-  // migration sem necessidade provada. A pergunta entra porque ela já está
-  // na trilha do banco; o conteúdo das evidências e o prompt, não.
-  console.info("[brain.synthesis]", JSON.stringify(log));
+/**
+ * Diagnóstico da geração: UMA linha por consulta, no log do servidor, nunca
+ * no cliente. Log de servidor é suficiente na v1 — a busca já tem trilha em
+ * `brain.knowledge_queries`, e uma tabela nova para a geração exigiria
+ * migration sem necessidade provada. O prefixo `[brain.synthesis]` fica, para
+ * os filtros de log que já existem. O que o evento leva, e por que a pergunta
+ * NÃO vai mais, está em `observability.ts`.
+ */
+function registrar(evento: GenerationEvent) {
+  console.info("[brain.synthesis]", JSON.stringify(evento));
 }
+
+/** O que muda de um desfecho para outro; o resto o evento calcula sozinho. */
+type Desfecho = {
+  outcome: GenerationOutcome;
+  reason?: GenerationReason;
+  codes?: string[];
+  evidencesSent?: number;
+  provider?: string | null;
+  model?: string | null;
+  durationMs?: number | null;
+};
 
 /**
  * O aviso da comparação sem um dos lados. Os códigos vêm da PERGUNTA, então
@@ -136,9 +141,32 @@ export async function answerWith(
   // Antes ele dependia do plano (declarado depois do gate externo) e sumia
   // no gate externo, sem provedor e no erro do provedor.
   const pedeComparacao = isComparisonQuestion(input.query);
+  const inicio = Date.now();
 
   const rows: KnowledgeHitRow[] = await deps.search(input);
   const evidencias: KnowledgeEvidence[] = rows.map((r) => toEvidence(r, opts.isAdmin));
+
+  // Contagens do Evidence Gate, preenchidas assim que ele roda. Antes dele
+  // não há desfecho possível, então nenhum evento sai com elas por preencher.
+  let aceitasN = 0;
+  let descartadasN = 0;
+  const desfecho = (d: Desfecho) =>
+    registrar({
+      event: "brain.synthesis",
+      outcome: d.outcome,
+      ...(d.reason ? { reason: d.reason } : {}),
+      comparison: pedeComparacao,
+      queryLength: input.query.length,
+      evidencesRetrieved: rows.length,
+      evidencesAccepted: aceitasN,
+      evidencesDropped: descartadasN,
+      evidencesSent: d.evidencesSent ?? 0,
+      provider: d.provider ?? null,
+      model: d.model ?? null,
+      durationMs: d.durationMs ?? null,
+      totalMs: Date.now() - inicio,
+      ...(d.codes ? { codes: d.codes } : {}),
+    });
 
   const base = (extra: Partial<BrainNaturalAnswer>): BrainNaturalAnswer => ({
     query: input.query,
@@ -150,12 +178,10 @@ export async function answerWith(
 
   // ── Evidence Gate ─────────────────────────────────────────
   const avaliacao = assessEvidence(input.query, evidencias);
+  aceitasN = avaliacao.accepted.length;
+  descartadasN = avaliacao.dropped.length;
   if (!avaliacao.sufficient) {
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null,
-      outcome: `no_evidence: ${avaliacao.reason}`,
-    });
+    desfecho({ outcome: "no_evidence", reason: avaliacao.gateReason ?? "none_passed_gate" });
     // Se o retrieval trouxe algo mas o gate recusou tudo, as evidências
     // continuam na tela: o usuário decide se aquilo serve para ele.
     return { ...refusal(input.query, "no_evidence"), evidence: evidencias, mode: "none" };
@@ -170,11 +196,7 @@ export async function answerWith(
     // `evidencias`), e é justamente por isso que não se tenta remendar: sem
     // citação confiável não há citação nenhuma, e nada segue para o gate
     // externo nem para o provedor. O aviso é genérico — sem id, sem pilha.
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null,
-      outcome: "internal_error: citation_mapping",
-    });
+    desfecho({ outcome: "internal_error", reason: "citation_mapping" });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: [],
@@ -201,11 +223,7 @@ export async function answerWith(
   );
 
   if (!externo.allowed) {
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null,
-      outcome: "external_processing_forbidden",
-    });
+    desfecho({ outcome: "external_processing_forbidden" });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
@@ -226,11 +244,8 @@ export async function answerWith(
   // algo que o sistema já sabe que não pode concluir.
   const plano = planComparison(input.query, aceitas);
   if (plano.status === "too_many") {
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null,
-      outcome: `comparison_too_many: ${plano.codes.length}`,
-    });
+    // Os códigos vêm da pergunta e já estão no aviso da tela.
+    desfecho({ outcome: "comparison_too_many", codes: plano.codes });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
@@ -248,11 +263,7 @@ export async function answerWith(
     const pontoPedido = plano.spec.pinned.length > 0
       ? plano.spec.pinned.map((p) => `${p.numero} ${p.unidade}`).join(" e ")
       : null;
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null,
-      outcome: `comparison_incomplete: ${faltantes.map((b) => b.code).join(",")}`,
-    });
+    desfecho({ outcome: "comparison_incomplete", codes: faltantes.map((b) => b.code) });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
@@ -264,10 +275,7 @@ export async function answerWith(
   // ── provedor ──────────────────────────────────────────────
   const provider = deps.resolveProvider();
   if (!provider) {
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
-      provider: null, model: null, durationMs: null, outcome: "no_provider",
-    });
+    desfecho({ outcome: "no_provider" });
     return base({
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
@@ -297,10 +305,10 @@ export async function answerWith(
     meta = saida.meta;
   } catch (erro) {
     const tipo = erro instanceof ProviderError ? erro.kind : "unknown";
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: aceitas.length,
-      provider: provider.name, model: provider.model, durationMs: null,
-      outcome: `provider_error: ${tipo}`,
+    // Só a CATEGORIA: a mensagem do erro pode repetir o prompt ou a chave.
+    desfecho({
+      outcome: "provider_error", reason: tipo, evidencesSent: aceitas.length,
+      provider: provider.name, model: provider.model,
     });
     // Falha do provedor não apaga o que o BRAIN achou.
     return base({
@@ -318,18 +326,18 @@ export async function answerWith(
     // nem nossa: é a resposta certa. Vira `no_evidence`, com as evidências
     // na tela para a pessoa julgar.
     if (validacao.kind === "model_refusal") {
-      registrar({
-        query: input.query, evidencesRetrieved: rows.length, evidencesSent: aceitas.length,
+      desfecho({
+        outcome: "model_refusal", evidencesSent: aceitas.length,
         provider: meta.provider, model: meta.model, durationMs: meta.durationMs,
-        outcome: "model_refusal",
       });
       return { ...refusal(input.query, "no_evidence"), evidence: evidencias, mode: "none" };
     }
 
-    registrar({
-      query: input.query, evidencesRetrieved: rows.length, evidencesSent: aceitas.length,
+    // Só QUAL trava reprovou. O detalhe (`problem`/`details`) cita o texto do
+    // modelo e valores do documento — conteúdo, que não vai para o log.
+    desfecho({
+      outcome: "answer_rejected", reason: validacao.kind, evidencesSent: aceitas.length,
       provider: meta.provider, model: meta.model, durationMs: meta.durationMs,
-      outcome: `answer_rejected (${validacao.kind}): ${validacao.details?.join(" | ") ?? validacao.problem}`,
     });
     // Não se limpa uma alucinação em silêncio: a resposta é descartada
     // inteira e o usuário recebe a matéria-prima, que é verificável. Um
@@ -350,9 +358,9 @@ export async function answerWith(
     });
   }
 
-  registrar({
-    query: input.query, evidencesRetrieved: rows.length, evidencesSent: aceitas.length,
-    provider: meta.provider, model: meta.model, durationMs: meta.durationMs, outcome: "answered",
+  desfecho({
+    outcome: "answered", evidencesSent: aceitas.length,
+    provider: meta.provider, model: meta.model, durationMs: meta.durationMs,
   });
 
   return base({

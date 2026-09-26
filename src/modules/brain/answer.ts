@@ -64,9 +64,19 @@ export type BrainNaturalAnswer = {
 // Evidence Gate
 // ════════════════════════════════════════════════════════════
 
+/**
+ * O motivo da recusa do Evidence Gate como CÓDIGO, para o log de
+ * observabilidade (`observability.ts`). O texto em português de `reason`
+ * continua existindo para quem lê; o log só leva o código, de uma lista
+ * fechada.
+ */
+export type EvidenceGateReason = "none_retrieved" | "none_passed_gate" | "none_fit_context";
+
 export type EvidenceAssessment = {
   sufficient: boolean;
   reason?: string;
+  /** O mesmo motivo de `reason`, como código de máquina. Só quando insuficiente. */
+  gateReason?: EvidenceGateReason;
   /** As evidências aprovadas, na ordem em que virarão [1], [2]… */
   accepted: KnowledgeEvidence[];
   /** O que foi descartado e por quê — para o relatório e para o log. */
@@ -172,6 +182,7 @@ export function assessEvidence(
         evidencias.length === 0
           ? "nenhuma evidência recuperada"
           : "nenhuma das evidências recuperadas passou no gate",
+      gateReason: evidencias.length === 0 ? "none_retrieved" : "none_passed_gate",
       accepted: [],
       dropped,
     };
@@ -205,6 +216,7 @@ export function assessEvidence(
     return {
       sufficient: false,
       reason: "nenhuma evidência coube no contexto da síntese",
+      gateReason: "none_fit_context",
       accepted: [],
       dropped,
     };
