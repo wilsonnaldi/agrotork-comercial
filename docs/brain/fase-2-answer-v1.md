@@ -342,7 +342,7 @@ tipo `GenerationEvent` de `src/modules/brain/observability.ts` (puro):
   nomeando todos os faltantes (é a pergunta da própria pessoa); o log, não.
 
 Testes: `check-brain-synthesis.mjs` LOG1–LOG8b (forma e taxonomia, os 10
-outcomes exercitados) e OBS1–OBS14 (privacidade, com fixtures adversariais: chave na pergunta, na
+outcomes exercitados) e OBS1–OBS15 (privacidade, com fixtures adversariais: chave na pergunta, na
 evidência, no erro `Authorization: Bearer …` e no corpo do provedor; URL,
 UUID, caminho de Storage e sha256 na evidência; 50 erros diferentes do
 provedor dando um só evento; CNPJ e segredo curto numa comparação; `kind`

@@ -449,21 +449,27 @@ try {
     pf7c.code === 1 && !(pf7c.out + pf7c.err).includes(CHAVE_PF),
     `exit ${pf7b.code}/${pf7c.code}`);
 
-  // PF8–PF11: o `.env.local` de verdade, escrito num diretório temporário
+  // PF8–PF15: arquivos `.env*` de verdade, escritos num diretório temporário
   // (o processo filho não recebe as variáveis pelo ambiente). Cada caso tem
-  // o seu diretório.
-  const comArquivo = (conteudo, args = []) => {
+  // o seu diretório. Desde a revisão independente (26/09) o preflight lê com
+  // o carregador do próprio Next (`@next/env`), então as expectativas abaixo
+  // são o que o SERVIDOR carregaria — não o que um parser nosso acharia.
+  // `arquivos`: { nome: conteúdo } — conteúdo `null` cria um DIRETÓRIO.
+  const comArquivos = (arquivos, args = [], env = {}) => {
     const dir = mkdtempSync(join(tmpdir(), "brain-preflight-env-"));
     try {
-      if (conteudo === null) mkdirSync(join(dir, ".env.local"));
-      else writeFileSync(join(dir, ".env.local"), conteudo);
+      for (const [nome, conteudo] of Object.entries(arquivos)) {
+        if (conteudo === null) mkdirSync(join(dir, nome));
+        else writeFileSync(join(dir, nome), conteudo);
+      }
       const r = spawnSync(process.execPath, ["--experimental-strip-types", "--no-warnings", SCRIPT, ...args],
-        { cwd: dir, env: {}, encoding: "utf8" });
+        { cwd: dir, env, encoding: "utf8" });
       return { code: r.status, out: r.stdout ?? "", err: r.stderr ?? "" };
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   };
+  const comArquivo = (conteudo, args = []) => comArquivos({ ".env.local": conteudo }, args);
   const CHAVE_ARQ = "sk-ant-FAKE-ARQUIVO-PF8";
   const pf8 = comArquivo([
     "# comentário",
@@ -481,26 +487,72 @@ try {
   const pf9a = comArquivo(`${base9}BRAIN_LLM_API_KEY=\n`);
   const pf9b = comArquivo(`${base9}BRAIN_LLM_API_KEY=#${CHAVE_ARQ}\n`);
   const pf9c = comArquivo(`${base9}BRAIN_LLM_API_KEY= # só comentário\n`);
-  confere("PF9 `KEY=` e `KEY=#x` (como no dotenv: valor que começa com # é comentário) → exit 1, key_missing, sem o valor",
+  confere("PF9 `KEY=`, `KEY=#x` e `KEY= # nota` (o Next lê vazio nos três) → exit 1, key_missing, sem o valor",
     [pf9a, pf9b, pf9c].every((r) => r.code === 1 && r.out.includes("NÃO CONFIGURADO: key_missing")) &&
     !(pf9b.out + pf9b.err).includes(CHAVE_ARQ),
     [pf9a, pf9b, pf9c].map((r) => `exit ${r.code}`).join(" "));
   const pf10a = comArquivo(null);
-  const pf10b = comArquivo(`${base9}BRAIN_LLM_API_KEY="${CHAVE_ARQ}\ncontinua"\n`);
+  const pf10c = comArquivos({ ".env.production": null });
   const semPilha = (r) => !/\n\s+at |Error:|node:internal|file:\/\//.test(r.out + r.err);
-  confere("PF10 .env.local que é DIRETÓRIO → exit 1, 'não foi possível ler .env.local (EISDIR)', sem pilha",
-    pf10a.code === 1 && pf10a.err.includes("não foi possível ler .env.local (EISDIR)") && semPilha(pf10a) && !pf10a.out.includes("VEREDITO"),
-    `exit ${pf10a.code} ${pf10a.err.trim()}`);
-  confere("PF10b valor multilinha entre aspas → exit 1, 'valor multilinha não suportado … use uma linha', nomeia só a variável, sem o valor",
-    pf10b.code === 1 && pf10b.err.includes("valor multilinha não suportado") && pf10b.err.includes("BRAIN_LLM_API_KEY") &&
-    pf10b.err.includes("use uma linha") && !(pf10b.out + pf10b.err).includes(CHAVE_ARQ) && !(pf10b.out + pf10b.err).includes("continua") && semPilha(pf10b),
+  confere("PF10 .env.local (ou .env.production) que é DIRETÓRIO → exit 1, 'não foi possível ler <arquivo> (EISDIR)', sem pilha",
+    pf10a.code === 1 && pf10a.err.includes("não foi possível ler .env.local (EISDIR)") && semPilha(pf10a) && !pf10a.out.includes("VEREDITO") &&
+    pf10c.code === 1 && pf10c.err.includes("não foi possível ler .env.production (EISDIR)") && semPilha(pf10c),
+    `exit ${pf10a.code}/${pf10c.code} ${pf10a.err.trim()}`);
+  // Valor multilinha entre aspas: o Next LÊ (quebra de linha real no valor),
+  // então a regra própria "multilinha = erro" morreu. O veredito agora é o
+  // que o servidor teria: chave com quebra de linha = key_invalid.
+  const pf10b = comArquivo(`${base9}BRAIN_LLM_API_KEY="${CHAVE_ARQ}\ncontinua"\n`);
+  confere("PF10b valor multilinha entre aspas (o Next lê com quebra de linha) → exit 1, key_invalid, sem o valor nem a segunda linha",
+    pf10b.code === 1 && pf10b.out.includes("NÃO CONFIGURADO: key_invalid") &&
+    !(pf10b.out + pf10b.err).includes(CHAVE_ARQ) && !(pf10b.out + pf10b.err).includes("continua") && semPilha(pf10b),
     `exit ${pf10b.code} ${pf10b.err.trim()}`);
+  // PF11 é guarda de regressão: já passava com o parser antigo e continua
+  // tendo de passar com o carregador do Next.
   const pf11 = comArquivo(`\uFEFFBRAIN_LLM_PROVIDER=anthropic\r\nBRAIN_LLM_MODEL=claude-x\r\nBRAIN_LLM_API_KEY=${CHAVE_ARQ}\r\n`);
   confere("PF11 .env.local com BOM e CRLF → exit 0, PRONTO (nem o BOM entra no nome, nem o \\r entra no valor)",
     pf11.code === 0 && pf11.out.includes("PRONTO PARA PRODUÇÃO") && !(pf11.out + pf11.err).includes(CHAVE_ARQ),
     `exit ${pf11.code}`);
+  // PF12/PF13 (revisão independente, 26/09): onde o parser antigo divergia
+  // do Next. Só `presente`/veredito é conferido — o valor nunca.
+  const pf12 = comArquivo(`${base9}BRAIN_LLM_API_KEY=FAKEabc#def\n`);
+  // PF12b discrimina: o Next corta em `#` e fica `FAKE` (válida); o parser
+  // antigo leria `FAKE#abc def`, com espaço interno → key_invalid.
+  const pf12b = comArquivo(`${base9}BRAIN_LLM_API_KEY=FAKE#abc def\n`);
+  confere("PF12 `KEY=FAKEabc#def` e `KEY=FAKE#abc def` → o que o Next carrega (antes do #) é ASCII visível → exit 0, PRONTO, chave só 'presente'",
+    [pf12, pf12b].every((r) => r.code === 0 && /BRAIN_LLM_API_KEY\s+presente/.test(r.out) && r.out.includes("PRONTO PARA PRODUÇÃO") &&
+      !(r.out + r.err).includes("FAKE")),
+    `exit ${pf12.code}/${pf12b.code}`);
+  const pf13 = comArquivo(`${base9}BRAIN_LLM_API_KEY="FAKE\\nabc"\n`);
+  confere("PF13 `KEY=\"FAKE\\nabc\"` (o Next expande \\n entre aspas duplas) → exit 1, key_invalid, sem o valor",
+    pf13.code === 1 && pf13.out.includes("NÃO CONFIGURADO: key_invalid") && !(pf13.out + pf13.err).includes("FAKE"),
+    `exit ${pf13.code}`);
+  // PF14: o conjunto de arquivos é o do servidor em produção — cada variável
+  // num arquivo diferente fecha; `.env.development.local` não conta, e
+  // NODE_ENV=test não troca o conjunto.
+  const pf14a = comArquivos({
+    ".env": "BRAIN_LLM_PROVIDER=anthropic\n",
+    ".env.production": "BRAIN_LLM_MODEL=claude-x\n",
+    ".env.production.local": `BRAIN_LLM_API_KEY=${CHAVE_ARQ}\n`,
+  });
+  const pf14b = comArquivos({ ".env.development.local": `${base9}BRAIN_LLM_API_KEY=${CHAVE_ARQ}\n` });
+  const pf14c = comArquivos({ ".env.local": `${base9}BRAIN_LLM_API_KEY=${CHAVE_ARQ}\n` }, [], { NODE_ENV: "test" });
+  // Precedência: o ambiente do processo vence o arquivo (como no Next).
+  const pf14d = comArquivos({ ".env.local": `${base9}BRAIN_LLM_API_KEY=${CHAVE_ARQ}\n` }, [], { BRAIN_LLM_PROVIDER: "none" });
+  confere("PF14 arquivos do Next em produção (.env, .env.production, .env.production.local) somam; .env.development.local não conta; NODE_ENV=test não troca o conjunto; ambiente vence arquivo",
+    pf14a.code === 0 && pf14a.out.includes("PRONTO PARA PRODUÇÃO") &&
+    pf14b.code === 1 && pf14b.out.includes("NÃO CONFIGURADO: provider_missing") &&
+    pf14c.code === 0 && pf14c.out.includes("PRONTO PARA PRODUÇÃO") &&
+    pf14d.code === 1 && pf14d.out.includes("NÃO CONFIGURADO: provider_disabled") &&
+    [pf14a, pf14b, pf14c, pf14d].every((r) => !(r.out + r.err).includes(CHAVE_ARQ)),
+    [pf14a, pf14b, pf14c, pf14d].map((r) => `exit ${r.code}`).join(" "));
+  // PF5c: `--contract` não lê arquivo nenhum — nem quando o `.env.local` é
+  // um diretório (que no modo normal é exit 1, PF10).
+  const pf5c = comArquivo(null, ["--contract"]);
+  confere("PF5c --contract num diretório cujo .env.local é DIRETÓRIO → exit 0, a mesma saída do contrato (o disco nem é olhado)",
+    pf5c.code === 0 && pf5c.out === pf5b.out && pf5c.err === "",
+    `exit ${pf5c.code} ${pf5c.err.trim()}`);
   const FONTE_PF = readFileSync(SCRIPT, "utf8");
-  confere("PF6 o script não importa rede, banco nem provedor (só fs, path, url e o parser)",
+  confere("PF6 o script não importa rede, banco nem provedor (só fs, path, url, o parser e o carregador do Next)",
     !/node:(http|https|net|tls|dgram|child_process)|fetch\(|@supabase|anthropic\.ts|llm\/index/.test(FONTE_PF));
 } finally {
   rmSync(vazio, { recursive: true, force: true });

@@ -27,9 +27,15 @@ sempre (~1 min por PR, com `npm ci`). Não vale a pena economizar: o filtro
 por caminho custava justamente o status fantasma da seção 3, e `src/**` já
 pegava quase todo PR de código.
 
-**`brain.yml`**: todo PR; push em `main`, `brain/fase-1` e `brain/fase-2`;
-manual. O `scope` roda sempre (segundos) e o ensaio pesado só quando o
-diff pede — regra na seção 4.
+**`brain.yml`**: todo PR; push em `main`; manual. O `scope` roda sempre
+(segundos) e o ensaio pesado só quando o diff pede — regra na seção 4.
+
+Push só em `main` desde a revisão independente de 26/09. Antes o gatilho
+incluía `brain/fase-1` e `brain/fase-2`: um PR cuja head fosse uma dessas
+branches recebia **dois** `brain-db-gate` no mesmo SHA — o do PR (diff
+contra o merge-base) e o do push (diff contra `before`, o push anterior).
+O do push podia sair verde com o do PR vermelho, e a branch protection não
+distingue os dois. Com push só em `main`, cada SHA de PR tem um veredito só.
 
 Em PR, push novo cancela a rodada velha; em `main`, nunca (`concurrency`,
 nos dois workflows): cada merge precisa do seu veredito.
@@ -69,7 +75,8 @@ evento como desconhecido — cai no `*)` do `case` e dá `db=true`, roda tudo
 `check:brain-ci` (seção 8) reprova se alguém devolver `paths` (ou qualquer
 filtro) ao `pull_request:`, tirar o `if: always()` do gate, desligar o
 `needs`/`if` do ensaio, puser `if:` ou `continue-on-error` onde não deve,
-mexer no veredito do gate ou nas saídas do `scope`, usar
+mexer no veredito do gate ou nas saídas, no `set -euo pipefail` e na regex
+de filtro do `scope`, pôr `ref:` num checkout, usar
 `pull_request_target`, ampliar ou redefinir `permissions`, referenciar
 `secrets` ou interpolar `${{ }}` dentro de `run:` — lista completa na §8.
 
@@ -221,13 +228,14 @@ linha de comentário do shell.
 | os dois | uma única `permissions:`, no topo, com exatamente `contents: read`; nenhuma no nível de job (ali ela substitui a do topo) |
 | os dois | nenhuma menção a `secrets` (`secrets.X`, `secrets['X']`, `toJSON(secrets)`) |
 | os dois | nenhum `${{` dentro de `run:` (contexto só por `env:`) |
+| os dois | nenhuma linha `ref:` — o checkout sempre no ref do evento (com `ref:` a head do PR, ou um ref fixo, o CI testaria outro código que não o merge ref e o `scope` diffaria outra coisa) |
 | `brain-app.yml` | sem `paths`, sem `continue-on-error`, sem `if:`; `run: npm run lint`, `typecheck` e `build` como linhas exatas (sem `\|\| true`) |
 | `brain.yml` | job `scope`; `deploy-reversao` com `needs: scope` e `if: needs.scope.outputs.db == 'true'`; `brain-db-gate` com `if: always()` e `needs: [scope, deploy-reversao]` |
 | `brain.yml` | sem `continue-on-error`; só dois `if:` no arquivo, exatamente os dois acima |
 | `brain.yml` | veredito do gate fixado linha a linha (`SCOPE` = success; `true)` exige `success`; `false)` exige `skipped`; `*)` reprova) e o `env:` `SCOPE`/`DB`/`HEAVY` ligado a `needs.*` |
-| `brain.yml` | `scope` escreve `db=true` e `db=false`, o `*)` do evento chama `heavy`, o diff usa `--no-renames`, e o output `db` vem do step |
+| `brain.yml` | no shell do **próprio** job `scope`: `set -euo pipefail`, a regex do filtro com o texto exato (`'^(supabase/\|brain/\|\.github/workflows/brain\.yml$)'`), `db=true` e `db=false`, o `*)` do evento chama `heavy`, o diff usa `--no-renames`; e o output `db` vem do step |
 
-Teste de mutação (26/09, fora do repositório): 34 cópias dos workflows e do
+Teste de mutação (26/09, fora do repositório): 37 cópias dos workflows e do
 `package.json`, cada uma com uma alteração que abriria um buraco (`paths`,
 `types:`, `pull_request: {paths: …}`, `pull_request` removido,
 `continue-on-error`, `if:` extra, `permissions` no job ou ampliada,
@@ -235,7 +243,9 @@ Teste de mutação (26/09, fora do repositório): 34 cópias dos workflows e do
 `run:` e num comentário dentro dele, `|| true` no veredito ou no lint,
 `skipped`→`success`, `HEAVY` constante, `scope` sempre `false`, sem
 `--no-renames`, evento desconhecido virando leve, build trocado, suíte fora
-do agregador, sem `merge_group`): as 34 reprovam. Controles aprovados: os
+do agregador, sem `merge_group`; e, da revisão independente, `scope` sem
+`set -euo pipefail`, regex do filtro sem `brain/` e checkout com `ref:`):
+as 37 reprovam. Controles aprovados (4): os
 arquivos reais, `workflow_dispatch: # not pull_request_target`, comentário
 depois de `pull_request:`, e os dois workflows em CRLF.
 

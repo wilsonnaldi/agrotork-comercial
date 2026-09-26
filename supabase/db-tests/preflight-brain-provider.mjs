@@ -19,22 +19,25 @@
  *   · não entra no CI (o nome não começa com `check:brain`, então a guarda
  *     `check:brain-ci` não o exige lá). O CI roda sem chave, de propósito.
  *
- * Fonte: o ambiente do processo e, se existir, o `.env.local` do diretório
- * atual (o `npm run` roda na raiz do repositório) — só esse arquivo: nem
- * `.env`, nem `.env.production`, nem `.env.local` de diretório pai. Como no
- * Next, o ambiente do processo vence o arquivo. O arquivo é lido linha a
- * linha só para saber quais nomes estão definidos e entregar os valores ao
- * parser — nada dele é impresso. Uma variável por linha: valor multilinha
- * entre aspas é recusado (exit 1), em vez de lido pela metade.
+ * Fonte: o ambiente do processo e os arquivos `.env*` do diretório atual (o
+ * `npm run` roda na raiz do repositório), lidos pelo MESMO carregador do Next
+ * (`@next/env`, `loadEnvConfig(dir, false)`), no modo de produção:
+ * `.env.production.local` → `.env.local` → `.env.production` → `.env`. Por
+ * que o carregador do Next e não um parser próprio: a revisão independente
+ * (26/09) achou divergência real — `KEY=FAKEabc#def` o Next lê como
+ * `FAKEabc`, e `"FAKE\nabc"` entre aspas duplas vira quebra de linha de
+ * verdade. Um preflight que lê diferente do servidor dá veredito falso, nos
+ * dois sentidos. Como no Next, o ambiente do processo vence os arquivos, e
+ * nada dos arquivos é impresso — só os NOMES dos arquivos carregados.
  *
  * Saída (exit code):
  *   0  configuração completa (ou `--contract`)
  *   1  não configurado — o motivo sai da lista fechada de `config.ts` —, ou
- *      `.env.local` ilegível, ou valor multilinha, ou argumento desconhecido
+ *      arquivo `.env*` ilegível, ou argumento desconhecido
  *   2  existe variável `NEXT_PUBLIC_BRAIN_LLM*`: isso mandaria o valor para o
  *      navegador, e é erro mesmo que o resto esteja certo
  */
-import { existsSync, readFileSync } from "node:fs";
+import { statSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -74,7 +77,8 @@ if (process.argv.includes("--contract")) {
   out("Regras:");
   out("  · valores com espaço nas pontas são aparados; vazio ou só espaço = ausente");
   out("  · ordem das conferências: provedor → modelo (ausente → inválido) → chave (ausente → inválida)");
-  out("  · arquivo lido: só o .env.local do diretório atual, uma variável por linha (multilinha = erro)");
+  out("  · arquivos lidos como o servidor Next em produção (@next/env), do diretório atual:");
+  out("    .env.production.local → .env.local → .env.production → .env (o ambiente do processo vence)");
   out("  · configuração pela metade = síntese desligada (resposta extractiva)");
   out(`  · qualquer ${PREFIXO_PROIBIDO}* é erro (o valor iria para o navegador)`);
   out("");
@@ -83,58 +87,54 @@ if (process.argv.includes("--contract")) {
   process.exit(0);
 }
 
-/**
- * `.env.local` no formato do Next/dotenv, o bastante para este uso: `NOME=valor`,
- * `export NOME=valor`, comentário com `#`, aspas simples ou duplas em volta.
- * Linha que não fecha nesse formato é ignorada — nunca ecoada.
- *
- * Achados da revisão adversarial (S5, 26/09), agora iguais ao dotenv:
- *  · valor sem aspas que COMEÇA com `#` é comentário: `NOME=#x` vale vazio;
- *  · valor sem aspas é cortado no primeiro ` #` (espaço + cerquilha);
- *  · valor entre aspas pode ter comentário depois: `NOME="a b" # nota`;
- *  · BOM no começo do arquivo e CRLF não entram no valor.
- * Valor multilinha (aspas que não fecham na mesma linha) NÃO é suportado:
- * lê-lo pela metade daria um veredito falso, então é erro explícito — sem
- * imprimir o valor, só o nome.
- */
-function lerEnvLocal(texto) {
-  const env = {};
-  for (const linha of texto.replace(/^\uFEFF/, "").split(/\r?\n/)) {
-    const m = linha.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
-    if (!m) continue;
-    const bruto = m[2].trim();
-    const aspas = bruto[0];
-    let valor;
-    if (aspas === '"' || aspas === "'" || aspas === "`") {
-      const fecha = bruto.indexOf(aspas, 1);
-      const resto = fecha < 0 ? "" : bruto.slice(fecha + 1).trim();
-      if (fecha < 0) falha(`valor multilinha não suportado em ${m[1]} (.env.local); use uma linha`);
-      // Texto depois das aspas que não é comentário: fora do formato, ignorada.
-      if (resto !== "" && !resto.startsWith("#")) continue;
-      valor = bruto.slice(1, fecha);
-    } else if (bruto.startsWith("#")) {
-      valor = "";
-    } else {
-      valor = bruto.replace(/\s+#.*$/, "");
-    }
-    env[m[1]] = valor;
+// Daqui para baixo o ambiente é lido. `--contract` já saiu acima sem tocar
+// em arquivo nenhum — nem o carregador é importado antes deste ponto.
+
+// Os arquivos que `next start` / `next build` carregam (modo produção), na
+// ordem de precedência do próprio `@next/env`.
+const ARQUIVOS_ENV = [".env.production.local", ".env.local", ".env.production", ".env"];
+
+// Um `.env*` que é DIRETÓRIO o Next ignora em silêncio (só lê arquivo). Aqui
+// é erro: quase sempre é engano, e seguir adiante daria "não configurado"
+// sem dizer por quê. Só o código do erro sai — sem pilha (a pilha traz
+// caminho absoluto e não ajuda quem roda).
+for (const nome of ARQUIVOS_ENV) {
+  let info = null;
+  try {
+    info = statSync(join(process.cwd(), nome));
+  } catch (erro) {
+    if (erro?.code !== "ENOENT") falha(`não foi possível ler ${nome} (${erro?.code ?? "erro desconhecido"}); nada foi conferido`);
   }
-  return env;
+  if (info?.isDirectory()) falha(`não foi possível ler ${nome} (EISDIR); nada foi conferido`);
 }
 
-const arquivo = join(process.cwd(), ".env.local");
-const temArquivo = existsSync(arquivo);
-let textoArquivo = "";
-if (temArquivo) {
-  try {
-    textoArquivo = readFileSync(arquivo, "utf8");
-  } catch (erro) {
-    // Diretório com esse nome, permissão negada…: só o código do erro, sem
-    // pilha (a pilha traz caminho absoluto e não ajuda quem roda).
-    falha(`não foi possível ler .env.local (${erro?.code ?? "erro desconhecido"}); nada foi conferido`);
-  }
-}
-const env = { ...(temArquivo ? lerEnvLocal(textoArquivo) : {}), ...process.env };
+// Com NODE_ENV=test o `@next/env` troca o conjunto de arquivos (.env.test*)
+// e pula o `.env.local`. O servidor de produção nunca roda assim; o preflight
+// confere o conjunto de produção, sempre.
+if (process.env.NODE_ENV === "test") delete process.env.NODE_ENV;
+
+// `@next/env` vem com o `next` (dependência dele, instalada na raiz do
+// `node_modules`) — a mesma versão que o servidor usa. É CommonJS sem
+// export nomeado detectável pelo Node: import default.
+// Importado só aqui, depois do `--contract`, para que o contrato nunca
+// dependa do disco.
+const { default: nextEnv } = await import("@next/env");
+// O carregador reporta falha de leitura (permissão…) pelo `log.error`, com
+// o erro inteiro — e, em erro de parse, o caminho absoluto. Nada disso vai
+// para a tela: guardamos só o nome do arquivo e o código.
+const errosLeitura = [];
+const { loadedEnvFiles } = nextEnv.loadEnvConfig(process.cwd(), false, {
+  info: () => {},
+  error: (mensagem, erro) => {
+    const nome = ARQUIVOS_ENV.find((n) => String(mensagem).endsWith(n)) ?? "arquivo .env";
+    errosLeitura.push(`${nome} (${erro?.code ?? "erro desconhecido"})`);
+  },
+});
+if (errosLeitura.length > 0) falha(`não foi possível ler ${errosLeitura.join(", ")}; nada foi conferido`);
+const carregados = loadedEnvFiles.map((f) => f.path);
+// O próprio process.env, já com os arquivos aplicados por baixo do ambiente
+// (é o que o servidor enxerga).
+const env = process.env;
 
 const presente = (nome) => (typeof env[nome] === "string" && env[nome].trim() !== "" ? "presente" : "ausente");
 // Nomes não são segredo; valores são. Só os nomes saem.
@@ -147,7 +147,7 @@ const suportado = provedorLido === ""
   : SUPPORTED_PROVIDERS.includes(provedorLido) ? "sim" : DISABLED_VALUES.includes(provedorLido) ? "desligado" : "não";
 
 out("BRAIN — preflight do provedor de síntese (só configuração; nenhuma chamada ao provedor)");
-out(`Fonte: ambiente do processo${temArquivo ? " + .env.local" : " (sem .env.local neste diretório)"}`);
+out(`Fonte: ambiente do processo${carregados.length > 0 ? ` + ${carregados.join(" + ")}` : " (nenhum .env* neste diretório)"}`);
 out("");
 out(`  ${PROVIDER_ENV.provider.padEnd(26)} ${presente(PROVIDER_ENV.provider)}`);
 out(`  ${PROVIDER_ENV.model.padEnd(26)} ${presente(PROVIDER_ENV.model)}`);

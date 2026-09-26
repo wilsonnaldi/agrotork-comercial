@@ -17,7 +17,20 @@ Ordem de uso: §1 (merge e proteção) → §2 (provedor) → §3 (smoke) → §
 | Branch | Base | Commits | O que é |
 | --- | --- | --- | --- |
 | `hardening/brain-answer-v1-closure` (**PR #7**) | `main` (`d80ae65`) | 10, até `98a80b0` | fechamento do Answer v1: state machine da síntese (SYN), matriz adversarial, postura, comparação incompleta antes do provedor, revisão independente de 25/09 |
-| `hardening/brain-production-readiness` (esta) | `98a80b0` (cabeça do PR #7) | 6 + este de docs | hardenings residuais, outcomes tipados, privacidade do log, CI sem status fantasma, higiene dos testes, contrato do provedor + `brain:preflight` |
+| `hardening/brain-production-readiness` (esta) | `98a80b0` (cabeça do PR #7) | 9 (lista abaixo) | hardenings residuais, outcomes tipados, privacidade do log, CI sem status fantasma, higiene dos testes, contrato do provedor + `brain:preflight`, runbook, e os achados das revisões adversarial e independente |
+
+Commits desta branch, na ordem (`git log --oneline 98a80b0..HEAD`, de
+baixo para cima):
+
+1. `fix(brain): fecha hardenings residuais do Answer v1`
+2. `refactor(brain): tipa outcomes da síntese`
+3. `test(brain): endurece privacidade dos logs`
+4. `ci(brain): prepara required checks sem status fantasma`
+5. `chore(brain): endurece higiene dos testes`
+6. `feat(brain): adiciona preflight seguro do provedor`
+7. `docs(brain): adiciona runbook de produção e matriz de readiness`
+8. `fix(brain): fecha achados da revisão adversarial`
+9. `fix(brain): fecha achados da revisão independente`
 
 Esta branch nasce em cima do PR #7. Ordem obrigatória: **PR #7 entra
 primeiro**; só então abrir o PR desta branch contra `main` (o diff dele passa
@@ -43,7 +56,7 @@ gatilho):
 | `brain-db-gate` | `BRAIN` | verde; é o veredito do banco |
 
 Local, antes de publicar: `npm run check:brain-all` passou em 26/09 (exit 0,
-sete suítes). Lint, typecheck e build ficam com o `app-gates`.
+guarda + 6 suítes). Lint, typecheck e build ficam com o `app-gates`.
 
 ### 1.3 Branch protection (recomendada, depois do merge desta branch)
 
@@ -51,6 +64,8 @@ Em *Settings → Branches → main*:
 
 - **Exigir pull request** antes do merge.
 - **Exigir status checks**, exatamente dois: `app-gates` e `brain-db-gate`.
+- **"Require branches to be up to date before merging"** ligado (ver
+  "PR com base trocada", abaixo).
 - Force push e exclusão da branch: **desligados** (`CLAUDE.md`, regra 2).
 
 **Não** marcar `deploy-reversao` nem `scope` (`ci.md` §3):
@@ -66,8 +81,16 @@ workflows tiverem rodado pelo menos uma vez com os jobs novos — o GitHub só
 oferece na lista o nome de um check que já reportou. Ligar antes, com os
 `paths` antigos, trava PR só de `docs/` em "Expected — Waiting for status".
 
-Se um dia houver merge queue: os dois workflows precisam de `merge_group:`
-(`ci.md` §3). Hoje não têm.
+**PR com base trocada (retarget) guarda resultado velho.** Se a base de um
+PR mudar sem push novo, o `brain-db-gate` que aparece é o da rodada contra a
+base antiga (o diff do `scope` era outro). Mitigação: ligar também
+**"Require branches to be up to date before merging"** — o GitHub exige
+atualizar a branch, o que dispara rodada nova contra a base atual. Está no
+PASSO EXATO do item de branch protection no `fase-2-gap-register.md`.
+
+Merge queue: os dois workflows já têm o gatilho `merge_group:` desde o
+commit `fix(brain): fecha achados da revisão adversarial` (`ci.md` §3) —
+inofensivo sem fila; com fila, os checks obrigatórios reportam nela.
 
 ### 1.4 Netlify: o que o merge muda e o que não muda
 
@@ -251,7 +274,7 @@ evidência · prompt · corpo ou mensagem de erro do provedor · chave · ids
 (UUID, `chunk_id`, `document_id`) · caminho de Storage · sha256 · detalhe da
 rejeição do validador · código de produto fora de `comparison_incomplete` (e
 ali só os que o catálogo das evidências aceitas conhece). Testes: LOG1–LOG8b
-e OBS1–OBS14 em `check-brain-synthesis.mjs`.
+e OBS1–OBS15 em `check-brain-synthesis.mjs`.
 
 ### 5.4 O que contar
 

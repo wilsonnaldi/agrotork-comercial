@@ -9,14 +9,15 @@
  *    `app-gates` roda sempre e roda tudo (é check obrigatório) —, e tem
  *    `npm run lint`, `typecheck` e `build` como linhas exatas.
  * 3. brain.yml mantém o desenho de check obrigatório: `scope` decide (as
- *    duas saídas, evento desconhecido → pesado, diff com `--no-renames`),
+ *    duas saídas, evento desconhecido → pesado, diff com `--no-renames`,
+ *    `set -euo pipefail` e a regex do filtro, no shell do próprio job),
  *    `deploy-reversao` só roda com db=true, `brain-db-gate` sempre reporta e
  *    o veredito dele está fixado linha a linha; sem `continue-on-error` e
  *    só os dois `if:` do desenho.
  * 4. Nos dois: `pull_request:` e `merge_group:` sem filtro, sem
  *    `pull_request_target`, uma única `permissions:` (topo, exatamente
  *    `contents: read`), nenhuma menção a `secrets`, nenhum `${{` dentro de
- *    `run:`.
+ *    `run:`, nenhum `ref:` (o checkout usa o ref do evento).
  *
  * Por que existe: o CI já ficou velho uma vez — suíte nova no package.json,
  * workflow sem saber dela, verde enganoso. E um `paths:` devolvido ao
@@ -179,17 +180,29 @@ regra(gate !== null && faltaVeredito.length === 0 && envGate.every((e) => linhaE
   "brain-db-gate: veredito e env (SCOPE/DB/HEAVY) com o texto fixado",
   `brain-db-gate: veredito ou env alterado (${[...faltaVeredito, ...envGate.filter((e) => !linhaExata(gate ?? "", e))].join(" | ")})`);
 // O scope: as duas saídas existem, o `*)` do evento cai no pesado, e o
-// diff lista o nome ANTIGO de arquivo movido (--no-renames).
+// diff lista o nome ANTIGO de arquivo movido (--no-renames). Conferido só
+// no shell do PRÓPRIO job `scope` (revisão independente, 26/09): antes valia
+// o shell do arquivo inteiro, e a linha podia sobreviver noutro job enquanto
+// o scope mudava. Duas linhas entraram na lista: `set -euo pipefail` (sem
+// ela, um `git diff` que falha deixa o arquivo vazio e o grep diz "nada
+// mudou" → db=false, ensaio pulado) e a regex do filtro, com o texto exato
+// (alargar a âncora ou tirar `brain/` também pularia o ensaio em silêncio).
+const iScope = lsDb.findIndex((l) => !l.run && l.code === "  scope:");
+let fScope = iScope + 1;
+while (iScope >= 0 && fScope < lsDb.length && (lsDb[fScope].run || lsDb[fScope].code.trim() === "" || lsDb[fScope].ind > 2)) fScope += 1;
+const shScope = iScope < 0 ? "" : shell(lsDb.slice(iScope, fScope));
 const SCOPE_FIXO = [
+  "set -euo pipefail",
+  `if grep -zqE '^(supabase/|brain/|\\.github/workflows/brain\\.yml$)' "$RUNNER_TEMP/changed"; then`,
   'heavy() { echo "db=true" >> "$GITHUB_OUTPUT"; echo "scope: $1 -> roda tudo"; exit 0; }',
   '*)            heavy "evento $EVENT" ;;',
   'git diff --no-renames --name-only -z "$mb" HEAD > "$RUNNER_TEMP/changed"',
   'echo "db=true" >> "$GITHUB_OUTPUT"; echo "scope: mudanca relevante -> roda"',
   'echo "db=false" >> "$GITHUB_OUTPUT"; echo "scope: nada relevante -> pula"',
 ];
-const faltaScope = SCOPE_FIXO.filter((v) => !linhaExata(shDb, v));
+const faltaScope = SCOPE_FIXO.filter((v) => !linhaExata(shScope, v));
 regra(faltaScope.length === 0 && linhaExata(db, "db: ${{ steps.diff.outputs.db }}"),
-  "scope: db=true e db=false, evento desconhecido → pesado, diff com --no-renames, output ligado ao step",
+  "scope: set -euo pipefail, filtro exato, db=true e db=false, evento desconhecido → pesado, diff com --no-renames, output ligado ao step",
   `scope alterado: ${faltaScope.join(" | ") || "output `db: ${{ steps.diff.outputs.db }}` ausente"}`);
 
 // --- 4. os dois: gatilho, permissões, superfície mínima ------------------
@@ -219,6 +232,14 @@ for (const [nomeW, t, ls] of [[WORKFLOW, app, lsApp], [WORKFLOW_DB, db, lsDb]]) 
   // na estrutura ou no shell.
   regra(!/\bsecrets\b/.test(`${t}\n${shell(ls)}`), `${nomeW} sem secrets`,
     `${nomeW} referencia \`secrets\` — o CI roda sem credencial, de propósito`);
+  // Nenhum `ref:` (revisão independente, 26/09): no checkout ele troca o
+  // código conferido — `ref: ${{ github.event.pull_request.head.sha }}`
+  // testaria a head e não o merge ref, e o scope diffaria outra coisa; um
+  // `ref:` fixo testaria código que não é o do PR. Nenhum `with:` destes
+  // workflows precisa de `ref:`, então qualquer linha `ref:` na estrutura
+  // reprova.
+  regra(!/^\s*(?:-\s+)?ref\s*:/m.test(t), `${nomeW}: nenhum \`ref:\` (checkout sempre no ref do evento)`,
+    `${nomeW}: tem \`ref:\` — o checkout deixaria de testar o código do evento`);
   // `${{ }}` dentro do shell vira código antes de rodar: contexto só por env.
   regra(!shell(ls).includes("${{"), `${nomeW}: nenhum \`\${{\` dentro de \`run:\` (contexto só por env)`,
     `${nomeW}: \`\${{\` dentro de um \`run:\` — o valor do evento seria executado pelo shell`);

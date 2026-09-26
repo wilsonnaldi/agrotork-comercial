@@ -20,7 +20,8 @@
  * reprodução de lacunas; fechadas, viraram a regra. O mesmo vale para
  * SYN33 (chunkId repetido na busca → internal_error), SYN34f–g (modelo com
  * cara de chave, chave fora do ASCII visível), SYN35 (porta que lança sem
- * evento) e OBS14 (`kind` adulterado no log), da revisão adversarial de 26/09.
+ * evento) e OBS14 (`kind` adulterado no log), da revisão adversarial de 26/09,
+ * e OBS15 (`codesForLog` chamado sozinho), da revisão independente de 26/09.
  */
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join, dirname } from "node:path";
@@ -999,7 +1000,7 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     razoes.join(" · "));
 
   // ════════════════════════════════════════════════════════════
-  process.stdout.write("▶ Privacidade do log (OBS1–OBS14)\n");
+  process.stdout.write("▶ Privacidade do log (OBS1–OBS15)\n");
   //
   // O evento `[brain.synthesis]` sai do RLS: vai para o log de função da
   // Netlify. Estes testes provam, com fixtures ADVERSARIAIS, que nele só
@@ -1111,6 +1112,18 @@ async function suite({ S, A, C, P, L, E, EX, O, CFG, ProviderError }) {
     O.providerErrorReason({ kind: "rate_limit" }) === "rate_limit" && O.providerErrorReason({ kind: 7 }) === "unknown" &&
     O.providerErrorReason(null) === "unknown",
     `${desf(o14a)} ${desf(o14b)}`);
+
+  // OBS15 (revisão independente, 26/09): `codesForLog` direto. OBS4/OBS13
+  // passam pela primeira trava (o catálogo), então não percebiam se a
+  // segunda — a de FORMA — virasse identidade. Aqui ela é chamada sozinha,
+  // com o que nunca pode ir ao log mesmo estando num catálogo malformado.
+  const uuid15 = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
+  const url15 = "https://exemplo.invalid/p?id=MJ981CAP";
+  const hex15 = "a".repeat(32) + "0123456789abcdef0123456789abcdef";
+  const saida15 = O.codesForLog([uuid15, url15, hex15, "MJ981CAP"]);
+  confere("OBS15 codesForLog([UUID, URL, 64-hex, 'MJ981CAP']) → só ['MJ981CAP'] (a trava de forma não é identidade)",
+    hex15.length === 64 && JSON.stringify(saida15) === JSON.stringify(["MJ981CAP"]),
+    JSON.stringify(saida15.map((c) => c.length)));
 
   // OBS12 roda antes das conferências globais para que os 50 eventos também
   // passem por elas.

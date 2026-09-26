@@ -50,22 +50,26 @@ Manual e local — **não é step de CI** (o nome não começa com `check:brain`
 então a guarda do CI não o exige). Não chama o provedor, o banco nem a rede.
 
 ```
-npm run brain:preflight              # lê o ambiente + .env.local do diretório atual
+npm run brain:preflight              # lê o ambiente + os .env* do diretório atual, como o Next
 npm run brain:preflight -- --contract  # só o contrato; ignora o ambiente (seguro para CI/docs)
 ```
 
-**Fonte:** o ambiente do processo e **só** o `.env.local` do diretório
-atual (nem `.env`, nem `.env.production`, nem arquivo de diretório pai); o
-ambiente vence o arquivo. Regras de leitura, iguais às do dotenv no que
-importa: `export NOME=valor` aceito; aspas simples ou duplas em volta, com
-comentário opcional depois (`NOME="a b" # nota`); valor sem aspas cortado no
-primeiro ` #`, e valor sem aspas que **começa** com `#` vale vazio
-(`NOME=#x` → ausente); BOM e CRLF ignorados. **Uma variável por linha**:
-valor multilinha entre aspas é erro (`valor multilinha não suportado em
-NOME; use uma linha`, exit 1, sem o valor). `.env.local` ilegível
-(diretório com esse nome, permissão) dá `não foi possível ler .env.local
-(<código>)`, exit 1, sem pilha; argumento que não seja `--contract` dá a
-linha de uso, exit 1, sem ecoar o argumento.
+**Fonte:** o ambiente do processo e os arquivos `.env*` do diretório
+atual, lidos pelo **mesmo carregador do Next (`@next/env`)**, em modo de
+produção — ordem `.env.production.local` → `.env.local` →
+`.env.production` → `.env`, exatamente o conjunto que `next start` carrega
+(`.env.development*` não conta; `NODE_ENV=test` não troca o conjunto). O
+ambiente vence os arquivos, como no servidor. Até a revisão independente de
+26/09 o preflight tinha parser próprio e divergia do Next em casos reais
+(`KEY=FAKEabc#def` o Next carrega como `FAKEabc`; `"FAKE\nabc"` entre aspas
+duplas vira quebra de linha de verdade → `key_invalid`); agora o veredito é
+o que o servidor teria, por construção. Valor multilinha entre aspas é lido
+como o Next lê (com a quebra de linha, logo `key_invalid` para a chave) —
+não há mais regra própria de "uma variável por linha". Arquivo `.env*` que é
+diretório (o Next o ignora em silêncio) ou ilegível dá `não foi possível
+ler <arquivo> (<código>)`, exit 1, sem pilha; argumento que não seja
+`--contract` dá a linha de uso, exit 1, sem ecoar o argumento. `--contract`
+não lê arquivo nenhum.
 
 Imprime, por variável, **só** `presente` / `ausente` — nem valor, nem
 pedaço, nem tamanho —, se existe alguma `NEXT_PUBLIC_BRAIN_LLM*`, se o
@@ -74,7 +78,7 @@ provedor é suportado, se o modelo está preenchido e o veredito:
 | Exit | Veredito |
 |---|---|
 | 0 | `PRONTO PARA PRODUÇÃO (configuração)` |
-| 1 | `NÃO CONFIGURADO: <reason>` (lista abaixo) — ou `.env.local` ilegível, valor multilinha, argumento desconhecido |
+| 1 | `NÃO CONFIGURADO: <reason>` (lista abaixo) — ou arquivo `.env*` ilegível/diretório, argumento desconhecido |
 | 2 | existe `NEXT_PUBLIC_BRAIN_LLM*` — remover antes de qualquer coisa |
 
 O preflight **não** prova que a chave é válida (isso exigiria chamar o
@@ -101,8 +105,9 @@ ambiente…"): quem pergunta não precisa saber qual variável falta.
 | `key_invalid` | `BRAIN_LLM_API_KEY` com espaço interno, controle ou caractere fora do ASCII visível |
 
 Testes: `check-brain-provider.mjs` CFG1–CFG17c (parser e `resolveProvider`
-com ambiente inventado) e PF1–PF11 (o preflight como processo filho, com
-`.env.local` de verdade em diretório temporário a partir do PF8);
+com ambiente inventado) e PF1–PF14 + PF5c (o preflight como processo
+filho, com arquivos `.env*` de verdade em diretório temporário a partir do
+PF8; PF12–PF14 fixam o comportamento do `@next/env`);
 `check-brain-synthesis.mjs` SYN34a–h (cada motivo chega ao log, provedor
 0×, aviso idêntico).
 

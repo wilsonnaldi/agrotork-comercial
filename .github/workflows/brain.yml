@@ -26,8 +26,13 @@ on:
   # Sem `paths`: o filtro mora no job `scope`, para que `brain-db-gate`
   # reporte status em TODO PR.
   pull_request:
+  # Push so em main. Com brain/fase-1|2 aqui, um PR cuja head fosse uma
+  # dessas branches ganhava um SEGUNDO brain-db-gate no mesmo SHA, com diff
+  # contra `before` (o push anterior) em vez do merge-base do PR — podia
+  # ficar verde com a rodada do PR vermelha, e a branch protection nao
+  # distingue as duas (revisao independente, 26/09).
   push:
-    branches: [main, brain/fase-1, brain/fase-2]
+    branches: [main]
   workflow_dispatch:
   # Inofensivo sem merge queue; com ela, sem este gatilho o brain-db-gate
   # nunca reportaria na fila. O scope trata o evento como desconhecido
