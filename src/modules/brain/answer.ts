@@ -50,7 +50,13 @@ export type BrainNaturalAnswer = {
   warning?: string;
   /** Como a resposta foi produzida. `extractive` = sem modelo externo. */
   mode?: "synthesized" | "extractive" | "none";
-  /** A pergunta comparou códigos — a tela mostra o selo e empilha os blocos. */
+  /**
+   * A PERGUNTA pede comparação entre códigos (`isComparisonQuestion`). Só
+   * alimenta o selo "Comparação" do console — não muda o layout da resposta.
+   * Sai do texto da pergunta, nunca da evidência, então vale igual em todo
+   * caminho que devolve resposta (inclusive gate externo, sem provedor e erro
+   * do provedor) e não revela nada sobre o que existe na memória.
+   */
   comparison?: boolean;
 };
 
@@ -222,6 +228,39 @@ export function buildCitations(evidencias: KnowledgeEvidence[]): BrainCitation[]
     evidenceIndex: i,
     label: e.citation,
   }));
+}
+
+/**
+ * As citações como a TELA as lê. Duas numerações convivem, e trocá-las é o
+ * erro: `buildCitations(aceitas)` numera `evidenceIndex` sobre as evidências
+ * ACEITAS — é o que o validador (grounding, comparação) espera —, mas o
+ * console indexa `resposta.evidence`, que é TUDO o que a busca trouxe,
+ * inclusive o que o Evidence Gate descartou. A tradução acontece só na saída.
+ *
+ * Por `chunkId`, não por identidade de objeto: um clone da mesma evidência
+ * continua sendo a mesma evidência. E FAIL-CLOSED: se uma aceita não está em
+ * `evidencias`, ou a citação aponta fora das aceitas, devolve `null`. Antes
+ * havia um `?? c.evidenceIndex` que, nesse caso, apontava o card ERRADO em
+ * silêncio; agora quem chama recebe `null` e não mostra citação nenhuma.
+ */
+export function mapCitationsToScreen(
+  citacoes: BrainCitation[],
+  aceitas: KnowledgeEvidence[],
+  evidencias: KnowledgeEvidence[],
+): BrainCitation[] | null {
+  const posicao = new Map<number, number>();
+  evidencias.forEach((e, i) => {
+    if (!posicao.has(e.chunkId)) posicao.set(e.chunkId, i);
+  });
+  const saida: BrainCitation[] = [];
+  for (const c of citacoes) {
+    const aceita = Number.isInteger(c.evidenceIndex) ? aceitas[c.evidenceIndex] : undefined;
+    if (!aceita) return null;
+    const naTela = posicao.get(aceita.chunkId);
+    if (naTela === undefined) return null;
+    saida.push({ ...c, evidenceIndex: naTela });
+  }
+  return saida;
 }
 
 /** Os números entre colchetes que o texto realmente usa. */

@@ -34,11 +34,15 @@ const VERSAO_API = "2023-06-01";
 export class AnthropicProvider implements BrainLlmProvider {
   readonly name = "anthropic";
   readonly model: string;
-  private readonly apiKey: string;
+  // Campo privado NATIVO (`#`), não `private` do TypeScript: o `private` some
+  // na compilação e a chave continuaria enumerável — `JSON.stringify(provider)`
+  // ou um `console.log(provider)` a imprimiriam. O `#` não aparece em nenhum
+  // dos dois.
+  readonly #apiKey: string;
   private readonly maxTokens: number;
 
   constructor(apiKey: string, model: string, maxTokens = 1024) {
-    this.apiKey = apiKey;
+    this.#apiKey = apiKey;
     this.model = model;
     this.maxTokens = maxTokens;
   }
@@ -48,57 +52,67 @@ export class AnthropicProvider implements BrainLlmProvider {
     const controle = new AbortController();
     const relogio = setTimeout(() => controle.abort(), input.timeoutMs);
 
-    let resposta: Response;
+    // O relógio só é desarmado no `finally`, DEPOIS de o corpo ser lido. Antes
+    // ele era limpo assim que chegavam os cabeçalhos, e um provedor que
+    // mandasse o cabeçalho e travasse no corpo deixava `resposta.json()`
+    // pendurado sem teto nenhum. O mesmo AbortController cobre as duas fases.
     try {
-      resposta = await fetch(ENDPOINT, {
-        method: "POST",
-        signal: controle.signal,
-        headers: {
-          "content-type": "application/json",
-          "x-api-key": this.apiKey,
-          "anthropic-version": VERSAO_API,
-        },
-        body: JSON.stringify({
-          // SÓ O NECESSÁRIO. Nada de `temperature`, `top_p`, `top_k`,
-          // `thinking` ou `budget_tokens` — ver o bloco de comentário acima.
-          model: this.model,
-          max_tokens: this.maxTokens,
-          system: input.systemPrompt,
-          messages: [{ role: "user", content: input.userMessage }],
-        }),
-      });
-    } catch (erro) {
-      clearTimeout(relogio);
-      if (erro instanceof Error && erro.name === "AbortError") {
-        throw new ProviderError("o provedor não respondeu a tempo", "timeout");
+      let resposta: Response;
+      try {
+        resposta = await fetch(ENDPOINT, {
+          method: "POST",
+          signal: controle.signal,
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": this.#apiKey,
+            "anthropic-version": VERSAO_API,
+          },
+          body: JSON.stringify({
+            // SÓ O NECESSÁRIO. Nada de `temperature`, `top_p`, `top_k`,
+            // `thinking` ou `budget_tokens` — ver o bloco de comentário acima.
+            model: this.model,
+            max_tokens: this.maxTokens,
+            system: input.systemPrompt,
+            messages: [{ role: "user", content: input.userMessage }],
+          }),
+        });
+      } catch (erro) {
+        if (controle.signal.aborted || (erro instanceof Error && erro.name === "AbortError")) {
+          throw new ProviderError("o provedor não respondeu a tempo", "timeout");
+        }
+        throw new ProviderError("não foi possível falar com o provedor", "network");
       }
-      throw new ProviderError("não foi possível falar com o provedor", "network");
-    }
-    clearTimeout(relogio);
 
-    if (!resposta.ok) {
-      // O corpo do erro pode repetir o prompt — e o prompt tem o conteúdo dos
-      // documentos. Fica de fora: só a categoria sobe.
-      const kind =
-        resposta.status === 401 || resposta.status === 403 ? "auth"
-        : resposta.status === 429 ? "rate_limit"
-        : "unknown";
-      throw new ProviderError(`provedor recusou a chamada (${resposta.status})`, kind);
-    }
+      if (!resposta.ok) {
+        // O corpo do erro pode repetir o prompt — e o prompt tem o conteúdo dos
+        // documentos. Fica de fora: só a categoria sobe.
+        const kind =
+          resposta.status === 401 || resposta.status === 403 ? "auth"
+          : resposta.status === 429 ? "rate_limit"
+          : "unknown";
+        throw new ProviderError(`provedor recusou a chamada (${resposta.status})`, kind);
+      }
 
-    let corpo: unknown;
-    try {
-      corpo = await resposta.json();
-    } catch {
-      throw new ProviderError("o provedor devolveu algo que não é JSON", "invalid_response");
-    }
+      let corpo: unknown;
+      try {
+        corpo = await resposta.json();
+      } catch {
+        // Corpo interrompido pelo relógio é tempo esgotado, não JSON inválido.
+        if (controle.signal.aborted) {
+          throw new ProviderError("o provedor não respondeu a tempo", "timeout");
+        }
+        throw new ProviderError("o provedor devolveu algo que não é JSON", "invalid_response");
+      }
 
-    const texto = extrairTexto(corpo);
-    if (texto === null) {
-      throw new ProviderError("o provedor devolveu um formato inesperado", "invalid_response");
-    }
+      const texto = extrairTexto(corpo);
+      if (texto === null) {
+        throw new ProviderError("o provedor devolveu um formato inesperado", "invalid_response");
+      }
 
-    return { text: texto, meta: { provider: this.name, model: this.model, durationMs: Date.now() - t0 } };
+      return { text: texto, meta: { provider: this.name, model: this.model, durationMs: Date.now() - t0 } };
+    } finally {
+      clearTimeout(relogio);
+    }
   }
 }
 

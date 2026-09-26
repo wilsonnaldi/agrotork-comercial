@@ -172,14 +172,26 @@ export function percentDifference(a: ProductValue, b: ProductValue): string | nu
   return paraTexto(Number(Math.abs(variacao).toFixed(1)), 1);
 }
 
+/**
+ * A pergunta pede comparação? Decide SÓ pelo texto da pergunta — intenção
+ * explícita e pelo menos dois códigos —, sem olhar evidência, política ou
+ * provedor. É por isso que a síntese pode calcular o selo "Comparação" antes
+ * de qualquer gate: o selo repete o que a pessoa escreveu e não revela nada
+ * sobre o que existe (ou não pode sair) na memória.
+ *
+ * Um critério só no sistema: `planComparison` usa esta mesma função para
+ * decidir `not_applicable`. Acima do teto continua sendo comparação — o plano
+ * vira `too_many`, não `not_applicable`.
+ */
+export function isComparisonQuestion(pergunta: string): boolean {
+  return detectComparisonIntent(pergunta) && parseComparison(pergunta).codes.length >= 2;
+}
+
 export function planComparison(pergunta: string, evidencias: KnowledgeEvidence[]): ComparisonPlan {
-  if (!detectComparisonIntent(pergunta)) {
-    return { status: "not_applicable", reason: "a pergunta não pede comparação" };
+  if (!isComparisonQuestion(pergunta)) {
+    return { status: "not_applicable", reason: "a pergunta não pede comparação entre dois ou mais códigos" };
   }
   const spec = parseComparison(pergunta);
-  if (spec.codes.length < 2) {
-    return { status: "not_applicable", reason: "a pergunta não traz dois códigos" };
-  }
   if (spec.codes.length > MAX_CODIGOS_COMPARADOS) {
     return { status: "too_many", codes: spec.codes, limite: MAX_CODIGOS_COMPARADOS };
   }

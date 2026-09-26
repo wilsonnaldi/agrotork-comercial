@@ -448,9 +448,13 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   confere("SYN19 forbidden + incompleta: o plano SERIA incompleto, mas o gate externo vence — provider 0",
     planoS19.status === "ready" && planoS19.incomplete === true &&
     s19.chamadas === 0 && s19.conta.resolve === 0 && s19.log?.outcome === "external_processing_forbidden");
-  confere("SYN19b o aviso é o do processamento externo, e não fala da comparação",
+  // Desde a rodada A1 o selo `comparison` sai do TEXTO da pergunta, antes de
+  // qualquer gate — então aqui ele é `true`. O que continua proibido é o
+  // AVISO falar da comparação: ele é só o do processamento externo.
+  confere("SYN19b o aviso é o do processamento externo e não fala da comparação; o selo vem da pergunta (comparison true)",
     s19.r.warning.startsWith('O documento "Orçamento interno — sistemas ARAG para bicos" não pode ser processado') &&
-    !s19.r.warning.includes("MJ999CAP") && s19.r.comparison === undefined, s19.r.warning);
+    !s19.r.warning.includes("MJ999CAP") && !/compar|diferen/i.test(s19.r.warning) && s19.r.comparison === true,
+    `comparison=${s19.r.comparison} — ${s19.r.warning}`);
   const tituloArag = "Orçamento interno — sistemas ARAG para bicos";
   const ocorrencias = (t, s) => t.split(s).length - 1;
   confere("SYN19c a resposta é EXATAMENTE a extractiva padrão: o título proibido só aparece na linha de citação dela",
@@ -702,6 +706,65 @@ async function suite({ S, A, C, P, L, E, EX, ProviderError }) {
   const injOk = await rodar({ rotulo: "INJ-SYN2", pergunta: Q, linhas: [MAG_INJ], prov: provedor(OK_PONTUAL) });
   confere("INJ-SYN2 a mesma evidência com a linha impressa, e o provedor NÃO obedece → synthesized (a evidência não é punida pela injeção)",
     injOk.r.mode === "synthesized" && injOk.r.answer === OK_PONTUAL && injOk.log?.outcome === "answered", injOk.log?.outcome);
+
+  // ════════════════════════════════════════════════════════════
+  process.stdout.write("▶ Selo de comparação em todo caminho com resposta (SYN32)\n");
+  //
+  // Revisão de 25/09 (HARDENING): `comparison` sumia no gate externo, sem
+  // provedor e no erro do provedor, porque dependia do plano. Agora vem de
+  // `isComparisonQuestion(pergunta)` — só texto, calculado antes dos gates.
+
+  const s32a = await rodar({ rotulo: "SYN32a", pergunta: Q_40PSI, prov: null });
+  confere("SYN32a pergunta de comparação + sem provedor → extractive com comparison true",
+    s32a.r.mode === "extractive" && s32a.r.comparison === true && s32a.log?.outcome === "no_provider",
+    `comparison=${s32a.r.comparison} outcome=${s32a.log?.outcome}`);
+  const s32b = await rodar({ rotulo: "SYN32b", pergunta: Q_40PSI, prov: provedor(new ProviderError("falhou", "timeout")) });
+  confere("SYN32b pergunta de comparação + provedor lança → extractive com comparison true",
+    s32b.r.mode === "extractive" && s32b.r.comparison === true && s32b.chamadas === 1 &&
+    s32b.log?.outcome.startsWith("provider_error"),
+    `comparison=${s32b.r.comparison} outcome=${s32b.log?.outcome}`);
+  confere("SYN32c pergunta que NÃO compara → comparison undefined no gate externo, sem provedor e no erro do provedor",
+    [s4, s6, s7, s8, s9].every((t) => t.r.comparison === undefined && t.r.mode === "extractive"),
+    [s4, s6, s7].map((t) => `${t.rotulo}:${t.r.comparison}`).join(" "));
+  const PERGUNTAS_32D = [
+    [Q_40PSI, true],                            // dois códigos, intenção explícita
+    ["Compare a vazão da MJ981CAP a 40 psi", false], // um código só
+    [Q, false],                                 // sem intenção de comparar
+    [Q_SEIS, true],                             // seis códigos: too_many, mas É comparação
+    [Q_999, true],                              // um lado sem evidência: ready/incomplete
+    ["Qual a diferença entre as pontas?", false],    // intenção sem código
+  ];
+  const discordam = PERGUNTAS_32D.filter(([q, esperado]) => {
+    const plano = C.planComparison(q, [E.toEvidence(MAG, false)]);
+    return C.isComparisonQuestion(q) !== esperado || (plano.status !== "not_applicable") !== esperado;
+  });
+  confere("SYN32d isComparisonQuestion concorda com planComparison(...).status !== 'not_applicable' em 6 perguntas (2 códigos, 1, sem intenção, 6→too_many, incompleta, sem código)",
+    discordam.length === 0, discordam.map(([q]) => q).join(" | ") || "6/6");
+
+  // ════════════════════════════════════════════════════════════
+  process.stdout.write("▶ Citação fail-closed (SYN33)\n");
+  //
+  // A violação da invariante (aceita fora de `evidencias`) NÃO é alcançável
+  // ponta a ponta sem gancho de teste no código de produção: as aceitas saem
+  // de `evidencias` por construção, e nenhuma porta injetável (`search`,
+  // `externalProcessing`, `resolveProvider`) as separa. Não se acrescenta
+  // gancho só para o teste. A garantia do comportamento é
+  // `mapCitationsToScreen` testada direto (check-brain-answer.mjs, CIT1–CIT4);
+  // aqui se prova (a) que nenhum caminho real cai nela e (b) que a checagem
+  // está no lugar certo — logo depois do Evidence Gate, antes da política e
+  // do provedor.
+  const FONTE_SYN = readFileSync(join(RAIZ, "src/modules/brain/synthesis.ts"), "utf8");
+  const posMapa = FONTE_SYN.indexOf("mapCitationsToScreen(citacoes, aceitas, evidencias)");
+  const posGate = FONTE_SYN.indexOf("assessEvidence(input.query, evidencias)");
+  const posExterno = FONTE_SYN.indexOf("deps.externalProcessing(");
+  const posProvedor = FONTE_SYN.indexOf("deps.resolveProvider(");
+  const blocoNulo = FONTE_SYN.slice(posMapa, posExterno);
+  confere("SYN33 mapeamento de citação checado logo após o Evidence Gate e antes do gate externo e do provedor; null → internal_error, citations [], aviso genérico",
+    posGate > 0 && posMapa > posGate && posMapa < posExterno && posMapa < posProvedor &&
+    /=== null/.test(blocoNulo) && blocoNulo.includes("internal_error") && blocoNulo.includes("citations: []") &&
+    blocoNulo.includes("Não foi possível montar as citações desta resposta com segurança."));
+  confere("SYN33b e nenhum caminho real da cadeia cai no internal_error (a invariante vale em todas as consultas deste harness)",
+    TODAS.every((t) => !t.log?.outcome.startsWith("internal_error")), `${TODAS.length} consultas`);
 
   // ════════════════════════════════════════════════════════════
   process.stdout.write("▶ Log [brain.synthesis]\n");

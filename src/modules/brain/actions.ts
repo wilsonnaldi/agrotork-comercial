@@ -93,7 +93,16 @@ export async function askBrainAction(input: unknown): Promise<{ answer: BrainNat
 
   try {
     return { answer: await synthesis.answer(parsed.data, { isAdmin: user.profile.role === "admin" }) };
-  } catch {
+  } catch (e) {
+    // Antes o catch era mudo: uma falha aqui (banco, política, bug) sumia sem
+    // rastro. Agora deixa UMA linha estruturada — só o nome da classe do erro,
+    // nunca a mensagem: mensagem de erro do banco ou do provedor pode repetir
+    // a pergunta, o conteúdo dos documentos ou até cabeçalhos com credencial.
+    console.error("[brain.action]", JSON.stringify({
+      event: "brain.action",
+      outcome: "internal_error",
+      errorName: e instanceof Error ? e.name : "unknown",
+    }));
     return {
       answer: {
         query: parsed.data.query, status: "error", evidence: [],

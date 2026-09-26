@@ -19,6 +19,8 @@
  * pedida ou escrita.
  */
 import { mkdtempSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { createServer } from "node:http";
+import { inspect } from "node:util";
 import { join, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -212,6 +214,54 @@ let eFormato = null;
 try { await new AnthropicProvider(CHAVE_FALSA, MODELO).generate(ENTRADA); } catch (e) { eFormato = e; }
 confere("E11 resposta sem bloco de texto vira invalid_response",
   eFormato instanceof ProviderError && eFormato.kind === "invalid_response");
+
+// ───────────────────────────────────────────────────────────────────────────
+process.stdout.write("\nTETO DE ESPERA — o relógio cobre também o corpo\n");
+
+// Um servidor LOCAL (127.0.0.1, porta efêmera) manda o cabeçalho 200 e um
+// pedaço do JSON, e trava. Antes, o relógio era desarmado ao chegar o
+// cabeçalho e `resposta.json()` ficava pendurado para sempre; agora o mesmo
+// AbortController corta o corpo e o erro é `timeout`. O `fetch` de verdade é
+// usado (o espião só troca a URL da API pela do servidor local), para o
+// corte passar pelo streaming real do corpo. Nada sai da máquina.
+const TETO_MS = 300;
+const conexoes = new Set();
+const servidor = createServer((_req, res) => {
+  res.writeHead(200, { "content-type": "application/json" });
+  res.write('{"content":[{"type":"text","text":"come');   // e nunca termina
+});
+servidor.on("connection", (s) => { conexoes.add(s); s.on("close", () => conexoes.delete(s)); });
+await new Promise((ok) => servidor.listen(0, "127.0.0.1", ok));
+const porta = servidor.address().port;
+globalThis.fetch = (_url, init) => fetchOriginal(`http://127.0.0.1:${porta}/`, init);
+
+const t0 = Date.now();
+// Guarda do próprio teste: sem o conserto, a promessa nunca resolveria e a
+// suíte ficaria presa — assim ela falha em 3 s em vez de travar o CI.
+const GUARDA = Symbol("guarda");
+let guarda;
+const eCorpo = await Promise.race([
+  new AnthropicProvider(CHAVE_FALSA, MODELO).generate({ ...ENTRADA, timeoutMs: TETO_MS }).then(() => null, (e) => e),
+  new Promise((ok) => { guarda = setTimeout(() => ok(GUARDA), 3_000); }),
+]);
+clearTimeout(guarda);
+const decorrido = Date.now() - t0;
+for (const s of conexoes) s.destroy();
+await new Promise((ok) => servidor.close(ok));
+confere("E12 cabeçalho chega e o corpo trava → ProviderError timeout, dentro do teto",
+  eCorpo !== GUARDA && eCorpo instanceof ProviderError && eCorpo.kind === "timeout" && decorrido < TETO_MS + 1_500,
+  `${eCorpo === GUARDA ? "pendurado (guarda de 3 s)" : eCorpo?.kind} em ${decorrido} ms, teto ${TETO_MS} ms`);
+
+// ───────────────────────────────────────────────────────────────────────────
+process.stdout.write("\nSEGREDO — o objeto do provedor não carrega a chave para fora\n");
+
+const soltoNoLog = new AnthropicProvider(CHAVE_FALSA, MODELO);
+confere("E13 JSON.stringify(provider) não contém a chave",
+  !JSON.stringify(soltoNoLog).includes(CHAVE_FALSA), JSON.stringify(soltoNoLog));
+confere("E14 util.inspect(provider) (o que console.log imprime) não contém a chave",
+  !inspect(soltoNoLog, { showHidden: true, depth: 5 }).includes(CHAVE_FALSA) &&
+  !Object.values(soltoNoLog).some((v) => String(v).includes(CHAVE_FALSA)),
+  inspect(soltoNoLog).replace(/\s+/g, " "));
 
 // ───────────────────────────────────────────────────────────────────────────
 globalThis.fetch = fetchOriginal;

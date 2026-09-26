@@ -1119,6 +1119,48 @@ const inj23 = gatesInj(Q_INJ, "A MJ981CAP entrega 0,77 L/min a 40 psi [1]. Confo
 confere("INJ23 ponta a ponta: bloco factual correto + 2ª oração '1ª pessoa com atribuição na 1ª oração' → REPROVADO por stance (a atribuição não atravessa a oração)",
   inj23.g && inj23.kind === "stance", inj23.resumo ?? JSON.stringify(inj23));
 
+// ════════════════════════════════════════════════════════════
+process.stdout.write("▶ Citações para a tela, fail-closed (CIT1–CIT4)\n");
+//
+// `mapCitationsToScreen` traduz o índice sobre as ACEITAS para o índice em
+// `evidence` (tudo o que a busca trouxe). Antes, por identidade de objeto e
+// com `?? c.evidenceIndex`: um clone da aceita caía no fallback e abria o
+// card errado sem erro. Agora mapeia por `chunkId`, e violação vira `null`.
+
+/** A regra ANTIGA, reproduzida aqui só para provar a diferença (CIT2). */
+const mapaAntigo = (citacoes, aceitas, evidencias) => {
+  const posicao = new Map(evidencias.map((e, i) => [e, i]));
+  return citacoes.map((c) => ({ ...c, evidenceIndex: posicao.get(aceitas[c.evidenceIndex]) ?? c.evidenceIndex }));
+};
+const descartada = ev({ chunkId: 10, content: "", citation: "Descartada — sem conteúdo · p. 1" });
+const aceitaA = ev({ chunkId: 11, citation: "Magnojet — Catálogo Magnojet V41 · p. 20" });
+const aceitaB = ev({ chunkId: 12, citation: "Magnojet — Catálogo Magnojet V41 · p. 21", page: { from: 21, to: 21 } });
+const naTela = [descartada, aceitaA, aceitaB];
+const citAB = A.buildCitations([aceitaA, aceitaB]);
+
+const mapa1 = A.mapCitationsToScreen(citAB, [aceitaA, aceitaB], naTela);
+confere("CIT1 mesmas referências → mesmo resultado da regra antiga ([1]→evidence[1], [2]→evidence[2])",
+  mapa1 !== null && JSON.stringify(mapa1) === JSON.stringify(mapaAntigo(citAB, [aceitaA, aceitaB], naTela)) &&
+  mapa1.map((c) => c.evidenceIndex).join() === "1,2",
+  JSON.stringify(mapa1?.map((c) => c.evidenceIndex)));
+
+const clones = [structuredClone(aceitaA), structuredClone(aceitaB)];
+const mapa2 = A.mapCitationsToScreen(citAB, clones, naTela);
+const antigo2 = mapaAntigo(citAB, clones, naTela);
+confere("CIT2 aceitas CLONADAS (mesmo chunkId, outro objeto) → card certo; a regra antiga abria o descartado",
+  mapa2 !== null && mapa2.every((c) => naTela[c.evidenceIndex].citation === c.label) &&
+  naTela[antigo2[0].evidenceIndex].chunkId === 10,
+  `novo: ${mapa2?.map((c) => naTela[c.evidenceIndex].chunkId).join()} · antigo: ${antigo2.map((c) => naTela[c.evidenceIndex].chunkId).join()}`);
+
+const intrusa = ev({ chunkId: 999, citation: "Fora da tela · p. 9" });
+confere("CIT3 aceita que não está entre as evidências da tela → null (sem fallback silencioso)",
+  A.mapCitationsToScreen(A.buildCitations([aceitaA, intrusa]), [aceitaA, intrusa], naTela) === null);
+
+const foraDoIntervalo = [...citAB, { ...citAB[1], index: 3, evidenceIndex: 5 }];
+confere("CIT4 evidenceIndex fora do intervalo das aceitas → null",
+  A.mapCitationsToScreen(foraDoIntervalo, [aceitaA, aceitaB], naTela) === null &&
+  A.mapCitationsToScreen([{ ...citAB[0], evidenceIndex: -1 }], [aceitaA, aceitaB], naTela) === null);
+
 rmSync(destino, { recursive: true, force: true });
 process.stdout.write(falhas === 0 ? "✔ camada de resposta natural\n" : `✗ ${falhas} falha(s)\n`);
 process.exit(falhas === 0 ? 0 : 1);

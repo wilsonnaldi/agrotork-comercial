@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Textarea } from "@/components/ui/field";
 import { askBrainAction } from "@/modules/brain/actions";
 import type { BrainCitation, BrainNaturalAnswer } from "@/modules/brain/answer";
+import { ERRO_CONSULTA } from "@/modules/brain/evidence";
 import {
   codigoConsultado,
   ehTabular,
@@ -266,7 +267,16 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
     if (limpa.length < 2 || consultando) return;
     setDestacada(null);
     iniciar(async () => {
-      const { answer } = await askBrainAction({ query: limpa, limit: 10 });
+      let answer: BrainNaturalAnswer;
+      try {
+        ({ answer } = await askBrainAction({ query: limpa, limit: 10 }));
+      } catch {
+        // A action já devolve recusa em vez de lançar; o que chega aqui é
+        // falha de transporte (rede, deploy trocado no meio). Sem este catch
+        // a tela ficava presa sem resposta. Mesmo estado de erro da action,
+        // com a mesma frase genérica.
+        answer = { query: limpa, status: "error", evidence: [], refusalReason: ERRO_CONSULTA, mode: "none" };
+      }
       setResposta(answer);
       // Sem síntese, a evidência é a resposta: já abre.
       setEvidenciasAbertas(answer.mode !== "synthesized");
@@ -421,9 +431,9 @@ export function BrainConsole({ isAdmin }: { isAdmin: boolean }) {
               <h2 className="font-display text-sm tracking-wide uppercase">
                 {ROTULO_DO_ESTADO[estado ?? "synthesized"]}
               </h2>
-              {/* Comparação: o selo avisa que a resposta tem blocos por
-                  produto e um valor calculado pelo sistema, não copiado do
-                  documento. No celular os blocos já empilham sozinhos. */}
+              {/* Comparação: o selo diz que a PERGUNTA compara códigos. Vale
+                  também na resposta extractiva (gate externo, sem provedor,
+                  erro), porque sai do texto da pergunta, não da evidência. */}
               {resposta.comparison && <Badge tone="info">Comparação</Badge>}
             </div>
 

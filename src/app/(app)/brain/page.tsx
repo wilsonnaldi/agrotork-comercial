@@ -10,9 +10,11 @@ export const metadata: Metadata = { title: "AGROTORK BRAIN" };
  * (e redireciona quem não a tem); a Server Action confere de novo e o banco
  * confere pela terceira vez — a tela é conforto, o RLS é a cerca.
  *
- * Nesta versão NÃO há geração de resposta: o que aparece é a evidência
- * recuperada, com fonte, documento, versão e página. Primeiro provar que
- * recuperação, autorização e proveniência funcionam ponta a ponta.
+ * Desde a Answer v1 há resposta redigida por um provedor externo — mas só
+ * sobre evidência já recuperada e autorizada, conferida pelo Answer Validator
+ * e sempre com os trechos originais visíveis (fonte, documento, versão e
+ * página). Sem provedor configurado, ou quando algum gate recusa, a resposta
+ * é extractiva: montada localmente, sem modelo. Ver `synthesis.ts`.
  */
 export default async function BrainPage() {
   const user = await requirePermission("knowledge.query");

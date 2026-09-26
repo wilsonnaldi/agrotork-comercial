@@ -4,11 +4,11 @@ import {
   assessEvidence,
   buildCitations,
   extractiveAnswer,
+  mapCitationsToScreen,
   validateAnswer,
-  type BrainCitation,
   type BrainNaturalAnswer,
 } from "./answer";
-import { MAX_CODIGOS_COMPARADOS, planComparison } from "./comparison";
+import { isComparisonQuestion, MAX_CODIGOS_COMPARADOS, planComparison } from "./comparison";
 import { assessExternalProcessing, parsePolicy, type EvidenceRef } from "./external-processing";
 import { refusal, toEvidence, type KnowledgeEvidence, type KnowledgeHitRow } from "./evidence";
 import { TIMEOUT_PROVIDER_MS } from "./limits";
@@ -99,24 +99,6 @@ function avisoComparacaoIncompleta(
 }
 
 /**
- * As citações como a TELA as lê. Duas numerações convivem aqui, e trocá-las
- * é o erro: `buildCitations(aceitas)` numera `evidenceIndex` sobre as
- * evidências ACEITAS — é o que o validador (grounding, comparação) espera —,
- * mas o console indexa `resposta.evidence`, que é TUDO o que a busca trouxe,
- * inclusive o que o Evidence Gate descartou. Com um descarte antes de uma
- * aceita, [1] abria o card errado. A tradução acontece só na saída; o
- * validador continua recebendo as citações sobre as aceitas.
- */
-function citacoesParaTela(
-  citacoes: BrainCitation[],
-  aceitas: KnowledgeEvidence[],
-  evidencias: KnowledgeEvidence[],
-): BrainCitation[] {
-  const posicao = new Map(evidencias.map((e, i) => [e, i]));
-  return citacoes.map((c) => ({ ...c, evidenceIndex: posicao.get(aceitas[c.evidenceIndex]!) ?? c.evidenceIndex }));
-}
-
-/**
  * As três portas por onde a cadeia sai deste arquivo: banco (busca e
  * política) e provedor. Injetáveis só para a máquina de estados ser
  * exercitada sem banco, sem rede e sem chave
@@ -148,6 +130,13 @@ export async function answerWith(
   input: KnowledgeQuery,
   opts: { isAdmin: boolean },
 ): Promise<BrainNaturalAnswer> {
+  // O selo "Comparação" sai só do TEXTO da pergunta, antes de qualquer gate:
+  // não lê evidência, política nem provedor, então pode valer igual em todo
+  // caminho que devolve resposta sem revelar nada do que existe na memória.
+  // Antes ele dependia do plano (declarado depois do gate externo) e sumia
+  // no gate externo, sem provedor e no erro do provedor.
+  const pedeComparacao = isComparisonQuestion(input.query);
+
   const rows: KnowledgeHitRow[] = await deps.search(input);
   const evidencias: KnowledgeEvidence[] = rows.map((r) => toEvidence(r, opts.isAdmin));
 
@@ -155,6 +144,7 @@ export async function answerWith(
     query: input.query,
     status: "answered",
     evidence: evidencias,
+    comparison: pedeComparacao || undefined,
     ...extra,
   });
 
@@ -173,7 +163,26 @@ export async function answerWith(
 
   const aceitas = avaliacao.accepted;
   const citacoes = buildCitations(aceitas);
-  const citacoesDaTela = citacoesParaTela(citacoes, aceitas, evidencias);
+  const citacoesMapeadas = mapCitationsToScreen(citacoes, aceitas, evidencias);
+  if (citacoesMapeadas === null) {
+    // Invariante quebrada: uma aceita que não está entre as evidências da
+    // tela. Na cadeia de hoje é inalcançável (as aceitas saem de
+    // `evidencias`), e é justamente por isso que não se tenta remendar: sem
+    // citação confiável não há citação nenhuma, e nada segue para o gate
+    // externo nem para o provedor. O aviso é genérico — sem id, sem pilha.
+    registrar({
+      query: input.query, evidencesRetrieved: rows.length, evidencesSent: 0,
+      provider: null, model: null, durationMs: null,
+      outcome: "internal_error: citation_mapping",
+    });
+    return base({
+      answer: extractiveAnswer(aceitas),
+      citations: [],
+      mode: "extractive",
+      warning: "Não foi possível montar as citações desta resposta com segurança. Os trechos encontrados estão abaixo, na íntegra.",
+    });
+  }
+  const citacoesDaTela = citacoesMapeadas;
 
   // ── gate de processamento externo ─────────────────────────
   // ANTES do provedor, sempre. Autorizar leitura não autoriza saída.
@@ -226,7 +235,6 @@ export async function answerWith(
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
       mode: "extractive",
-      comparison: true,
       warning: `A pergunta compara ${plano.codes.length} códigos, acima do limite de ${MAX_CODIGOS_COMPARADOS} por consulta. Divida em consultas menores para a resposta continuar conferível.`,
     });
   }
@@ -249,7 +257,6 @@ export async function answerWith(
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
       mode: "extractive",
-      comparison: true,
       warning: avisoComparacaoIncompleta(semDocumentacao, semValor, pontoPedido, faltantes.length === plano.blocks.length),
     });
   }
@@ -331,7 +338,6 @@ export async function answerWith(
       answer: extractiveAnswer(aceitas),
       citations: citacoesDaTela,
       mode: "extractive",
-      comparison: plano.status === "ready" || undefined,
       warning: validacao.kind === "comparison"
         ? "A resposta gerada misturou valores entre os produtos comparados e foi descartada. Os trechos encontrados estão abaixo, na íntegra."
         : validacao.kind === "completeness"
@@ -353,7 +359,6 @@ export async function answerWith(
     answer: texto.trim(),
     citations: citacoesDaTela,
     mode: "synthesized",
-    comparison: plano.status === "ready" || undefined,
     warning: avaliacao.dropped.length > 0
       ? `${avaliacao.dropped.length} trecho(s) recuperado(s) ficaram fora da síntese.`
       : undefined,
