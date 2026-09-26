@@ -30,6 +30,9 @@ const ARQUIVOS = {
 // `fast-xml-parser` subindo diretórios até achar node_modules, e uma
 // pasta em /tmp nunca chegaria lá (NODE_PATH não vale para ESM).
 const destino = mkdtempSync(join(RAIZ, ".nfe-check-"));
+// Exceção não tratada no meio da suíte também passa pelo "exit": o
+// diretório some mesmo quando o rmSync do fim não chega a rodar.
+process.on("exit", () => rmSync(destino, { recursive: true, force: true }));
 for (const [nome, caminho] of Object.entries(ARQUIVOS)) {
   const fonte = readFileSync(join(RAIZ, caminho), "utf8")
     .replace(/from "@\/lib\/format\/money"/g, 'from "./money.ts"')

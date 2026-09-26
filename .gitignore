@@ -24,5 +24,14 @@ remote_schema*.txt
 # supabase/migrations/. Ele NAO e uma migration: e um dump do schema remoto,
 # e entrar no Git recria a divergencia entre historico e banco.
 supabase/migrations/*_remote_schema.sql
+
+# Diretórios temporários das suítes (supabase/db-tests/check-*.mjs): nascem
+# na raiz para o import resolver node_modules e são apagados ao fim, mesmo
+# com exceção. Se um kill -9 deixar sobra, ela não entra no Git.
 .nfe-check-*/
 .provider-check-*/
+.brain-check-*/
+.answer-check-*/
+.ui-check-*/
+.comparison-check-*/
+.synthesis-check-*/

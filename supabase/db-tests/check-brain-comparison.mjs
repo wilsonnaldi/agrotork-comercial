@@ -35,6 +35,9 @@ const ARQUIVOS = {
 };
 
 const destino = mkdtempSync(join(RAIZ, ".comparison-check-"));
+// Exceção não tratada no meio da suíte também passa pelo "exit": o
+// diretório some mesmo quando o rmSync do fim não chega a rodar.
+process.on("exit", () => rmSync(destino, { recursive: true, force: true }));
 for (const [nome, caminho] of Object.entries(ARQUIVOS)) {
   const fonte = readFileSync(join(RAIZ, caminho), "utf8")
     .replace(/^import type \{ Json \} from "@\/types\/db";$/m, "type Json = unknown;")

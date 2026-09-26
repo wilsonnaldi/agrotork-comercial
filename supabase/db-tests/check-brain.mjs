@@ -28,6 +28,9 @@ const ARQUIVOS = {
 };
 
 const destino = mkdtempSync(join(RAIZ, ".brain-check-"));
+// Exceção não tratada no meio da suíte também passa pelo "exit": o
+// diretório some mesmo quando o rmSync do fim não chega a rodar.
+process.on("exit", () => rmSync(destino, { recursive: true, force: true }));
 for (const [nome, caminho] of Object.entries(ARQUIVOS)) {
   // `Json` é só tipo; o strip-types apaga o import, mas o caminho `@/` teria
   // de resolver antes disso. Troca por um tipo local equivalente.

@@ -155,6 +155,21 @@ npm run build
 `check:brain-all` é conveniência local. O workflow não o usa: steps
 separados deixam o vermelho legível.
 
+Cada suíte copia os módulos para um diretório temporário na raiz
+(`.brain-check-*`, `.answer-check-*`, `.provider-check-*`, `.ui-check-*`,
+`.comparison-check-*`, `.synthesis-check-*`, `.nfe-check-*` — na raiz para
+o import achar `node_modules`). Ele é apagado ao fim **mesmo se a suíte
+explodir no meio** (`process.on("exit")` logo após o `mkdtempSync`; a de
+síntese usa `try/finally`), e os padrões estão no `.gitignore` para o caso
+de um `kill -9` deixar sobra.
+
+### Ambiente local
+
+- **Windows: parar o `npm run dev` antes de `npm ci`.** O dev server
+  mantém aberto o binário nativo do `lightningcss` (`.node`), e o `npm ci`
+  falha com `EPERM`/`EIO` ao tentar apagar `node_modules` (visto em
+  26/09/2026). Parar o dev server, rodar `npm ci`, subir de novo.
+
 ## 8. Contrato para suíte nova `check:brain-*`
 
 1. **package.json** — script `check:brain-<nome>`.
@@ -210,10 +225,6 @@ setup-python v5) — subir major é mudança separada.
 - **Suítes moram em `supabase/db-tests/`** mas não precisam do banco. Não
   foram movidas de propósito: mudar caminho mexe em scripts, docs e
   filtros sem ganho de correção.
-- **Diretórios temporários** `.brain-check-*`, `.answer-check-*`,
-  `.ui-check-*`, `.comparison-check-*`, `.synthesis-check-*` nascem na raiz
-  e são apagados por `rmSync`, mas não estão no `.gitignore`. Ficou assim
-  nesta rodada.
 - **`setup-node@v4` e `setup-python@v5` rodam em node20**, que o GitHub
   está aposentando nos runners. Hoje funcionam; quando o aviso de
   deprecação virar erro, subir para o major seguinte (mudança à parte,
