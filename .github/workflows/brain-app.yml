@@ -1,9 +1,15 @@
 # AGROTORK BRAIN — CI da aplicação (módulo src/modules/brain + app Next).
 #
 # O que protege: o código TypeScript do BRAIN e o app que o consome. O
-# brain.yml cuida de outra coisa — banco, deploy/reversão e ingestão — e só
-# dispara em supabase/**; um PR que mexa apenas em src/modules/brain/*.ts
-# passava sem CI nenhum. Este workflow fecha esse buraco.
+# brain.yml cuida de outra coisa — banco, deploy/reversão e ingestão. Antes
+# deste workflow, um PR que mexesse apenas em src/modules/brain/*.ts passava
+# sem CI nenhum. Este workflow fecha esse buraco.
+#
+# Roda em TODO PR e em todo push em main, sem filtro de `paths`: `app-gates`
+# é check obrigatório na branch protection, e check obrigatório de workflow
+# filtrado por caminho nunca reporta em PR fora do filtro (só docs, por
+# exemplo) — o PR trava em "Expected — Waiting for status". Rodar sempre
+# custa cerca de um minuto por PR e não tem status fantasma.
 #
 # Provider nunca é chamado: as suítes são determinísticas (mesma entrada,
 # mesmo veredito) e a chave do provider é server-only — o Preview do
@@ -17,33 +23,8 @@ name: BRAIN App
 
 on:
   pull_request:
-    # Os imports compartilhados (supabase/server, types/db, permissions,
-    # auth/session) são transitivos: listar arquivo a arquivo deixaria
-    # buraco. src/** inteiro custa pouco e não esquece ninguém.
-    paths:
-      - 'src/**'
-      - 'supabase/db-tests/check-brain*.mjs'
-      - 'supabase/db-tests/conferir-ci-app.mjs'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
-      - 'eslint.config.mjs'
-      - 'next.config.ts'
-      - 'postcss.config.mjs'
-      - '.github/workflows/brain-app.yml'
   push:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'supabase/db-tests/check-brain*.mjs'
-      - 'supabase/db-tests/conferir-ci-app.mjs'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'tsconfig.json'
-      - 'eslint.config.mjs'
-      - 'next.config.ts'
-      - 'postcss.config.mjs'
-      - '.github/workflows/brain-app.yml'
   workflow_dispatch:
 
 permissions:
@@ -66,10 +47,15 @@ jobs:
     # apontam o erro antes de lint, typecheck e build, que levam dezenas de
     # segundos.
     steps:
+      # Actions fixadas por SHA de commit (a tag pode ser movida; o SHA não).
+      # Conferência: docs/brain/ci.md, seção "Actions fixadas".
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          # O job só lê o código; o token não fica no .git/config do runner.
+          persist-credentials: false
       - name: Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           # 22 = LTS atual, é o runtime em que o projeto é desenvolvido e
           # validado; Next 16 exige >= 20.9, e --experimental-strip-types
